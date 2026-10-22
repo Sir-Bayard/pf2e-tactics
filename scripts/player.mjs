@@ -182,6 +182,16 @@ const CLASS_HANDLED = new Set([
     "channel-smite", "cast-down", "divine-weapon", "restorative-strike",
     // druid
     "untamed-form", "untamed-shift", "command-an-animal",
+    // investigator
+    "devise-a-stratagem", "person-of-interest", "pointed-question", "just-as-planned",
+    // oracle
+    "whispers-of-weakness", "nudge-the-scales", "debilitating-dichotomy", "on-borrowed-time", "the-dead-walk", "trial-by-skyfire", "waters-of-creation",
+    // monk
+    "flurry-of-blows", "monks-flurry", "tiger-slash", "wolf-drag", "dragon-roar", "gorilla-pound", "mountain-quake", "wild-winds-gust", "whirling-throw", "sleeper-hold", "wave-dashes-rocks", "flying-kick", "knockback-strike", "one-inch-punch", "disrupt-qi", "flinging-blow", "shattering-strike-monk", "mixed-maneuver",
+    // swashbuckler
+    "confident-finisher", "basic-finisher", "unbalancing-finisher", "retreating-finisher", "bleeding-finisher", "dual-finisher", "impaling-finisher", "stunning-finisher", "stumbling-finisher", "targeting-finisher", "mobile-finisher", "perfect-finisher", "revitalizing-finisher", "lethal-finisher", "illimitable-finisher", "lunging-finisher", "vexing-tumble", "the-bigger-they-are", "leading-dance", "extravagant-parry",
+    // witch (and wizard: quickened casting)
+    "sympathetic-strike", "split-hex", "quickened-casting", "siphon-power", "cackle", "patrons-presence", "patrons-claim", "shed-spirit", "stitching-strike",
 ]);
 /** The board the advisor plans on for a player: foes as estimates, no threat table, the character read as sharp. */
 function adviceBoard(board, ledger) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.0
+
+- Five more classes in Your Class, each at every level 1 to 20: Monk (Flurry of Blows, stances and their Strikes, the qi spells, the stance feats and finishing moves), Swashbuckler (panache from your style's action with the odds, precise strike, every finisher with its rider, Exemplary Finisher), Investigator (Devise a Stratagem shown as the decision it is: what each d20 result is worth before you commit; strategic strike; the lead; the methodology's riders), Oracle (the curse stage and what the next stage costs, the cursebound feats as plans with that cost, revelation spells, slots), Witch (one hex a turn, the best hex on a foe or an ally, Sustain or Cackle for the one already up, the familiar's patron trick, Sympathetic Strike, Split Hex). Nineteen classes are read now; Animist, Exemplar, Guardian, Gunslinger, Inventor, Kineticist, Necromancer, Psychic, Runesmith and Summoner remain.
+- The advisor's text reading steps aside for the actions those reads plan (the finishers, Flurry of Blows and the monk strikes, Devise a Stratagem, the cursebound feats, Sympathetic Strike, Split Hex, Cackle, Quickened Casting).
+- Checked against a scratch character of each new class beside two foes on a test scene, and the earlier fourteen again.
+
 ## 3.1.1
 
 - The advisor's own text reading now steps aside for every action a class read plans (Vicious Swing, Swipe, Slam Down, Hunted Shot, Hunter's Aim, Skirmish Strike, Giant's Stature, Channel Smite, Cast Down and some eighty more), so the Turn Helper no longer lists the same action twice with two different numbers; names with apostrophes match their slugs. Found on the dev world with a scratch PC of each class beside two foes.
