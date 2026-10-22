@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+module.zip
+packs/**/LOCK
+packs/**/LOG
+packs/**/LOG.old

@@ -1,0 +1,112 @@
+/* PF2e NPC Tactics: scoped to the card, so other modules' rules don't leak in. Laid out like the other table
+   tools (Campaign Trackers, Campaign Ledger, NPC Attitudes): a header strip, then cards with a coloured left edge.
+   Colours are theme-neutral, so it reads in Foundry's light and dark themes. */
+.npt-card { --npt-act: #b33a3a; --npt-now: #e0452f; --npt-ref: #b08d4a; --npt-line: rgba(127, 127, 127, 0.35); --npt-soft: rgba(127, 127, 127, 0.12);
+    font-size: 13px; line-height: 1.35; }
+.npt-card a { text-transform: none; }
+.npt-card i { position: static; display: inline-block; width: auto; }
+.npt-card span, .npt-card strong, .npt-card em { overflow: visible; text-overflow: clip; white-space: normal; flex: initial; }
+.npt-card h3, .npt-card h4 { border: none; margin: 0; padding: 0; }
+.npt-card p { margin: 2px 0; }
+.npt-card ul, .npt-card ol { margin: 2px 0; padding-left: 1.2em; }
+.npt-card button { width: auto; flex: 0 0 auto; margin: 0; }
+.npt-card .npt-dim { opacity: 0.72; }
+.npt-card .npt-small { font-size: 12px; }
+.npt-card .npt-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; padding: 4px 12px 0; }
+
+/* Header strip */
+.npt-card .npt-top { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--npt-line); }
+.npt-card .npt-top img { width: 48px; height: 48px; flex: none; object-fit: cover; object-position: top; border: none; border-radius: 4px; }
+.npt-card .npt-who { min-width: 0; }
+.npt-card .npt-top h3 { font-size: 15px; line-height: 1.25; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.npt-card .npt-top h3 small { font-weight: normal; font-size: 12px; opacity: 0.6; }
+.npt-card .npt-stats { font-size: 12.5px; margin-top: 2px; }
+.npt-card .npt-hp-low { color: #e0452f; }
+.npt-card .npt-hp-mid { color: #d9822b; }
+.npt-card .npt-chip { display: inline-block; font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--npt-line); white-space: nowrap; font-weight: normal; }
+.npt-card .npt-chip.npt-manual { border-style: dashed; }
+.npt-card .npt-tier { border-color: #7d6aa8; color: #9d86d6; cursor: help; }
+
+/* The turn so far: actions used, attacks made, corrections */
+.npt-card .npt-turn { padding: 4px 12px; border-bottom: 1px solid var(--npt-line); background: var(--npt-soft); }
+.npt-card .npt-turn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.npt-card .npt-step { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.npt-card .npt-k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-right: 3px; }
+.npt-card .npt-turn button { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; line-height: 1; font-size: 12px; }
+.npt-card .npt-turn button.npt-reset { margin-left: auto; border: none; background: none; opacity: 0.7; }
+.npt-card .npt-pips { display: inline-flex; gap: 3px; margin: 0 3px; }
+.npt-card .npt-pip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--npt-act); }
+.npt-card .npt-pip.npt-used { background: var(--npt-act); }
+.npt-card .npt-val { font-weight: 700; min-width: 14px; text-align: center; }
+.npt-card .npt-left, .npt-card .npt-map { font-size: 12px; opacity: 0.75; margin-left: 4px; }
+.npt-card .npt-log { font-size: 12px; opacity: 0.72; margin-top: 2px; }
+
+/* Cards */
+.npt-card .npt-body { padding: 10px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
+.npt-card .npt-morale { font-size: 12px; font-style: italic; opacity: 0.8; }
+.npt-card .npt-panel { border: 1px solid var(--npt-line); border-left: 4px solid var(--npt-ref); border-radius: 6px; margin: 0; padding: 0; }
+.npt-card .npt-panel.npt-act { border-left-color: var(--npt-act); }
+.npt-card .npt-panel.npt-now { border-left-color: var(--npt-now); }
+.npt-card .npt-panel > header, .npt-card .npt-panel > summary { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: var(--npt-soft); border-radius: 5px 5px 0 0; list-style: none; }
+.npt-card .npt-panel > summary { cursor: pointer; }
+.npt-card .npt-panel > summary::-webkit-details-marker, .npt-card .npt-alts > summary::-webkit-details-marker { display: none; }
+.npt-card details.npt-panel:not([open]) > summary, .npt-card section.npt-panel > header:only-child { border-radius: 5px; }
+.npt-card .npt-panel h4 { font-size: 14px; font-weight: 700; flex: 0 1 auto; min-width: 0; }
+.npt-card .npt-panel.npt-now h4 { color: var(--npt-now); }
+.npt-card .npt-panel .npt-sum { flex: 1 1 auto; min-width: 0; font-size: 12px; opacity: 0.72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.npt-card .npt-chev::before { content: "▸"; font-size: 10px; opacity: 0.6; }
+.npt-card details[open] > summary .npt-chev::before { content: "▾"; }
+.npt-card .npt-tools { margin-left: auto; display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.npt-card .npt-tools button { font-size: 11.5px; line-height: 20px; padding: 0 7px; }
+.npt-card .npt-pbody { padding: 6px 10px 8px; }
+
+/* Recommended turn */
+.npt-card .npt-steps { margin: 0; padding-left: 0; list-style: none; }
+.npt-card .npt-steps li { display: flex; gap: 6px; }
+.npt-card .npt-steps .npt-cost { flex: 0 0 auto; min-width: 2em; }
+.npt-card .npt-why { font-size: 12px; opacity: 0.9; margin-top: 2px; }
+.npt-card .npt-reason { color: #d9786d; }
+.npt-card .npt-notes { font-size: 12px; color: #d9822b; margin-top: 2px; }
+.npt-card .npt-now-text { color: var(--npt-now); font-weight: bold; margin: 0; }
+.npt-card .npt-alts { margin-top: 3px; font-size: 12px; }
+.npt-card .npt-alts > summary { cursor: pointer; opacity: 0.8; list-style: none; }
+.npt-card .npt-alts > summary::before { content: "▸ "; }
+.npt-card .npt-alts[open] > summary::before { content: "▾ "; }
+
+/* The Board */
+.npt-card .npt-grid { display: grid; grid-template-columns: 92px 1fr; gap: 4px 8px; align-items: baseline; }
+.npt-card .npt-grid > .npt-k { margin: 0; }
+.npt-card .npt-threat { display: grid; grid-template-columns: minmax(48px, auto) 1fr 26px; gap: 2px 6px; align-items: center; font-size: 12px; }
+.npt-card .npt-bar { display: block; height: 6px; border-radius: 3px; background: var(--npt-soft); overflow: hidden; }
+.npt-card .npt-bar > span { display: block; height: 100%; background: var(--npt-act); }
+.npt-card .npt-n { text-align: right; }
+.npt-card .npt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.npt-card .npt-chips .npt-chip { white-space: normal; max-width: 100%; line-height: 16px; padding: 1px 7px; }
+
+/* Strikes and Actions, spells */
+.npt-card .npt-sub { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin-top: 5px; }
+.npt-card .npt-sub:first-child { margin-top: 0; }
+.npt-card .npt-role { font-size: 0.78em; opacity: 0.7; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; }
+
+.npt-card .npt-foot { display: flex; gap: 6px; padding: 4px 12px 10px; }
+.npt-card .npt-foot button { line-height: 24px; padding: 0 9px; }
+
+/* The window: the card fills it edge to edge, and a long stat block scrolls inside it */
+#pf2e-tactics.application { max-height: calc(100vh - 60px); }
+#pf2e-tactics .window-content { padding: 0; }
+/* In chat the card sits in a narrow column */
+.chat-message .npt-card .npt-top, .chat-message .npt-card .npt-turn, .chat-message .npt-card .npt-body, .chat-message .npt-card .npt-foot { padding-left: 0; padding-right: 0; }
+
+/* Turn Helper (the player's window) */
+.npt-card.npt-helper .npt-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 2px 0; }
+.npt-card.npt-helper .npt-row > .npt-k { flex: none; min-width: 84px; }
+.npt-card.npt-helper .npt-list { margin: 2px 0; padding-left: 1.1em; }
+.npt-card.npt-helper .npt-list li { margin: 2px 0; }
+.npt-card.npt-helper .npt-warn { color: var(--npt-warn, #a33); }
+.npt-card.npt-helper .npt-hidden { margin: 6px 0 2px; padding: 5px 8px; border-left: 3px solid var(--npt-line); background: var(--npt-soft); }
+.npt-card.npt-helper .npt-hidden > div + div { margin-top: 3px; }
+.npt-card.npt-helper .npt-notyet { padding: 4px 12px; font-style: italic; }
+.npt-card.npt-helper .npt-plan-title { font-weight: 600; margin: 2px 0 4px; }
+.npt-card.npt-helper .npt-est { margin-top: 6px; font-size: 11px; }
+.npt-card.npt-helper .npt-alts ul { margin: 2px 0 0; padding-left: 1.1em; }
+.npt-card.npt-helper .npt-alts li { margin: 3px 0; }

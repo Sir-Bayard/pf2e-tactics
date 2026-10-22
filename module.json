@@ -1,0 +1,67 @@
+{
+  "id": "pf2e-tactics",
+  "title": "PF2e Tactics",
+  "description": "<p>PF2e Tactics (formerly PF2e NPC Tactics): an NPC turn card for the GM, and a Turn Helper for players. When an NPC's turn starts it shows a recommended turn worked out from the creature's abilities and the board (who it can reach, flanking, reactions it would provoke, expected damage, who it would pick given its wits and who has hurt it), a few alternatives, the encounter's own tactics, triggers to watch for, and every Strike, action, reaction and spell it has. Nothing is moved or rolled for you. The Turn Helper (a macro, or a per-player setting to open it on their turn) gives a player a recommended turn for their own character, with their class read in (Commander tactics, Spellstrike, Exploit Vulnerability...), on what the party can judge of each foe: reach, Strikes and targets, flanking, cover, what moving would provoke, and what the party's own rolls have learned. Nothing from an NPC's sheet.</p>",
+  "version": "3.1.1",
+  "url": "https://github.com/Sir-Bayard/pf2e-tactics",
+  "manifest": "https://github.com/Sir-Bayard/pf2e-tactics/releases/latest/download/module.json",
+  "download": "https://github.com/Sir-Bayard/pf2e-tactics/releases/latest/download/module.zip",
+  "bugs": "https://github.com/Sir-Bayard/pf2e-tactics/issues",
+  "readme": "https://github.com/Sir-Bayard/pf2e-tactics#readme",
+  "license": "https://github.com/Sir-Bayard/pf2e-tactics/blob/main/LICENSE",
+  "authors": [
+    {
+      "name": "Sir Bayard",
+      "url": "https://github.com/Sir-Bayard"
+    }
+  ],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.369",
+    "maximum": "14"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "pf2e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "8.0.0"
+        }
+      }
+    ],
+    "recommends": [
+      {
+        "id": "pf2e-visioner",
+        "type": "module",
+        "reason": "Per-observer hidden and undetected states (Hide, Sneak, Seek) are read into the turn card when it is present."
+      },
+      {
+        "id": "pf2e-toolbelt",
+        "type": "module",
+        "reason": "Target Helper's save results feed the threat table and what the NPCs learn of saves."
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/pf2e-tactics.mjs"
+  ],
+  "styles": [
+    "styles/npc-tactics.css"
+  ],
+  "languages": [],
+  "packs": [
+    {
+      "name": "macros",
+      "label": "PF2e Tactics Macros",
+      "path": "packs/macros",
+      "type": "Macro",
+      "system": "pf2e",
+      "ownership": {
+        "PLAYER": "OBSERVER",
+        "ASSISTANT": "OWNER"
+      },
+      "flags": {}
+    }
+  ]
+}
