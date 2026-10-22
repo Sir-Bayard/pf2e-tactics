@@ -19,6 +19,19 @@ It's the hobgoblin's turn on the ledge. The card suggests two Strides down the r
 </tr>
 </table>
 
+Threat works like aggro. Each creature remembers who has been a problem for it (damage, spells and saves, healing its foes), and when two targets are close it goes for the one who has proven dangerous. Here the archer shoots Ezren, its top threat, though Merisiel is nearer. More in [Threat](#threat).
+
+<table>
+<tr>
+<td width="60%" valign="top"><img src="docs/images/threat-card.png" alt="The Board with the threat table"></td>
+<td width="40%" valign="top"><img src="docs/images/threat-edit.png" alt="Setting threat by hand"></td>
+</tr>
+<tr>
+<td valign="top"><b>The Board</b> shows the creature's threat table as bars. It fades each round, and drops when someone falls unconscious.</td>
+<td valign="top"><b>Threat</b> sets it by hand: raise someone for a taunt or a grudge, set someone to 0 to have it forget them, or Reset.</td>
+</tr>
+</table>
+
 ## Install
 
 In Foundry, go to **Add-on Modules**, then **Install Module**, and paste this into **Manifest URL**:
