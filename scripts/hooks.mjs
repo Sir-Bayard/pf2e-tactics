@@ -3,7 +3,7 @@
  * Turns, trigger whispers, Foundry hooks, settings and the module API.
  * One module, several files: see pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, MODULE_ID, OLD_ID, esc, setting, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, esc, setting, flagOf } from "./shared.mjs";
 import { HP_AT_TURN, RECENT, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
 import { currentLedger, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, setThreatRow, threatFor } from "./state.mjs";
@@ -105,33 +105,8 @@ Hooks.on("deleteToken", (doc) => { if (turnWindow?.token && doc.id === turnWindo
 Hooks.on("combatStart", (combat) => onTurn(combat));
 Hooks.on("updateCombatant", () => checkTriggersSoon());
 Hooks.once("ready", () => {
-    migrateSettings().catch((err) => console.warn(`${MODULE_ID} | couldn't carry the old settings over`, err));
     if (game.combat?.started) onTurn(game.combat);
 });
-
-/** 3.0.0 renamed the module: the first load copies each setting the old id had set and the new one hasn't. */
-async function migrateSettings() {
-    const keys = [...game.settings.settings.keys()].filter((k) => k.startsWith(`${MODULE_ID}.`)).map((k) => k.slice(MODULE_ID.length + 1));
-    for (const key of keys) {
-        const cfg = game.settings.settings.get(`${MODULE_ID}.${key}`);
-        if (!cfg) continue;
-        if (cfg.scope === "world") {
-            if (!game.user.isGM) continue;
-            const world = game.settings.storage.get("world");
-            if (world.find((s) => s.key === `${MODULE_ID}.${key}`)) continue; // already set under the new id
-            const oldDoc = world.find((s) => s.key === `${OLD_ID}.${key}`);
-            if (!oldDoc) continue;
-            try { await game.settings.set(MODULE_ID, key, JSON.parse(oldDoc.value)); console.log(`${MODULE_ID} | setting ${key} carried over from ${OLD_ID}`); } catch (err) { console.warn(`${MODULE_ID} | couldn't carry over ${key}`, err); }
-        } else {
-            try {
-                if (localStorage.getItem(`${MODULE_ID}.${key}`) !== null) continue;
-                const raw = localStorage.getItem(`${OLD_ID}.${key}`);
-                if (raw === null) continue;
-                await game.settings.set(MODULE_ID, key, JSON.parse(raw));
-            } catch { /* storage blocked or a value that doesn't parse: the default stays */ }
-        }
-    }
-}
 
 // Only what can change the card: the creature shown, or anyone standing on the scene being read
 const onScene = (actor) => !!canvas?.scene && (actor?.isToken ? actor.token?.parent === canvas.scene : !!actor?.getActiveTokens?.(true, true)?.some((t) => t.parent === canvas.scene));
@@ -270,9 +245,6 @@ Hooks.once("init", () => {
         parseTriggers,
         triggers: (actor, token) => triggersFor(actor, token),
     };
-    // Other modules that still look for pf2e-npc-tactics (the id until 3.0.0) find the same API there
-    const old = game.modules.get(OLD_ID);
-    if (old && !old.active) old.api = module.api;
     Hooks.callAll(`${MODULE_ID}.ready`, module.api);
 });
 

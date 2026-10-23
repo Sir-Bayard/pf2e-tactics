@@ -1,5 +1,5 @@
 /**
- * PF2e Tactics (module id pf2e-tactics; pf2e-npc-tactics until 3.0.0)
+ * PF2e Tactics (module id pf2e-tactics)
  *
  * One module in several files (ES modules, loaded by this entry):
  *   shared.mjs   constants and small helpers

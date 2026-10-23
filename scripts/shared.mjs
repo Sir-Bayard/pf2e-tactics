@@ -1,5 +1,5 @@
 /**
- * PF2e Tactics (module id pf2e-tactics; pf2e-npc-tactics until 3.0.0)
+ * PF2e Tactics (module id pf2e-tactics)
  *
  * When an NPC's turn starts, a window (or a GM whisper) shows what it can do and how to use it
  * well on the board as it stands: one recommended turn with the reasoning behind it, a few
@@ -18,16 +18,13 @@
  * down. Anything else is shown as a reminder to watch for.
  */
 const MODULE_ID = "pf2e-tactics";
-const OLD_ID = "pf2e-npc-tactics"; // the module's id until 3.0.0: flags and settings written under it are still read
 const FLAG_SCOPE = MODULE_ID;
-/** A flag of this module's on a document, read under the new id or the old (getFlag throws for an inactive module's scope). */
+/** A flag of this module's on a document (getFlag throws for an inactive module's scope, so the raw flags are the fallback). */
 const flagOf = (doc, key) => {
     let v;
     try { v = doc?.getFlag?.(MODULE_ID, key); } catch { v = undefined; }
-    return v ?? doc?.flags?.[MODULE_ID]?.[key] ?? doc?.flags?.[OLD_ID]?.[key];
+    return v ?? doc?.flags?.[MODULE_ID]?.[key];
 };
-const LEGACY_MODULE = "scarlet-dawn-gm"; // these tools lived in a campaign module before 0.10.0
-const LEGACY_OLDER = "scarlet-dawn";     // and in Player Options before that
 const POSITION_KEY = `${MODULE_ID}.window`;
 const GLYPHS = { 1: "1", 2: "2", 3: "3", reaction: "r", free: "f" };
 
@@ -48,4 +45,4 @@ function setting(key, fallback) {
 }
 // ---------------------------------------------------------------------------------------------
 
-export { FLAG_SCOPE, LEGACY_MODULE, LEGACY_OLDER, MODULE_ID, OLD_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, link, section, setting, signed, ul };
+export { FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, link, section, setting, signed, ul };

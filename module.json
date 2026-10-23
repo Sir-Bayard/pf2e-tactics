@@ -48,7 +48,7 @@
     "scripts/pf2e-tactics.mjs"
   ],
   "styles": [
-    "styles/npc-tactics.css"
+    "styles/tactics.css"
   ],
   "languages": [],
   "packs": [

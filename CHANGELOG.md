@@ -6,6 +6,7 @@
 - Each turn starts with only Your Turn open. Worth Knowing, Around You and Foes start folded; one you open stays open for the rest of that turn.
 - Your Turn has a green edge (the GM's card keeps red), and the action pips and bars on the helper match.
 - README: new pictures (including the player's Show), a much shorter "Your class" section, invented names in the examples in place of Paizo's iconic characters, and a short Pathfinder trademark note in place of the Community Use notice.
+- Removed the code that carried settings, notes, threat and recharge timers over from the module's earlier ids, which no installed copy uses. The stylesheet is now `styles/tactics.css`.
 
 ## 3.5.1
 

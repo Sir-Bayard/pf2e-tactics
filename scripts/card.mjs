@@ -3,7 +3,7 @@
  * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas.
  * One module, several files: see pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, LEGACY_MODULE, LEGACY_OLDER, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, section, setting, signed, ul, flagOf, OLD_ID } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, section, setting, signed, ul, flagOf } from "./shared.mjs";
 import { RIDERS, feetBetween, profilesOf, readBoard, round1, stripTags, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { RUN_WORDS, TIER_TEXT, nameOf, planTurn, tierOf } from "./advisor.mjs";
 import { adjustLedger, editThreat, ledgerFor, ledgerTotals, sustainNow, threatOn, turnHtml } from "./state.mjs";
@@ -192,9 +192,9 @@ function tacticsOf(actor, token) {
     return out;
 }
 
-/** Your notes: this module's flag, or the ones an older campaign module kept. */
+/** Your notes for the creature. */
 function notesOf(actor) {
-    return flagOf(actor, "notes") ?? actor?.flags?.[LEGACY_MODULE]?.notes ?? actor?.flags?.[LEGACY_OLDER]?.tactics ?? "";
+    return flagOf(actor, "notes") ?? "";
 }
 
 /** Every trigger for this creature, with its state now. */
@@ -222,10 +222,8 @@ function rechargeLeft(actor, itemId) {
     const combat = game.combat;
     if (!combat) return 0;
     let left = 0;
-    for (const scope of [FLAG_SCOPE, OLD_ID, LEGACY_MODULE]) {
-        const entry = actor?.flags?.[scope]?.recharge?.[itemId];
-        if (entry && entry.combatId === combat.id) { left = Math.max(0, Number(entry.readyRound) - Number(combat.round || 0)); break; }
-    }
+    const entry = actor?.flags?.[FLAG_SCOPE]?.recharge?.[itemId];
+    if (entry && entry.combatId === combat.id) left = Math.max(0, Number(entry.readyRound) - Number(combat.round || 0));
     // PF2e Workbench's recharge reminder: a "Used <ability>" effect whose duration is the recharge it rolled
     // The first roll is the real one (posting the card again makes Workbench roll again)
     const used = usedEffects(actor, actor?.items?.get?.(itemId)).filter((e) => !e.remainingDuration?.expired && Number.isFinite(Number(e.remainingDuration?.remaining)))
@@ -873,9 +871,6 @@ async function editNotes(uuid) {
     });
     if (typeof text !== "string" || text === "cancel") return;
     const update = text.trim() ? { [`flags.${FLAG_SCOPE}.notes`]: text.trim() } : { [`flags.${FLAG_SCOPE}.-=notes`]: null };
-    // Move notes kept by the older modules across
-    if (actor.flags?.[LEGACY_MODULE]?.notes !== undefined) update[`flags.${LEGACY_MODULE}.-=notes`] = null;
-    if (actor.flags?.[LEGACY_OLDER]?.tactics !== undefined) update[`flags.${LEGACY_OLDER}.-=tactics`] = null;
     await actor.update(update);
     ui.notifications.info(`Notes saved for ${actor.name}.`);
 }
