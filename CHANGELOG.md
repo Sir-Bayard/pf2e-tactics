@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.1
+
+- When a combat ends, each character's record of that fight (Spellstrike's charge, the foe exploited, who it Demoralized...) is cleared from the character too, as the combat's own record already was. Nothing about a fight outlives it.
+- The class reads share their small helpers (ability modifiers, class DC, weapon dice, slots left, "twice"/"three times" and the like) from one place instead of a dozen copies. Nothing they say changed: every test and the full advice for thirty test characters came out the same before and after.
+
 ## 3.4.0
 
 **The Turn Helper is turn advice, not a second character sheet**

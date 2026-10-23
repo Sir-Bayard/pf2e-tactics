@@ -9,12 +9,10 @@
  * Field of Roots, Elemental Burst, Elemental Maelstrom, Tendril Strike's reach), Eidolon's Wrath, Piercing Jab, Eidolon's
  * Trample, Seething Frenzy, Lifelink Surge, and Manifest Eidolon when the eidolon isn't on the board. The rest are when-notes.
  */
-import { bestStrike, castable, effect, focusLeft, has, hasAny, level, myReach, allySpeed, pct, slugOf, squareToReach, standardDC, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, myReach, allySpeed, pct, slugOf, squareToReach, standardDC, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, times } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
+import { round1 as r1 } from "../reader.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
-const r1 = (x) => Math.round(x * 10) / 10;
 const center = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
 const angleDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
 /** Eidolon types: feature slug, the tradition's skill, the tradition. */

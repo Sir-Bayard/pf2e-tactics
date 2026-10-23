@@ -8,16 +8,13 @@
  * Finisher's half damage on a failure, Precise and Combination Finisher, Exemplary Finisher by style, Keen Flair, Deadly
  * Grace, Flamboyant Cruelty, Derring-Do and Even the Odds are math; the reactions, parries, stances and the rest are when-notes.
  */
-import { canMove, effect, has, hasAny, usesLeft, level, moveText, myReach, pct, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, nameOf, signed } from "./_common.mjs";
+import { canMove, effect, has, hasAny, usesLeft, level, moveText, myReach, pct, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, nameOf, signed, abil, times, classDC } from "./_common.mjs";
 import { flanks } from "../reader.mjs";
+import { cap } from "../shared.mjs";
 
 const STYLES = ["fencer", "gymnast", "braggart", "battledancer", "wit", "rascal"];
 const STYLE_SKILL = { fencer: "deception", gymnast: "athletics", braggart: "intimidation", battledancer: "performance", wit: "diplomacy", rascal: "thievery" };
 const STYLE_ACTION = { fencer: "Feint (or Create a Diversion)", gymnast: "Grapple, Shove, Trip or Reposition", braggart: "Demoralize", battledancer: "Perform", wit: "Bon Mot", rascal: "Dirty Trick" };
-const times = (n) => (n <= 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
-const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 19 ? 6 : lv >= 9 ? 4 : 2);
 const isThrown = (s) => !!s.ranged && (s.traits ?? []).some((t) => t.startsWith("thrown"));
 const finesse = (s) => !!(s.traits?.includes("agile") || s.traits?.includes("finesse"));
 /** Weapon damage dice: the item's, else what the striking rune of the level usually gives. */
@@ -60,7 +57,7 @@ function swashbuckler(board, ctx, out) {
     const eternal = has(actor, "eternal-confidence");
     const exemplary = has(actor, "exemplary-finisher");
     const derring = has(actor, "derring-do");
-    const dc = classDC(actor, lv);
+    const dc = classDC(actor, lv, { expertAt: 9, masterAt: 19 });
     const cha = abil(actor, "cha");
     const A = ctx.actions;
     const qualifies = (s) => finesse(s) && (!s.ranged || (flying && isThrown(s)));

@@ -12,11 +12,10 @@
  * (none has an effect or flag). The read takes the helper's record when there is one (board.me.exploited, .chaliceDrained,
  * .wandBoosted), treats them as fresh in the fight's first round, and otherwise offers both turns with the assumption named.
  */
-import { bestStrike, effect, has, halfLevel, level, moveText, myReach, pct, squareToReach, standardDC, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, effect, has, halfLevel, level, moveText, myReach, pct, squareToReach, standardDC, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed, diceOf } from "./_common.mjs";
 
 const IMPLEMENTS = ["amulet", "bell", "chalice", "lantern", "mirror", "regalia", "shield", "tome", "wand", "weapon"];
 /** Weapon damage dice on a Strike (PF2e counts striking runes in system.damage.dice). */
-const diceOf = (s) => Number(s.item?.system?.damage?.dice ?? s.dice) || 1;
 const twoHands = (s) => Number(s.item?.system?.equipped?.handsHeld) === 2 || /two-hands/.test(String(s.item?.system?.usage?.value ?? ""));
 
 function thaumaturge(board, ctx, out) {

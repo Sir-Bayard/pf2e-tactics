@@ -7,7 +7,8 @@
  * slot by slot after a first Strike, Desperate Finisher as a fourth press, Agile Grace's -3/-6, Fearsome Brute's bonus,
  * Weapon Supremacy's extra Strike; and when-notes for stances, parries, ripostes and the rest.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, times } from "./_common.mjs";
+import { round1 as r1 } from "../reader.mjs";
 
 /* ---- weapon facts the board doesn't spell out (the item when the board carries it, else a fair guess) ---- */
 const unarmed = (s) => !!s.traits?.includes("unarmed");
@@ -27,8 +28,6 @@ const duelist = (board) => { const w = weaponsOf(board); return !board.me.shield
 const slashing = (s) => !s.damageTypes?.length || s.damageTypes.includes("slashing");
 const piercing = (s) => !s.damageTypes?.length || s.damageTypes.includes("piercing");
 const adjacent = (a, b) => inReach(a.rect, b.rect, 5);
-const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
-const r1 = (n) => Math.round(n * 10) / 10;
 
 function fighter(board, ctx, out) {
     const actor = board.me.actor;

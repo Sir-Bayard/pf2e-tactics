@@ -5,7 +5,7 @@
  * class feats that change the math: Swipe, Whirlwind Strike, Thrash, Spirit's Wrath, Terrifying Howl, Unbalancing Sweep,
  * Giant's Stature and Lunge, Desperate Wrath, Furious Bully, Brutal Critical, Share Rage. The rest are when-notes.
  */
-import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, abil, classDC } from "./_common.mjs";
 
 /**
  * Rage damage by instinct: at 1st, with the 7th-level specialization, and with greater weapon specialization (15th).
@@ -35,8 +35,6 @@ const ANIMALS = {
 };
 const SIZE = { tiny: 0, sm: 1, med: 2, lg: 3, huge: 4, grg: 5 };
 const stepUp = (die) => ({ 4: 6, 6: 8, 8: 10, 10: 12, 12: 12 })[die] ?? die;
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 19 ? 6 : lv >= 11 ? 4 : 2);
 /** Weapon specialization damage for a barbarian: expert at 5, master at 13; greater at 15. */
 const weaponSpec = (lv) => (lv >= 15 ? 6 : lv >= 13 ? 3 : lv >= 7 ? 2 : 0);
 const oversized = (s, actor) => s.item?.isOversized === true || (SIZE[s.item?.system?.size] ?? 2) > (SIZE[actor?.system?.traits?.size?.value] ?? 2);
@@ -82,7 +80,7 @@ function barbarian(board, ctx, out) {
     const { inst, tier, base } = rageDamage(actor, lv);
     const foes = targets(board);
     const str = abil(actor, "str"), con = abil(actor, "con");
-    const dc = classDC(actor, lv);
+    const dc = classDC(actor, lv, { expertAt: 11, masterAt: 19 });
     const tempHp = lv + con;
     const howl = me.intimidation ?? null; // read before raging may hide Demoralize
     const round1 = typeof game !== "undefined" && game.combat?.round === 1;

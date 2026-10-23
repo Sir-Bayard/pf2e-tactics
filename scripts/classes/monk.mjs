@@ -9,13 +9,9 @@
  * Perfected Form on the first Strike. Qi spells are the advisor's where they're a spell (Qi Blast, Harmonize Self, Shadow's
  * Web...); the focus pool and the ones that compose with a Strike are read here. The rest are when-notes.
  */
-import { effect, focusLeft, has, hasAny, level, moveText, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { effect, focusLeft, has, hasAny, level, moveText, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, times, classDC, strikeText } from "./_common.mjs";
+import { round1 as r1 } from "../reader.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
-const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
-const strikeText = (f, used) => `Strike ${nameOf(f)} with ${used[0].s.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})`;
-const r1 = (n) => Math.round(n * 10) / 10;
 
 /**
  * The stances and the Strikes they give. die: the damage die; agile/finesse; only: the stance allows no other Strike

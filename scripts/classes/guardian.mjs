@@ -10,9 +10,8 @@
  * for the reactions and the passives that change a maneuver (Larger Than Life, Punishing Shove, Right Where You Want Them).
  * Slugs are checked in both spellings ("guardians-armor" / "guardian-s-armor") by _common's has().
  */
-import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed, abil } from "./_common.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** The average of one weapon die of a Strike: from its formula ("2d12+6" -> 6.5), else a d8. */
 const dieAvg = (s) => { const m = /(\d+)d(\d+)/.exec(String(s?.formula ?? "")); return m ? (Number(m[2]) + 1) / 2 : 4.5; };
 const plural = (xs) => (xs.length > 1 ? "are" : "is");

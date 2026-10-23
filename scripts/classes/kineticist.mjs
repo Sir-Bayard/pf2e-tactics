@@ -10,14 +10,13 @@
  * Numbers come from the system's rule elements: blast dice 1 + (level-1)/4 (the archetype's from Improved Elemental
  * Blast), the impulse attack from the "impulse" statistic (class DC - 10 when it isn't there).
  */
-import { canMove, effect, has, level, moveText, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { canMove, effect, has, level, moveText, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, reachableSquares, signed, abil } from "./_common.mjs";
 import { areaHits } from "../advisor.mjs";
 import { centerOf, damageAgainst } from "../reader.mjs";
+import { cap } from "../shared.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const F = (a, b) => Math.floor(a / b);
 const dAvg = (n, d) => Math.max(0, n) * (d + 1) / 2;
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const round1 = (n) => Math.round(n * 10) / 10;
 
 /** The six elements: blast die, blast range, damage types; what the system automates of each junction (the rest is the feature's text). */

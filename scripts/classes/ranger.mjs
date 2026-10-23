@@ -6,12 +6,10 @@
  * Second Sting, Impossible Flurry, Impossible Volley, Time Dilation Cascade), Monster Hunter on the Hunt, Warden's Boon,
  * Far Shot and Legendary Shot on the board's ranges. The rest are when-notes.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, abil, strikeText } from "./_common.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** Weapon specialization damage for a ranger: expert at 5, master at 13; greater at 15. */
 const weaponSpec = (lv) => (lv >= 15 ? 6 : lv >= 13 ? 3 : lv >= 7 ? 2 : 0);
-const strikeText = (f, used, tail = "") => `Strike ${nameOf(f)} with ${used[0].s.label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})${tail}`;
 
 /** The hunted prey's token ids, from PF2e's token marks (two with Double Prey, three with Triple Threat). */
 function huntedPrey(actor) {

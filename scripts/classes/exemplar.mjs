@@ -8,19 +8,16 @@
  * Plans: "Shift Immanence to X, then Strike", "Transcend X (then Strikes, or Shift back)". The hourly 2- and 3-action feats
  * (Battle Hymn, Raise Island, the storms) stay with the advisor's own text reading; they get when-notes here.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, half, level, markOffGuard, moveText, myReach, allySpeed, pct, slugKey, slugOf, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, half, level, markOffGuard, moveText, myReach, allySpeed, pct, slugKey, slugOf, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, abil, classDC, dieOf } from "./_common.mjs";
 
 /** Slugs compared the way Foundry folds them ("barrow-s-edge" and "barrows-edge" are one). */
 const norm = slugKey;
 const itemOf = (actor, slug) => actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && norm(slugOf(i)) === norm(slug)) ?? null;
 /** Uses left of a feat: 0 when it isn't on the sheet, 1 when it has no frequency. */
 const usesNow = (actor, slug) => (itemOf(actor, slug) ? usesLeft(actor, slug) ?? 1 : 0);
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
-const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "d8").replace("d", "")) || 8;
 /** Weapon damage dice of a Strike: the sheet's, or the striking rune a character of this level would carry. */
 const diceOf = (s, lv) => Number(s.dice ?? s.item?.system?.damage?.dice) || (lv >= 19 ? 4 : lv >= 12 ? 3 : lv >= 4 ? 2 : 1);
-const dieAvg = (s) => (dieOf(s) + 1) / 2;
+const dieAvg = (s) => (dieOf(s, 8) + 1) / 2;
 const tags = (s) => s.item?.system?.traits?.otherTags ?? s.otherTags ?? [];
 
 /**
@@ -323,7 +320,7 @@ function exemplar(board, ctx, out) {
                         if (left0 < 2) break;
                         const e1 = strikeExpected(b, f.ac, emp, { deadly: s.deadly });
                         const rend = dice * dieAvg(s);
-                        const steps = [...p.steps, ...move, { cost: 1, text: `Strike ${nameOf(f)} with ${s.label} (${signed(b)}); ${immLabel(k, s, f)} on a hit` }, { cost: 1, text: `on a hit, ${base}: ${nameOf(f)} takes ${dice}d${dieOf(s)} spirit more, no roll` }];
+                        const steps = [...p.steps, ...move, { cost: 1, text: `Strike ${nameOf(f)} with ${s.label} (${signed(b)}); ${immLabel(k, s, f)} on a hit` }, { cost: 1, text: `on a hit, ${base}: ${nameOf(f)} takes ${dice}d${dieOf(s, 8)} spirit more, no roll` }];
                         let ev = e1.expected + e1.hit * rend + after(steps, f, { adjacent, at });
                         const left = left0 - 2;
                         ev += shiftBack(steps, ev, f, left, ctx.made + 1, at) || tail(steps, f, left, ctx.made + 1, at);
@@ -447,7 +444,7 @@ function exemplar(board, ctx, out) {
                     case "plant-thirty-barbs": {
                         const e1 = strikeExpected(b, f.ac, emp, { deadly: s.deadly });
                         const barb = 2 * dieAvg(s);
-                        const steps = [...p.steps, ...move, { cost: 1, text: `${base}: a Strike at ${nameOf(f)} with ${s.label} (${signed(b)}); on a hit it takes 2d${dieOf(s)} the first time it moves each turn for 1d4 rounds` }];
+                        const steps = [...p.steps, ...move, { cost: 1, text: `${base}: a Strike at ${nameOf(f)} with ${s.label} (${signed(b)}); on a hit it takes 2d${dieOf(s, 8)} the first time it moves each turn for 1d4 rounds` }];
                         let ev = e1.expected + e1.hit * barb * 1.2 + after(steps, f, { adjacent, at });
                         ev += tail(steps, f, left0 - 1, ctx.made + 1, at);
                         trPlan(f, `Plant Thirty Barbs in ${nameOf(f)}`, steps, ev, { dest });

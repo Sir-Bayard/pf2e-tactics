@@ -82,4 +82,22 @@ function recordForBoard(actor) {
     };
 }
 
-export { noteOwn, ownRecord, recordForBoard, setSpellstrike };
+/**
+ * When a combat ends, its records go: the GM's client clears the record from every character that fought in it (the GM
+ * owns them all; a record from an older fight is cleared too). Nothing about a fight outlives it.
+ */
+async function clearRecords(combat) {
+    if (!game.users?.activeGM?.isSelf) return;
+    const actors = new Set();
+    for (const c of combat?.combatants ?? []) if (c.actor?.type === "character") actors.add(c.actor);
+    for (const a of game.actors ?? []) if (a.type === "character" && flagOf(a, "record")) actors.add(a);
+    for (const a of actors) {
+        const r = flagOf(a, "record");
+        if (!r) continue;
+        if (r.combat !== combat?.id && game.combats?.get?.(r.combat)) continue; // still fighting elsewhere
+        try { await a.unsetFlag(MODULE_ID, "record"); } catch (err) { console.warn(`${MODULE_ID} | couldn't clear a fight record`, err); }
+    }
+}
+Hooks.on("deleteCombat", (combat) => { clearRecords(combat).catch(() => {}); });
+
+export { clearRecords, noteOwn, ownRecord, recordForBoard, setSpellstrike };

@@ -10,19 +10,18 @@
  * The loaded state of each weapon comes from the PF2e Ranged Combat module when it's active; otherwise every weapon is
  * assumed loaded at the start of the turn, and the read says so.
  */
-import { canMove, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { canMove, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed, abil, dieOf, diceOf } from "./_common.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
+/** This read's shots carry the Strike as { label, bonus } rather than strikeRun's { s, bonus }. */
+const strikeText = (f, used) => `Strike ${nameOf(f)} with ${used[0].label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})`;
+
 const skill = (board, k) => { const sk = board.me.actor?.skills?.[k]; const mod = sk?.mod ?? board.me[k]; return mod == null ? null : { mod: Number(mod) || 0, rank: sk?.rank ?? (sk?.proficient ? 1 : 0), label: sk?.label ?? k[0].toUpperCase() + k.slice(1) }; };
 const usageOf = (s) => String(s.hands ?? s.item?.system?.usage?.value ?? "");
 const twoHanded = (s) => usageOf(s) === "2" || /two-hands/.test(usageOf(s));
-const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "").replace("d", "")) || 0;
 const dieAvg = (s) => { const d = dieOf(s); return d ? (d + 1) / 2 : 3.5; };
-const diceOf = (s) => Number(s.dice ?? s.item?.system?.damage?.dice) || 1;
 const groupOf = (s) => String(s.group ?? s.item?.group ?? s.item?.system?.group ?? "");
 const traitNum = (s, re) => { const t = (s.traits ?? []).find((x) => re.test(x)); const m = t && /(\d+)$/.exec(t); return m ? Number(m[1]) : 0; };
 const round = () => globalThis.game?.combat?.round ?? 2;
-const strikeText = (f, used) => `Strike ${nameOf(f)} with ${used[0].label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})`;
 /** Range increments past the first: -2 each. */
 const rangeSteps = (dist, inc) => (inc > 0 && dist > inc ? Math.ceil(dist / inc) - 1 : 0);
 

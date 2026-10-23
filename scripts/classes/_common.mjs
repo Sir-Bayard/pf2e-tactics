@@ -114,4 +114,42 @@ const castable = (board, test = () => true) => (board.spells ?? []).filter((sp) 
 /** Focus Points left, or null when the character has no pool. */
 const focusLeft = (actor) => { const f = actor?.system?.resources?.focus; return f && f.max > 0 ? Number(f.value) || 0 : null; };
 
-export { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, half, halfLevel, slugKey, sneaky, spendsSlot, standardDC, STANDARD_DC, usesLeft, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed };
+/* ---- small helpers the class reads share (3.4.1: these were copied into a dozen files) ---- */
+/** An ability modifier from the sheet ("str", "dex"...). */
+const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
+/** " twice", " three times", " 4 times" (nothing for one). */
+const times = (n) => (n <= 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
+/** 1st, 2nd, 3rd, 4th... */
+const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
+const lc = (s) => String(s ?? "").toLowerCase().trim();
+/** The class DC from the sheet, else 10 + level + key ability (4) + proficiency (expert and master at the class's levels). */
+const classDC = (actor, lv, { expertAt = 9, masterAt = 17 } = {}) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= masterAt ? 6 : lv >= expertAt ? 4 : 2);
+/** "Strike Foe with Longsword twice (+12, +7)", from a strikeRun's used list ({ s, bonus }). */
+const strikeText = (f, used, tail = "") => `Strike ${nameOf(f)} with ${used[0].s.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})${tail}`;
+/** A Strike's weapon die size (8 for a d8), from the board's shorthand or the item; fallback when neither says. */
+const dieOf = (s, fallback = 0) => Number(String(s?.die ?? s?.item?.system?.damage?.die ?? "").replace("d", "")) || fallback;
+/** Its number of weapon dice; fallback when it doesn't say. */
+const diceOf = (s, fallback = 1) => Number(s?.dice ?? s?.item?.system?.damage?.dice) || fallback;
+/** The average of n dice of size d. */
+const diceAvg = (n, d) => n * (d + 1) / 2;
+/** A spell marked signature on the sheet. */
+const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signature);
+/** Spell slots left by rank from the actor's spontaneous entries: [{ rank, left, max }]. */
+function slotsLeft(actor) {
+    const out = new Map();
+    const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];
+    for (const e of Array.isArray(entries) ? entries : []) {
+        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "focus" || e.system?.prepared?.value === "innate") continue;
+        const slots = e.system?.slots ?? {};
+        for (let r = 1; r <= 10; r++) {
+            const s = slots[`slot${r}`];
+            if (!s || !(Number(s.max) > 0)) continue;
+            const cur = out.get(r) ?? { rank: r, left: 0, max: 0 };
+            cur.left += Math.max(0, Number(s.value) || 0); cur.max += Number(s.max) || 0;
+            out.set(r, cur);
+        }
+    }
+    return [...out.values()].sort((a, b) => a.rank - b.rank);
+}
+
+export { abil, classDC, diceAvg, diceOf, dieOf, isSignature, lc, ordinal, slotsLeft, strikeText, times, bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, half, halfLevel, slugKey, sneaky, spendsSlot, standardDC, STANDARD_DC, usesLeft, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed };

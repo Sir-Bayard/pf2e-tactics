@@ -10,13 +10,12 @@
  * Drawn in Vital Ink, Distant and Unbounded Invocations, Smithing Weapons and the passives of Esvadir and Marssyl.
  * The PF2e system (8.6.1) ships no rune items: see the "how runes are read" block below. The rest are when-notes.
  */
-import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, diceAvg } from "./_common.mjs";
 import { damageAgainst } from "../reader.mjs";
+import { cap } from "../shared.mjs";
 
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const listOf = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`);
 const plus2 = (lv) => 1 + Math.floor((lv - 1) / 2); // "Level (+2)": one more die at 3rd, 5th, 7th...
-const dieAvg = (n, d) => n * (d + 1) / 2;
 /** Cruonign (9th), Level (+2): +1 void on Strikes, +1d10 invocation, +3 healing for every 2 levels past 9th. */
 const cruo = (lv) => { const k = Math.max(0, Math.floor((lv - 9) / 2)); return { void: 3 + k, dice: 4 + k, heal: 12 + 3 * k }; };
 
@@ -157,7 +156,7 @@ function runesmith(board, ctx, out) {
         const inv = r.inv;
         if (!inv) return { ev: 0, own: 0, text: "", affected: [] };
         if (inv.kind === "damage") {
-            const avg = dieAvg(inv.dice(lv), inv.die) + (inv.flat?.(lv) ?? 0) + bonus;
+            const avg = diceAvg(inv.dice(lv), inv.die) + (inv.flat?.(lv) ?? 0) + bonus;
             const one = (t) => {
                 const dmg = damageAgainst(t.iwr, [inv.type]);
                 const e = saveExpected(saveOf(t, inv.save) - pen - edify, classDC, avg, { basic: inv.basic !== false, delta: dmg.delta, immune: dmg.immune });
@@ -166,14 +165,14 @@ function runesmith(board, ctx, out) {
                 if (inv.cfDouble && !dmg.immune) ev += e.critFail * Math.max(0, avg + dmg.delta) * (inv.conditional ?? 1); // non-basic, double on a critical failure
                 if (inv.cfPersistent) ev += e.critFail * inv.cfPersistent(lv) * 2;
                 if (inv.extra) ev += inv.extra;
-                if (inv.extraDice && !inv.extraDice.radius) ev += saveExpected(saveOf(t, inv.save) - pen - edify, classDC, dieAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected;
+                if (inv.extraDice && !inv.extraDice.radius) ev += saveExpected(saveOf(t, inv.save) - pen - edify, classDC, diceAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected;
                 return { ev, e };
             };
             const main = one(f);
             let ev = main.ev;
             const others = [], caught = [];
             // bearer-centred areas catch your side too: each friend inside costs about 0.6 x the average (it rolls its own save)
-            if (inv.extraDice?.radius) { for (const t of foes.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) ev += saveExpected(saveOf(t, inv.save), classDC, dieAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected; for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) { ev -= 0.6 * dieAvg(inv.extraDice.n, inv.extraDice.die); caught.push(a); } }
+            if (inv.extraDice?.radius) { for (const t of foes.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) ev += saveExpected(saveOf(t, inv.save), classDC, diceAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected; for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) { ev -= 0.6 * diceAvg(inv.extraDice.n, inv.extraDice.die); caught.push(a); } }
             if (inv.burst) { for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= inv.burst)) { ev += one(t).ev; others.push(t); } for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.burst)) { ev -= 0.6 * avg; if (!caught.includes(a)) caught.push(a); } }
             if (en) { if (friends.some((x) => feetBetween(f.rect, x.rect) <= 15)) return null; for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= 15)) { ev += one(t).ev; others.push(t); } }
             const diceText = inv.dice(lv) ? `${inv.dice(lv)}d${inv.die}${bonus ? `+${bonus}` : ""}` : `${inv.flat(lv) + bonus}`;
@@ -204,7 +203,7 @@ function runesmith(board, ctx, out) {
         if (inv.kind === "damage" && inv.cone) { // Cruonign: a cone from the wielder
             const inCone = foes.filter((f) => feetBetween(p.who.rect, f.rect) <= inv.cone);
             if (!inCone.length) return null;
-            const best = inCone.map((c) => { const dx = Math.sign(c.rect.x - p.who.rect.x), dy = Math.sign(c.rect.y - p.who.rect.y); const side = (x) => x !== p.who && feetBetween(p.who.rect, x.rect) <= inv.cone && Math.sign(x.rect.x - p.who.rect.x) * dx >= 0 && Math.sign(x.rect.y - p.who.rect.y) * dy >= 0; const hit = inCone.filter(side); return { hit, ev: hit.reduce((s, f) => s + invokeOn(r, f).ev, 0) - 0.6 * dieAvg(inv.dice(lv), 10) * friends.filter(side).length }; }).sort((a, b) => b.ev - a.ev)[0];
+            const best = inCone.map((c) => { const dx = Math.sign(c.rect.x - p.who.rect.x), dy = Math.sign(c.rect.y - p.who.rect.y); const side = (x) => x !== p.who && feetBetween(p.who.rect, x.rect) <= inv.cone && Math.sign(x.rect.x - p.who.rect.x) * dx >= 0 && Math.sign(x.rect.y - p.who.rect.y) * dy >= 0; const hit = inCone.filter(side); return { hit, ev: hit.reduce((s, f) => s + invokeOn(r, f).ev, 0) - 0.6 * diceAvg(inv.dice(lv), 10) * friends.filter(side).length }; }).sort((a, b) => b.ev - a.ev)[0];
             if (best.ev <= 0) return null;
             const heal = Math.min(inv.healSelf(lv), Math.max(0, (p.who.maxHp ?? 0) - (p.who.hp ?? 0))) * 0.8;
             return { ev: best.ev + heal, text: `Cruonign on ${p.on === "weapon" ? "your weapon" : nameOf(p.who)}: a 30-foot cone of ${inv.dice(lv)}d10 void, basic Fortitude DC ${classDC}, at ${best.hit.map(nameOf).join(", ")}; the wielder regains ${inv.healSelf(lv)} HP if any take damage`, target: best.hit[0] };
@@ -566,7 +565,7 @@ function runesmith(board, ctx, out) {
             const evA = a.holder === "foe" ? invokeOn(a.r, a.who).ev : invokeOwn(a)?.ev ?? 0;
             const evB = b.holder === "foe" ? invokeOn(b.r, b.who).ev : invokeOwn(b)?.ev ?? 0;
             let ev = evA + evB;
-            for (const f of line) { const e = saveExpected(saveOf(f, "reflex"), classDC, dieAvg(dice, 6), { basic: true, ...damageAgainst(f.iwr, ["force"]) }); ev += e.expected + worth(board, "immobilized") * e.critFail; }
+            for (const f of line) { const e = saveExpected(saveOf(f, "reflex"), classDC, diceAvg(dice, 6), { basic: true, ...damageAgainst(f.iwr, ["force"]) }); ev += e.expected + worth(board, "immobilized") * e.critFail; }
             if (!best || ev > best.ev) best = { a, b, line, ev };
         }
         if (best && best.line.length) push({ title: `Chain of Words between ${nameOf(best.a.who)} and ${nameOf(best.b.who)}`, target: best.line[0], ev: best.ev, bias: 0.3, steps: [{ cost: 2, text: `Chain of Words: invoke ${best.a.r.name.split(",")[0]} on ${nameOf(best.a.who)} and ${best.b.r.name.split(",")[0]} on ${nameOf(best.b.who)}; ${best.line.map(nameOf).join(", ")} in the line between them take ${dice}d6 force, basic Reflex DC ${classDC} (immobilized on a critical failure)` }], notes: ["Once per 10 minutes."] });

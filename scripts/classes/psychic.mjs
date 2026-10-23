@@ -10,11 +10,9 @@
  * Counter Thought and the other reactions, and "when" notes for the rest.
  * Plans here: the amped psi cantrip turns, Brain Drain, Restore the Mind, Psi Burst and Violent Unleash as steps.
  */
-import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, ordinal, lc, isSignature, slotsLeft } from "./_common.mjs";
 import { isOffGuard } from "../advisor.mjs";
 
-const lc = (s) => String(s ?? "").toLowerCase().trim();
-const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 const points = (n) => `${n} Focus Point${n === 1 ? "" : "s"}`;
 const spellSlug = (sp) => sp.spell?.slug ?? sp.spell?.system?.slug ?? lc(sp.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const flatCheck = (dc) => Math.max(0, Math.min(1, (21 - dc) / 20));
@@ -57,23 +55,6 @@ const AMPS = {
 };
 const worthOf = { stunned: 5, stupefied: 1.5, clumsy: 1.5 };
 
-/** Spell slots left by rank from the actor's spontaneous entries: [{ rank, left, max }]. Empty when nothing is visible. */
-function slotsLeft(actor) {
-    const out = new Map();
-    const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];
-    for (const e of Array.isArray(entries) ? entries : []) {
-        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "focus" || e.system?.prepared?.value === "innate") continue;
-        const slots = e.system?.slots ?? {};
-        for (let r = 1; r <= 10; r++) {
-            const s = slots[`slot${r}`];
-            if (!s || !(Number(s.max) > 0)) continue;
-            const cur = out.get(r) ?? { rank: r, left: 0, max: 0 };
-            cur.left += Math.max(0, Number(s.value) || 0); cur.max += Number(s.max) || 0;
-            out.set(r, cur);
-        }
-    }
-    return [...out.values()].sort((a, b) => a.rank - b.rank);
-}
 /** What a spell is expected to do to t at the given average (single target; an area counts its main target). */
 function spellExpected(board, sp, t, avg, made) {
     const lv = level(board);
@@ -82,7 +63,6 @@ function spellExpected(board, sp, t, avg, made) {
     return null;
 }
 const isSlot = (sp) => !sp.cantrip && !sp.focus && !sp.traits?.includes("focus") && !sp.consumable;
-const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signature);
 
 /** The Unleash Psyche effect on the sheet, still running. */
 function unleashUp(actor) {

@@ -7,13 +7,11 @@
  * Skirmish Strike), Impossible Striker's full dice on everyone, and when-notes for the reactions, the debilitations and
  * the higher-level tricks.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, sneaky, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, sneaky, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, times, dieOf } from "./_common.mjs";
 
 const RACKETS = ["ruffian", "scoundrel", "thief", "mastermind", "eldritch-trickster", "avenger"];
 const unarmed = (s) => !!s.traits?.includes("unarmed");
-const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "").replace("d", "")) || 0;
 const categoryOf = (s) => String(s.category ?? s.item?.system?.category ?? "");
-const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
 const adjacent = (a, b) => inReach(a.rect, b.rect, 5);
 function rogue(board, ctx, out) {
     const actor = board.me.actor;

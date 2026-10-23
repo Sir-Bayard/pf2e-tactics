@@ -7,12 +7,11 @@
  * (Set-Up Strike, Guiding Shot, Unsteadying Strike) and the reactions follow. A tactic or banner with a frequency (once
  * per 10 minutes, once a day) is planned only while its uses left (system.frequency.value) aren't 0.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, usesLeft, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, usesLeft, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, diceAvg } from "./_common.mjs";
 
 const BANNER_FEET = 30;
 const list = (cs) => cs.map(nameOf).join(", ");
 const are = (cs) => (cs.length > 1 ? "are" : "is");
-const dieAvg = (n, d) => n * (d + 1) / 2;
 /** An ally's equipped weapons, from its sheet (allies are party members; the player can see their gear). */
 function weaponsOf(a) {
     const items = a.actor?.itemTypes?.weapon ?? (a.actor?.items ?? []).filter((i) => i.type === "weapon");
@@ -330,7 +329,7 @@ function commander(board, ctx, out) {
             }
             return hit;
         };
-        const avg = dieAvg(2, 6) * 2 * (1 + chargers.length);
+        const avg = diceAvg(2, 6) * 2 * (1 + chargers.length);
         let best = null;
         for (const f of chargers.length ? foes : []) {
             const caught = [...new Set(chargers.flatMap((a) => [...passed(a, f)]))];
@@ -446,7 +445,7 @@ function commander(board, ctx, out) {
     }
     if (ok("rallying-banner", "Rallying Banner") && ctx.actions >= 1 && !effect(actor, /rallying-banner/)) {
         // 4d6 at 8th, +1d6 at 10th and every 2 levels after; each ally in the banner's aura, not you
-        const heal = dieAvg(4 + Math.max(0, Math.floor((lv - 8) / 2)), 6);
+        const heal = diceAvg(4 + Math.max(0, Math.floor((lv - 8) / 2)), 6);
         const wounded = inSquadAura.filter((a) => a.hp < a.maxHp);
         if (wounded.length) {
             const ev = wounded.reduce((s, a) => s + 0.8 * Math.min(heal, a.maxHp - a.hp), 0);

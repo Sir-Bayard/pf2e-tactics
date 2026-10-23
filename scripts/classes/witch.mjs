@@ -9,13 +9,11 @@
  * says so (spendsSlot) and spell thrift weighs the slot against the cantrip; the read keeps no cantrip-or-slot rule of its own.
  * Hexes are planned here, so they're taken off board.spells before the advisor runs (nothing is listed twice).
  */
-import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed, ordinal, lc } from "./_common.mjs";
+import { cap } from "../shared.mjs";
 
-const lc = (s) => String(s ?? "").toLowerCase().trim();
-const cap = (s) => String(s ?? "").charAt(0).toUpperCase() + String(s ?? "").slice(1);
 const isHex = (sp) => !!sp.traits?.includes("hex");
 const isFocus = (sp) => !!sp.traits?.includes("focus");
-const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 const points = (n) => `${n} Focus Point${n === 1 ? "" : "s"}`;
 
 /** The patrons: tradition, hex cantrip, and the familiar's trick when you Cast or Sustain a hex (Remaster text). */

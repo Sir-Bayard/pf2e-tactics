@@ -11,9 +11,8 @@
  * A cursebound ability raises the curse after it resolves, so "if you are cursebound N when you use it" reads the
  * stage before the rise. Whether a slot is worth spending over a cantrip is spell thrift's call (player.mjs).
  */
-import { bestStrike, castable, focusLeft, has, hasAny, level, pct, spendsSlot, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, focusLeft, has, hasAny, level, pct, spendsSlot, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, mapFor, strikeExpected, saveExpected, nameOf, signed, ordinal, isSignature, slotsLeft } from "./_common.mjs";
 
-const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 const dice = (n, d) => n * (d + 1) / 2;
 
 /** Each mystery: its curse feature, the curse by stage (what each stage adds; a value curse scales with the number),
@@ -91,24 +90,6 @@ function curseText(m, n, lv) {
 
 const isFocus = (sp) => !!(sp.traits?.includes("focus") || /focus|revelation|domain/i.test(sp.entry ?? ""));
 const isSlot = (sp) => !sp.cantrip && !isFocus(sp) && !sp.consumable;
-const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signature);
-/** Spell slots left by rank from the actor's spontaneous entries: [{ rank, left, max }]. */
-function slotsLeft(actor) {
-    const out = new Map();
-    const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];
-    for (const e of Array.isArray(entries) ? entries : []) {
-        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "focus" || e.system?.prepared?.value === "innate") continue;
-        const slots = e.system?.slots ?? {};
-        for (let r = 1; r <= 10; r++) {
-            const s = slots[`slot${r}`];
-            if (!s || !(Number(s.max) > 0)) continue;
-            const cur = out.get(r) ?? { rank: r, left: 0, max: 0 };
-            cur.left += Math.max(0, Number(s.value) || 0); cur.max += Number(s.max) || 0;
-            out.set(r, cur);
-        }
-    }
-    return [...out.values()].sort((a, b) => a.rank - b.rank);
-}
 /** What a spell is expected to do to t at the given average (single target; an area counts its main target). */
 function spellExpected(sp, t, avg, made) {
     if (sp.attack !== null && sp.attack !== undefined) return strikeExpected(sp.attack + mapFor(made, false), t.ac, avg);

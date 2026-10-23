@@ -6,7 +6,7 @@
  * lower slot does the job, the spellshape feats and the reactions that spend slots. Whether a slot is worth spending
  * over a cantrip is spell thrift's call (player.mjs); this read doesn't keep a rule of its own.
  */
-import { castable, focusLeft, has, level, pct, slugKey, targets, degreeChances, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { castable, focusLeft, has, level, pct, slugKey, targets, degreeChances, mapFor, strikeExpected, saveExpected, nameOf, signed, ordinal, isSignature, slotsLeft } from "./_common.mjs";
 
 /** Each bloodline: its tradition and what its blood magic does, with the moment it pays (Remaster text). */
 const BLOODLINES = {
@@ -32,26 +32,7 @@ const BLOODLINES = {
 
 const isFocus = (sp) => !!(sp.traits?.includes("focus") || /focus|bloodline/i.test(sp.entry ?? ""));
 const isSlot = (sp) => !sp.cantrip && !isFocus(sp) && !sp.consumable;
-const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signature);
-const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 
-/** Spell slots left by rank from the actor's spontaneous entries: [{ rank, left, max }]. Empty when nothing is visible. */
-function slotsLeft(actor) {
-    const out = new Map();
-    const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];
-    for (const e of Array.isArray(entries) ? entries : []) {
-        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "focus" || e.system?.prepared?.value === "innate") continue;
-        const slots = e.system?.slots ?? {};
-        for (let r = 1; r <= 10; r++) {
-            const s = slots[`slot${r}`];
-            if (!s || !(Number(s.max) > 0)) continue;
-            const cur = out.get(r) ?? { rank: r, left: 0, max: 0 };
-            cur.left += Math.max(0, Number(s.value) || 0); cur.max += Number(s.max) || 0;
-            out.set(r, cur);
-        }
-    }
-    return [...out.values()].sort((a, b) => a.rank - b.rank);
-}
 /** What a spell is expected to do to t at the given average (single target; an area counts its main target). */
 function spellExpected(sp, t, avg, made) {
     if (sp.attack !== null && sp.attack !== undefined) return strikeExpected(sp.attack + mapFor(made, false), t.ac, avg);

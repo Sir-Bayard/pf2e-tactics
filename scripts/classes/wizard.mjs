@@ -7,8 +7,9 @@
  * as "when" notes, and Quickened Casting as a two-spell turn. A plan that casts a slot spell says so (spendsSlot) and spell
  * thrift weighs the slot against the cantrip; the read doesn't keep a cantrip-or-slot rule of its own.
  */
-import { castable, effect, focusLeft, has, level, pct, spendsSlot, targets, usesLeft, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, signed } from "./_common.mjs";
+import { castable, effect, focusLeft, has, level, pct, spendsSlot, targets, usesLeft, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, signed, lc } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
+import { cap } from "../shared.mjs";
 
 /** Each school's curriculum (lower-cased names) and its initial and advanced school spells, from the class features. */
 const SCHOOLS = {
@@ -35,7 +36,6 @@ const SCHOOLS = {
 };
 const THESES = ["spell-blending", "improved-familiar-attunement", "spell-substitution", "staff-nexus", "experimental-spellshaping"];
 
-const lc = (s) => String(s ?? "").toLowerCase().trim();
 const isFocus = (sp) => !!sp.traits?.includes("focus");
 /** The prepared entries' slots: by rank { left, max }, the spells cast today (spent), and the highest rank the character casts. */
 function slotsOf(actor) {
@@ -96,7 +96,6 @@ function primary(board) {
     return foes[0] ?? null;
 }
 const rankText = (sp) => (sp.cantrip ? "" : isFocus(sp) ? " (focus)" : ` (rank ${sp.rank})`);
-const cap = (s) => String(s ?? "").charAt(0).toUpperCase() + String(s ?? "").slice(1);
 /**
  * The spells that could follow something else this turn at t: the best cantrip, and the best slot spell when it does more
  * than the cantrip. Each becomes its own plan; the slot one says so (spendsSlot), and spell thrift weighs the two.

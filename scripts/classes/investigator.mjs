@@ -9,12 +9,10 @@
  * Stratagem, Strategic Bypass, Known Weaknesses); Pointed Question folded into the devised turn; Just as Planned's second d20.
  * The rest are when-notes.
  */
-import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, signed, abil, times } from "./_common.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** Strategic Strike dice: 1d6, +1 at 5, 9, 13 and 17. */
 const strikeDice = (lv) => (lv >= 17 ? 5 : lv >= 13 ? 4 : lv >= 9 ? 3 : lv >= 5 ? 2 : 1);
-const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
 const groupOf = (s) => String(s.group ?? s.item?.system?.group ?? "").toLowerCase();
 const twoHanded = (s) => String(s.hands ?? s.item?.system?.usage?.value ?? "").includes("2") || (s.traits ?? []).some((t) => t === "two-hand" || t.startsWith("two-hand-"));
 const pierceOrSlash = (s) => (s.damageTypes ?? []).some((t) => ["piercing", "slashing"].includes(t)) || /piercing|slashing/.test(String(s.item?.system?.damage?.damageType ?? ""));

@@ -8,15 +8,11 @@
  * push), Explode, Megavolt, Searing Restoration, Tamper then Strike, Oil Fire, Electrify Armor, Wukong Extension, Overdrive
  * Ally, Helpful Tinkering, Command (and Lock On), Engine of Destruction, Devastating Weaponry. The rest are when-notes.
  */
-import { choiceOf, effect, has, hasAny, level, pct, squareToReach, standardDC, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { choiceOf, effect, has, hasAny, level, pct, squareToReach, standardDC, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, classDC, strikeText, dieOf } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 
-const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
 const crafting = (actor, lv) => { const c = actor?.skills?.crafting; return c && c.mod != null ? Number(c.mod) || 0 : lv + abil(actor, "int") + (lv >= 15 ? 8 : lv >= 7 ? 6 : lv >= 3 ? 4 : 2); };
-const strikeText = (f, used, tail = "") => `Strike ${nameOf(f)} with ${used[0].s.label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})${tail}`;
 /** A Strike's weapon die (faces) and dice count, from the sheet's item or the mock's shorthand. */
-const dieOf = (s) => Number(String(s?.item?.system?.damage?.die ?? s?.die ?? "d8").replace("d", "")) || 8;
 /** The flat check after an unstable action: DC 17, so one roll in five keeps the innovation going; 7 or less is a critical failure. */
 const UNSTABLE_PASS = 0.2, UNSTABLE_CRIT = 0.35;
 /** Rect centres in feet, for the line of a Megavolt. */
@@ -197,7 +193,7 @@ function inventor(board, ctx, out) {
             const base = innovationRun(f, 1, ctx.made);
             if (!base.used.length) continue;
             const s = base.used[0].s;
-            const die = dieOf(s), per = (die + 1) / 2;
+            const die = dieOf(s, 8), per = (die + 1) / 2;
             const stable = strikeExpected(base.used[0].bonus, f.ac, s.avg + dice * per, { deadly: s.deadly });
             const after = ctx.actions >= 3 ? innovationRun(f, 1, ctx.made + 1) : { used: [], ev: 0 };
             const tail = after.used.length ? [{ cost: 1, text: strikeText(f, after.used) }] : [];
