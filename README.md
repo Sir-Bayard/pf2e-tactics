@@ -1,6 +1,6 @@
 # PF2e Tactics
 
-PF2e Tactics (formerly PF2e NPC Tactics): an NPC turn card for the GM, and a Turn Helper for players. When an NPC's turn starts it shows a recommended turn worked out from the creature's abilities and the board (who it can reach, flanking, reactions it would provoke, expected damage, who it would pick given its wits and who has hurt it), a few alternatives, the encounter's own tactics, triggers to watch for, and every Strike, action, reaction and spell it has. Nothing is moved or rolled for you. The Turn Helper (a macro, or a per-player setting to open it on their turn) gives a player a recommended turn for their own character, with their class read in (Commander tactics, Spellstrike, Exploit Vulnerability...), on what the party can judge of each foe: reach, Strikes and targets, flanking, cover, what moving would provoke, and what the party's own rolls have learned. Nothing from an NPC's sheet.
+PF2e Tactics: an NPC turn card for the GM, and a Turn Helper for players. When an NPC's turn starts it shows a recommended turn worked out from the creature's abilities and the board (who it can reach, flanking, reactions it would provoke, expected damage, who it would pick given its wits and who has hurt it), a few alternatives, the encounter's own tactics, triggers to watch for, and every Strike, action, reaction and spell it has. Nothing is moved or rolled for you. The Turn Helper (a macro, or a per-player setting to open it on their turn) gives a player a recommended turn for their own character, with their class read in (Commander tactics, Spellstrike, Exploit Vulnerability...), on what the party can judge of each foe: reach, Strikes and targets, flanking, cover, what moving would provoke, and what the party's own rolls have learned. Nothing from an NPC's sheet.
 
 ## What it looks like
 
@@ -47,10 +47,6 @@ https://github.com/Sir-Bayard/pf2e-tactics/releases/latest/download/module.json
 Foundry's **Update** button then picks up each new release. You can also download `module.zip` from the [latest release](https://github.com/Sir-Bayard/pf2e-tactics/releases/latest) and unzip it into `Data/modules/pf2e-tactics`.
 
 Requires Foundry VTT 14 (verified on 14.369) and the Pathfinder 2e system 8.0.0 or later.
-
-### Coming from pf2e-npc-tactics (2.1 or earlier)
-
-Turn the old module off (or delete its folder) and turn this one on. The first GM load copies the old module's settings over, and each player's client copies their own on first load. Notes, recharge timers and threat written under the old id are still read; new ones are written under pf2e-tactics. Other modules that look for "pf2e-npc-tactics" find the same API there while the old folder is still installed.
 
 ## What it does
 
