@@ -98,6 +98,8 @@
 .chat-message .npt-card .npt-top, .chat-message .npt-card .npt-turn, .chat-message .npt-card .npt-body, .chat-message .npt-card .npt-foot { padding-left: 0; padding-right: 0; }
 
 /* Turn Helper (the player's window) */
+/* The Turn Helper is the player's card: green for go, where the GM's card is red */
+.npt-card.npt-helper { --npt-act: #2f8a57; --npt-now: #2f8a57; }
 .npt-card.npt-helper .npt-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 2px 0; }
 .npt-card.npt-helper .npt-row > .npt-k { flex: none; min-width: 84px; }
 .npt-card.npt-helper .npt-list { margin: 2px 0; padding-left: 1.1em; }

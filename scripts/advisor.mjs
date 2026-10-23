@@ -1892,4 +1892,4 @@ function thirdActionAlternatives(board, target, at) {
 }
 // ---------------------------------------------------------------------------------------------
 
-export { CONDITION_VALUE, NOTICE, RUN_WORDS, TIER_TEXT, acAgainst, actorTier, areaHits, bestArea, dropChance, exposure, fillLast, flankingAlly, heightRoute, isOffGuard, nameOf, pickHeightWay, planTurn, provokeCost, reachableSquares, routeTo, seenFactor, strikeRun, targetBonus, thirdActionAlternatives, threatPull, threatShare, tierOf };
+export { CONDITION_VALUE, NOTICE, RUN_WORDS, TIER_TEXT, acAgainst, actorTier, areaHits, bestArea, dropChance, exposure, fillLast, flankingAlly, heightRoute, isOffGuard, nameOf, pathTo, pickHeightWay, planTurn, provokeCost, reachableSquares, routeTo, seenFactor, strikeRun, targetBonus, thirdActionAlternatives, threatPull, threatShare, tierOf };

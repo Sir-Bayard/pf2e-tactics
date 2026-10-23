@@ -295,15 +295,26 @@ function titleCase(text) {
     }).join(" ");
 }
 
-/** Which cards are open: kept per GM in this browser, the way each was left. */
+/** The Show button for a plan that moves (its path) or aims an area (its point); drawn on this client's map only. */
+function showButton(plan) {
+    if (!plan?.dest && !plan?.aim) return "";
+    return `<button type="button" class="npt-show" data-npt-show="${esc(JSON.stringify(plan.dest ?? plan.aim))}" data-npt-path="${esc(JSON.stringify(plan.path ?? []))}" data-npt-kind="${plan.dest ? "square" : "point"}" data-tooltip="Draw the path on your map (only you see it). Click again to hide it."><i class="fa-solid fa-location-crosshairs"></i> Show</button>`;
+}
+
+/** Which cards are open: kept per GM in this browser, the way each was left. The Turn Helper's folds ("h-" keys) last only
+ *  for the turn: each turn starts from the defaults (Your Turn open, the rest folded). */
 const FOLD_KEY = `${MODULE_ID}.folds`;
+const TURN_FOLDS = new Map();
+function resetTurnFolds() { TURN_FOLDS.clear(); }
 function foldOpen(key, fallback) {
+    if (String(key).startsWith("h-")) return TURN_FOLDS.get(key) ?? fallback;
     try {
         const v = JSON.parse(localStorage.getItem(FOLD_KEY) ?? "{}")[key];
         return typeof v === "boolean" ? v : fallback;
     } catch { return fallback; }
 }
 function saveFold(key, open) {
+    if (String(key).startsWith("h-")) return void TURN_FOLDS.set(key, open);
     try {
         const all = JSON.parse(localStorage.getItem(FOLD_KEY) ?? "{}");
         all[key] = open;
@@ -377,7 +388,7 @@ function adviceSection(plans, board, intent) {
     const why = [];
     if (best.target && best.kind !== "run" && best.kind !== "area") why.push(`${esc(nameOf(best.target))} AC ${best.target.ac}, HP ${best.target.hp}/${best.target.maxHp}`);
     if (best.why?.length) why.push(`<span class="npt-reason">${esc(best.why.join(", "))}</span>`);
-    const showBtn = best.dest || best.aim ? `<button type="button" class="npt-show" data-npt-show="${esc(JSON.stringify(best.dest ?? best.aim))}" data-npt-path="${esc(JSON.stringify(best.path ?? []))}" data-npt-kind="${best.dest ? "square" : "point"}" data-tooltip="Draw the path on your map (only you see it). Click again to hide it."><i class="fa-solid fa-location-crosshairs"></i> Show</button>` : "";
+    const showBtn = showButton(best);
     // A spell it can Sustain: one click uses PF2e's Sustain action for it (its card, the action counted, the advice redone)
     const sustainBtn = board.sustain && board.me?.actor?.uuid ? `<button type="button" class="npt-show npt-sustain" data-npt-sustain="${esc(board.me.actor.uuid)}" data-tooltip="${esc(`Sustain ${board.sustain.name}: posts PF2e's Sustain action for it, counts the action, and plans the rest of the turn`)}"><i class="fa-solid fa-hourglass-half"></i> Sustain</button>` : "";
     const notes = best.notes.length ? `<div class="npt-notes">${best.notes.map(esc).join(" · ")}</div>` : "";
@@ -870,4 +881,4 @@ async function editNotes(uuid) {
 }
 
 
-export { actionsHtml, adviceSection, foldOpen, stepsHtml, bindCard, boardLine, buildCard, clearPath, closeWindow, editNotes, intentFrom, notesOf, openCard, panel, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, statusLine, tacticsHtml, tacticsOf, tierChip, titleCase, triggerSection, triggersFor, turnWindow, usedEffects, watchChips, workbenchRecharge };
+export { actionsHtml, adviceSection, foldOpen, resetTurnFolds, showButton, stepsHtml, bindCard, boardLine, buildCard, clearPath, closeWindow, editNotes, intentFrom, notesOf, openCard, panel, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, statusLine, tacticsHtml, tacticsOf, tierChip, titleCase, triggerSection, triggersFor, turnWindow, usedEffects, watchChips, workbenchRecharge };

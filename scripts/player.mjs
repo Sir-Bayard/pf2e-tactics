@@ -15,8 +15,8 @@
  */
 import { MODULE_ID, esc, link, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
-import { flankingAlly, isOffGuard, nameOf, planTurn, reachableSquares } from "./advisor.mjs";
-import { bindCard, foldOpen, panel, stepsHtml, titleCase } from "./card.mjs";
+import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
+import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
 import { noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
@@ -335,6 +335,8 @@ function adviseHelper(board, ledger) {
     try { plans = planTurn(b, {}) ?? []; } catch (err) { console.warn(`${MODULE_ID} | couldn't plan the player's turn`, err); }
     plans = plans.filter((p) => !["none"].includes(p.kind) || plans.length === 1).filter((p) => allowedTarget(board, p));
     const clsPlans = cls.plans.filter((p) => allowedTarget(board, p));
+    // A class plan that moves gets its route for Show, as the advisor's own plans do
+    for (const p of clsPlans) if (p.dest && !p.path?.length) { try { p.path = pathTo(b, p.dest); } catch { /* no route: Show marks the square */ } }
     const thriftNote = spellThrift(b, [...plans, ...clsPlans]);
     const all = [...plans, ...clsPlans].map((p) => ({ ...p, steps: p.steps.map((s) => ({ ...s, text: forYou(s.text) })), notes: (p.notes ?? []).map(forYou) }));
     all.sort((a, c) => (c.score ?? c.ev) - (a.score ?? a.ev));
@@ -360,7 +362,8 @@ function adviceSectionFor(board, adv) {
     }
     const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", false) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")}${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
     const foot = `<div class="npt-dim npt-est">${adv.estimated ? "Odds are estimates from the party's rolls this fight (a creature of your level until then) and what you can see on each foe." : "Odds use the party's rolls this fight and what you can see on each foe."}</div>`;
-    return panel("Your Turn", { key, open: true, cls: "npt-act", sum: esc(titleCase(best.title)), body: `<div class="npt-plan-title">${esc(titleCase(best.title))}</div>${stepsHtml(best.steps)}${notes}${altHtml}${foot}` });
+    // Show draws the route on this player's map; it goes round only the reactions the party has seen
+    return panel("Your Turn", { key, open: true, cls: "npt-act", sum: esc(titleCase(best.title)), tools: showButton(best), body: `<div class="npt-plan-title">${esc(titleCase(best.title))}</div>${stepsHtml(best.steps)}${notes}${altHtml}${foot}` });
 }
 /**
  * The notes worth reading this turn first: a note that names a foe on the board or something in the recommended turn rises;
@@ -389,7 +392,7 @@ function classSection(board, adv) {
     const notes = rankNotes(board, adv);
     const top = notes.slice(0, 3), rest = notes.slice(3);
     const more = rest.length ? `<details class="npt-alts" data-npt-fold="h-class-more"${foldOpen("h-class-more", false) ? " open" : ""}><summary>${rest.length} more</summary><ul class="npt-list">${rest.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : "";
-    return panel("Worth Knowing", { key: "h-class", open: true, body: `<ul class="npt-list">${top.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${more}` });
+    return panel("Worth Knowing", { key: "h-class", open: false, body: `<ul class="npt-list">${top.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${more}` });
 }
 /* ------------------------------------------------------------------ the card */
 
@@ -435,7 +438,7 @@ function aroundSection(board) {
         if (covered) rows.push(`<li><strong>Cover:</strong> ${covered} square${covered === 1 ? "" : "s"} one move away ${covered === 1 ? "has" : "have"} standard cover from everyone you can see; Take Cover there for greater.</li>`);
     }
     if (!rows.length) return "";
-    return panel("Around You", { key: "h-around", open: true, body: `<ul class="npt-list">${rows.join("")}</ul>` });
+    return panel("Around You", { key: "h-around", open: false, body: `<ul class="npt-list">${rows.join("")}</ul>` });
 }
 
 /** Flanking chances and threats, as rows for Around You. */
@@ -479,7 +482,7 @@ function foesSection(board) {
     }
     if (board.unseenKnown) rows.push(`<div class="npt-hidden">Something in this fight is undetected by you${board.unseenKnown > 1 ? ` (${board.unseenKnown} of them)` : ""}: Seek a 30-foot cone or 15-foot burst (one action) to find it${board.reveals.some((w) => w.kind === "reveal") ? `, or ${esc(board.reveals.find((w) => w.kind === "reveal").name)} on where you think it is` : ""}.</div>`);
     if (!rows.length) return panel("Foes", { body: `<div class="npt-dim">Nobody you can see.</div>` });
-    return panel("Foes", { key: "h-foes", open: true, body: rows.join("") });
+    return panel("Foes", { key: "h-foes", open: false, body: rows.join("") });
 }
 
 function helperBody(board) {
@@ -567,6 +570,10 @@ function helperClass() {
                 this.render();
             }));
         }
+        async close(options) {
+            clearPath(); // the drawn path goes with the window
+            return super.close(options);
+        }
         setPosition(position) {
             const result = super.setPosition(position);
             try { const p = this.position; localStorage.setItem(HELPER_POSITION_KEY, JSON.stringify({ left: p.left, top: p.top, width: p.width })); } catch { /* blocked storage */ }
@@ -580,6 +587,7 @@ let helperWindow = null;
 async function showHelper(actor, token) {
     const Cls = helperClass();
     helperWindow ??= new Cls();
+    if (!helperWindow.rendered || helperWindow.actor !== actor) resetTurnFolds();
     helperWindow.actor = actor;
     helperWindow.token = token ?? null;
     await helperWindow.render({ force: true });
@@ -723,6 +731,8 @@ Hooks.once("ready", () => {
 Hooks.on("updateCombat", (combat, changes) => {
     if (combat !== game.combat) return;
     if ("turn" in changes || "round" in changes) {
+        resetTurnFolds();
+        if (!game.user.isGM) clearPath(); // last turn's route (the GM's card clears its own)
         refreshHelper(100);
         if (!game.user.isGM && setting("helperAutoOpen", false) && combat.started) {
             const c = combat.combatant;

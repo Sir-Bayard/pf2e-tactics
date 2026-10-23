@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.5.2
+
+- Show for players: when the recommended turn moves you or aims an area, Show draws the route on your map, as it does on the GM's card. Only you see it. The route goes round only the reactions the party has seen this fight. It clears when the turn passes or the window closes.
+- Each turn starts with only Your Turn open. Worth Knowing, Around You and Foes start folded; one you open stays open for the rest of that turn.
+- Your Turn has a green edge (the GM's card keeps red), and the action pips and bars on the helper match.
+
 ## 3.5.1
 
 Finishes the 3.5 coverage work.
