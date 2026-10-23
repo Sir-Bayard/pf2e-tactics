@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.0
+
+- Your Class covers all twenty-nine classes at every level 1 to 20: Psychic, Summoner, Kineticist, Gunslinger, Inventor, Animist, Exemplar, Guardian, Necromancer and Runesmith are new (each read from the system's class features and feats, Remaster names first; the eidolon's and construct's Strikes come from their own sheets, the exemplar's spark from the sheet's roll options, runes by name since PF2e ships no rune items).
+- Spell thrift: slot spells are recommended only when they beat your best cantrip by a margin that grows with the slot's rank and shrinks with the slots left at that rank, halved when the spell is decisive (two foes caught, a foe it can drop); cantrips, focus spells, heals and buffs are never held back. The plan says the numbers; a per-player setting ("Turn Helper: spell thrift") makes it frugal, normal or free-spending.
+- Cantrips heighten from their own base rank (a psychic's unique cantrips start at 3 or 5), and the board marks focus spells as such.
+- The advisor's text reading steps aside for the actions the new reads plan (the finishers and blasts, impulses, deeds, transcendences, grave spells and so on), so nothing is listed twice.
+- Class reads can be turned on by more than one feature slug, so a dedication's own grants (a psychic's conscious mind, a gunslinger's way) reach the read.
+
 ## 3.2.0
 
 - Five more classes in Your Class, each at every level 1 to 20: Monk (Flurry of Blows, stances and their Strikes, the qi spells, the stance feats and finishing moves), Swashbuckler (panache from your style's action with the odds, precise strike, every finisher with its rider, Exemplary Finisher), Investigator (Devise a Stratagem shown as the decision it is: what each d20 result is worth before you commit; strategic strike; the lead; the methodology's riders), Oracle (the curse stage and what the next stage costs, the cursebound feats as plans with that cost, revelation spells, slots), Witch (one hex a turn, the best hex on a foe or an ally, Sustain or Cackle for the one already up, the familiar's patron trick, Sympathetic Strike, Split Hex). Nineteen classes are read now; Animist, Exemplar, Guardian, Gunslinger, Inventor, Kineticist, Necromancer, Psychic, Runesmith and Summoner remain.

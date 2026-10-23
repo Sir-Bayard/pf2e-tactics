@@ -25,8 +25,18 @@ import { oracle } from "./classes/oracle.mjs";
 import { monk } from "./classes/monk.mjs";
 import { swashbuckler } from "./classes/swashbuckler.mjs";
 import { witch } from "./classes/witch.mjs";
+import { inventor } from "./classes/inventor.mjs";
+import { psychic } from "./classes/psychic.mjs";
+import { kineticist } from "./classes/kineticist.mjs";
+import { summoner } from "./classes/summoner.mjs";
+import { gunslinger } from "./classes/gunslinger.mjs";
+import { guardian } from "./classes/guardian.mjs";
+import { animist } from "./classes/animist.mjs";
+import { necromancer } from "./classes/necromancer.mjs";
+import { runesmith } from "./classes/runesmith.mjs";
+import { exemplar } from "./classes/exemplar.mjs";
 
-/** Every class read: [slug of the class, a feature slug that also turns it on (archetypes), the read]. */
+/** Every class read: [slug of the class, a feature slug (or several) that also turns it on (archetypes), the read]. */
 const READS = [
     ["cleric", "divine-font", cleric],
     ["sorcerer", "bloodline-spells", sorcerer],
@@ -38,6 +48,16 @@ const READS = [
     ["monk", "powerful-fist", monk],
     ["swashbuckler", "panache", swashbuckler],
     ["witch", "hex-spells", witch],
+    ["inventor", "overdrive", inventor],
+    ["psychic", ["psi-cantrips-and-amps", "the-distant-grasp", "the-infinite-eye", "the-oscillating-wave", "the-silent-whisper", "the-tangible-dream", "the-unbound-step"], psychic],
+    ["kineticist", "impulses", kineticist],
+    ["summoner", "eidolon", summoner],
+    ["gunslinger", ["gunslingers-way", "way-of-the-drifter", "way-of-the-pistolero", "way-of-the-sniper", "way-of-the-spellshot", "way-of-the-vanguard", "way-of-the-triggerbrand", "slingers-precision"], gunslinger],
+    ["guardian", "taunt", guardian],
+    ["animist", ["apparition-attunement", "animist-apparition-spellcasting", "animist-dedication"], animist],
+    ["necromancer", ["grave-spells", "necromancer-dedication"], necromancer],
+    ["runesmith", ["runic-repertoire", "runesmith-dedication"], runesmith],
+    ["exemplar", ["divine-spark-and-ikons", "shift-immanence"], exemplar],
     ["fighter", "double-slice", fighter],
     ["barbarian", "rage", barbarian],
     ["ranger", "hunt-prey", ranger],
@@ -56,7 +76,7 @@ function classFeatures(board, ctx) {
     const cls = actor?.class?.slug ?? (actor?.class?.name ?? "").toLowerCase();
     const safe = (fn) => { try { fn(board, ctx, out); } catch (err) { console.warn("pf2e-tactics | class feature read failed", err); } };
     safe(general);
-    for (const [slug, feature, read] of READS) if (cls === slug || has(actor, feature)) safe(read);
+    for (const [slug, feature, read] of READS) if (cls === slug || [feature].flat().some((f) => has(actor, f))) safe(read);
     safe((b, c, o) => reactionsNote(b, o));
     return out;
 }

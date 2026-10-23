@@ -97,7 +97,9 @@ function monk(board, ctx, out) {
     const stanceFx = effect(actor, /^stance-/);
     const stance = stanceFx ? slugOf(stanceFx).replace(/^stance-/, "") : null;
     const inStance = (k) => stance === k;
-    const unarmored = !actor?.wornArmor && !actor?.items?.some?.((i) => i.type === "armor" && (i.isEquipped ?? i.system?.equipped?.inSlot) && (i.system?.category ?? "unarmored") !== "unarmored");
+    // PF2e's wornArmor includes explorer's clothing (category "unarmored"), which stances allow
+    const worn = actor?.wornArmor ?? actor?.items?.find?.((i) => i.type === "armor" && (i.isEquipped ?? i.system?.equipped?.inSlot)) ?? null;
+    const unarmored = !worn || (worn.category ?? worn.system?.category ?? "unarmored") === "unarmored";
     const monastic = has(actor, "monastic-weaponry");
     const speed = (() => {
         const sheet = Number(actor?.system?.movement?.speeds?.land?.value ?? actor?.system?.attributes?.speed?.total ?? actor?.attributes?.speed?.total) || 0;

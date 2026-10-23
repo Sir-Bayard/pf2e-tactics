@@ -188,10 +188,31 @@ const CLASS_HANDLED = new Set([
     "whispers-of-weakness", "nudge-the-scales", "debilitating-dichotomy", "on-borrowed-time", "the-dead-walk", "trial-by-skyfire", "waters-of-creation",
     // monk
     "flurry-of-blows", "monks-flurry", "tiger-slash", "wolf-drag", "dragon-roar", "gorilla-pound", "mountain-quake", "wild-winds-gust", "whirling-throw", "sleeper-hold", "wave-dashes-rocks", "flying-kick", "knockback-strike", "one-inch-punch", "disrupt-qi", "flinging-blow", "shattering-strike-monk", "mixed-maneuver",
+    "asp-stance", "clinging-shadows-stance", "cobra-stance", "crane-stance", "dragon-stance", "flood-stance", "fuse-stance", "gorilla-stance", "ironblood-stance", "jellyfish-stance", "kaiju-stance", "monastic-archer-stance", "mountain-stance", "peafowl-stance", "rain-of-embers-stance", "reflective-ripple-stance", "reflexive-stance", "rushing-goat-stance", "shooting-stars-stance", "stoked-flame-stance", "stumbling-stance", "tangled-forest-stance", "tiger-stance", "twisting-petal-stance", "vitality-manipulating-stance", "waterfowl-stance", "whirling-blade-stance", "wild-winds-stance", "wolf-stance",
     // swashbuckler
     "confident-finisher", "basic-finisher", "unbalancing-finisher", "retreating-finisher", "bleeding-finisher", "dual-finisher", "impaling-finisher", "stunning-finisher", "stumbling-finisher", "targeting-finisher", "mobile-finisher", "perfect-finisher", "revitalizing-finisher", "lethal-finisher", "illimitable-finisher", "lunging-finisher", "vexing-tumble", "the-bigger-they-are", "leading-dance", "extravagant-parry",
     // witch (and wizard: quickened casting)
     "sympathetic-strike", "split-hex", "quickened-casting", "siphon-power", "cackle", "patrons-presence", "patrons-claim", "shed-spirit", "stitching-strike",
+    // inventor
+    "overdrive", "explode", "megaton-strike", "megavolt", "searing-restoration", "tamper", "oil-fire", "electrify-armor", "wukong-extension", "devastating-weaponry", "overdrive-ally", "helpful-tinkering", "lock-on", "engine-of-destruction", "command-a-construct",
+    // psychic
+    "psi-burst", "violent-unleash", "brain-drain", "restore-the-mind", "strain-mind", "unleash-psyche",
+    // kineticist
+    "channel-elements", "elemental-blast", "extract-element", "chain-infusion", "two-element-infusion", "weapon-infusion", "lightning-rod", "magnetic-pinions", "aerial-boomerang", "flying-flame", "hail-of-splinters", "scorching-column", "shard-strike", "tidal-hands", "tremor", "winters-clutch", "fresh-produce", "oceans-balm", "blazing-wave", "lava-leap", "lightning-dash", "tumbling-lumber", "whirling-grindstone", "ash-strider", "driving-rain", "elemental-artillery", "molten-wire", "rising-hurricane", "roiling-mudslide", "torrent-in-the-blood", "tree-of-duality", "weight-of-stone", "dash-of-herbs", "sand-snatcher", "call-the-hurricane", "conductive-sphere", "retch-rust", "sanguivolent-roots", "solar-detonation", "storm-spiral", "burning-demand", "glacial-prison", "rain-of-razors", "witchwood-seed", "walk-through-the-conflagration", "all-shall-end-in-flames", "hell-of-1000000-needles", "ignite-the-sun", "ride-the-tsunami", "rouse-the-forests-fury", "the-shattered-mountain-weeps", "the-thousand-lashes-of-the-weeping-willow", "geologic-attunement", "air-shroud", "magnetic-field", "ravel-of-thorns", "thermal-nimbus", "winter-sleet", "desert-wind", "steam-knight", "kindle-inner-flames", "drifting-pollen", "drowning-mist", "ghosts-in-the-storm", "sea-glass-guardians", "shattershields", "assume-earths-mantle", "orchards-endurance", "crowned-in-tempests-fury",
+    // summoner
+    "act-together", "manifest-eidolon", "tandem-strike", "magical-onslaught", "seething-frenzy", "furious-strike", "beasts-charge", "draconic-frenzy", "dragon-breath", "primal-roar", "whirlwind-maul", "drain-life", "visions-of-sin", "field-of-roots", "elemental-burst", "elemental-maelstrom", "piercing-jab", "eidolons-trample", "ostentatious-arrival",
+    // gunslinger
+    "reloading-strike", "raconteurs-reload", "covered-reload", "thoughtful-reload", "clear-a-path", "touch-and-go", "risky-reload", "paired-shots", "twin-shot-knockdown", "two-weapon-fusillade", "drifters-juke", "bullet-split", "penetrating-fire", "snipers-aim", "called-shot", "headshot", "vital-shot", "ghost-shot", "blast-tackle", "pistol-twirl", "scatter-blast", "alchemical-shot", "final-shot", "pistoleros-challenge", "triggerbrand-salvo", "stab-and-blast", "break-them-down", "wind-them-up", "spinning-crush", "siegebreaker", "drifters-wake", "triggerbrand-blitz", "grim-swagger", "dance-of-thunder", "flesh-wound",
+    // guardian
+    "taunt", "taunting-strike", "shielding-taunt", "shoulder-check", "proud-nail", "ring-their-bell", "weakening-assault", "demolish-defenses", "shield-wallop", "clobber", "momentum-strike", "bloody-denial", "belly-flop", "stomp-ground", "flying-tackle", "scattering-charge", "retaliating-rescue", "armor-break", "hampering-stance", "covering-stance", "lock-down", "blanket-defense", "armored-courage", "tough-cookie",
+    // animist
+    "grudge-strike", "forests-heart",
+    // necromancer
+    "create-thrall", "thrall-charge", "command-a-thrall", "consume-thrall", "draining-strike", "anatomical-quartering", "reclaim-power", "amalgamate", "infuse-void", "skeletal-extension",
+    // runesmith
+    "trace-rune", "invoke-rune", "solitary-invocation", "engraving-strike", "remote-detonation", "pattern-flight", "swiping-trace", "engraving-maneuver", "edifying-trace", "fortifying-knock", "terrifying-invocation", "transpose-etching", "words-fly-free", "dance-of-bloody-ink", "chain-of-words", "vital-compound-invocation", "song-of-glorious-invocation", "tracing-trance",
+    // exemplar
+    "shift-immanence", "flowing-spirit-strike", "strike-breathe-rend", "drink-of-my-foes", "reap-the-field", "fracture-mountains", "feral-swing", "giant-felling-comet", "arrow-splits-arrow", "liars-hidden-blade", "blinding-of-the-needle", "coiling-serpents", "sever-four-dragonfly-wings", "plant-thirty-barbs", "burn-out-of-time", "rejoin-in-flight", "topple-the-pillar-of-heaven", "heaven-rains-an-ending", "fleeting-arc-through-heaven-and-earth", "ringing-challenge", "one-moment-till-glory", "break-free", "embrace-of-destiny", "marathon-dash", "raise-the-walls", "no-scar-but-this", "a-moment-unending", "captivating-charm", "tangle-in-riddle", "mark-the-center", "heavy-is-the-crown",
 ]);
 /** The board the advisor plans on for a player: foes as estimates, no threat table, the character read as sharp. */
 function adviceBoard(board, ledger) {
@@ -248,10 +269,11 @@ function adviseHelper(board, ledger) {
     let plans = [];
     try { plans = planTurn(b, {}) ?? []; } catch (err) { console.warn(`${MODULE_ID} | couldn't plan the player's turn`, err); }
     plans = plans.filter((p) => !["none"].includes(p.kind) || plans.length === 1).filter((p) => allowedTarget(board, p));
+    const thriftNote = spellThrift(b, plans);
     const all = [...plans, ...cls.plans.filter((p) => allowedTarget(board, p))].map((p) => ({ ...p, steps: p.steps.map((s) => ({ ...s, text: forYou(s.text) })), notes: (p.notes ?? []).map(forYou) }));
     all.sort((a, c) => (c.score ?? c.ev) - (a.score ?? a.ev));
     const estimated = b.enemies.some((e) => e.estimated) || b.enemies.some((e) => !(flagOf(game.combat, "party")?.[e.id]?.ac?.n > 0));
-    return { plans: all, notes: cls.notes, actions: ctx.actions, estimated };
+    return { plans: all, notes: [...cls.notes, ...(thriftNote ? [thriftNote] : [])], actions: ctx.actions, estimated };
 }
 function adviceSectionFor(board, adv) {
     const key = "h-advice";
@@ -527,6 +549,68 @@ function refreshHelper(delay = 250) {
     helperTimer = setTimeout(() => helperWindow?.rendered && helperWindow.render(), delay);
 }
 
+/* ------------------------------------------------------------------ spell thrift */
+
+/** Spell slots left by rank, from the character's spellcasting entries: { rank: { left, max } }. Prepared entries count the
+ *  spells still prepared and not expended; spontaneous ones their uses left. Empty when the sheet carries no slots. */
+function slotsByRank(actor) {
+    const out = {};
+    for (const e of actor?.spellcasting?.regular ?? []) {
+        if (e.isFocusPool || e.isRitual) continue;
+        const slots = e.system?.slots ?? {};
+        for (const [key, slot] of Object.entries(slots)) {
+            const rank = Number(key.replace("slot", ""));
+            if (!rank || !(slot?.max > 0)) continue;
+            const prepared = Array.isArray(slot.prepared) ? slot.prepared : Object.values(slot.prepared ?? {});
+            const left = e.isPrepared ? prepared.filter((p) => p?.id && !p.expended).length : Math.max(0, Number(slot.value) || 0);
+            const cur = out[rank] ?? (out[rank] = { left: 0, max: 0 });
+            cur.left += left; cur.max += slot.max;
+        }
+    }
+    return out;
+}
+const THRIFT = { frugal: 1.5, normal: 1, free: 0 };
+/**
+ * A slot spent now is a slot gone for the day's later fights, so a slot spell has to beat the best cantrip by a clear
+ * margin to be the recommended turn. Each slot plan's score drops by a reserve that grows with the slot's rank (the top
+ * ranks are the day's decisive spells), shrinks as more slots of that rank remain, and halves when the spell is decisive
+ * here (two or more foes caught, or a foe it can drop). Cantrips, focus spells, heals and buffs are never taxed. The
+ * plan's own note says the numbers, so the player sees why the cantrip came first. Returns a one-line class note.
+ */
+function spellThrift(board, plans) {
+    const mult = THRIFT[setting("helperThrift", "normal")] ?? 1;
+    if (!mult) return null;
+    const spells = board.spells ?? [];
+    const slotSpells = spells.filter((sp) => !sp.cantrip && !sp.consumable && !sp.potion && sp.cost !== null && !sp.focus && !sp.isFocus);
+    if (!slotSpells.length) return null;
+    const byRank = slotsByRank(board.me.actor);
+    const top = Math.max(...slotSpells.map((sp) => sp.rank || 1), ...Object.keys(byRank).map(Number));
+    const cantripPlans = plans.filter((p) => p.spell?.cantrip && p.kind !== "heal");
+    const bestCantrip = cantripPlans.reduce((b, p) => (!b || p.ev > b.ev ? p : b), null);
+    const baseline = Math.max(4, bestCantrip?.ev ?? 0);
+    const spellOf = (p) => p.spell ?? (p.kind === "area" ? spells.find((sp) => p.title.startsWith(`${sp.name}:`)) : null);
+    let taxed = 0;
+    for (const p of plans) {
+        const sp = spellOf(p);
+        if (!sp || sp.cantrip || sp.consumable || sp.potion || sp.focus || sp.isFocus || p.kind === "heal" || p.kind === "buff" || p.revive) continue;
+        const rank = sp.rank || 1;
+        const left = byRank[rank]?.left ?? null;
+        if (left === 0) continue;   // nothing to spend: the advisor's spell list already dropped it, this is just in case
+        const scarcity = left === null ? 0.6 : left >= 4 ? 0.3 : [1, 1, 0.7, 0.45][left];
+        const decisive = (p.caught?.length ?? 0) >= 2 || (p.target && p.target.hp > 0 && p.ev >= p.target.hp);
+        const reserve = Math.round(10 * mult * (0.5 + 1.5 * rank / Math.max(1, top)) * scarcity * baseline * (decisive ? 0.5 : 1)) / 10;
+        const gain = p.ev - (bestCantrip?.ev ?? 0);
+        p.score = (p.score ?? p.ev) - reserve;
+        p.notes = p.notes ?? [];
+        p.notes.push(`Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}: ${bestCantrip ? `it has to beat ${bestCantrip.spell.name} (about ${Math.round(bestCantrip.ev)}) by about ${Math.round(reserve)} to be worth the slot; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : ", so the cantrip keeps it"}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
+        taxed++;
+    }
+    if (!taxed) return null;
+    const ranks = Object.keys(byRank).map(Number).sort((a, b) => b - a).filter((r) => byRank[r].max > 0);
+    const held = ranks.length ? ranks.map((r) => `${byRank[r].left}/${byRank[r].max} at rank ${r}`).join(", ") : "your slots";
+    return `Spell thrift: a slot spent now is gone for the day's later fights, so a slot spell has to beat your best cantrip by a margin that grows with its rank and shrinks as more slots of that rank remain (${held}); two foes caught or a foe it can drop halves the margin. Cantrips and focus spells cost nothing, so they come first when the gain is small.`;
+}
+
 /* ------------------------------------------------------------------ hooks and settings */
 
 Hooks.once("init", () => {
@@ -534,6 +618,11 @@ Hooks.once("init", () => {
         name: "Turn Helper: judge foes by their real level",
         hint: "Off (default), the helper's odds treat every foe as a creature of the party's level until the party's rolls say otherwise. On, it uses each creature's real level behind the scenes (never shown), for truer odds at the cost of a hint about how tough things are.",
         scope: "world", config: true, type: Boolean, default: false,
+    });
+    game.settings.register(MODULE_ID, "helperThrift", {
+        name: "Turn Helper: spell thrift",
+        hint: "How dearly the Turn Helper holds your spell slots. Normal (default): a slot spell is the recommended turn only when it beats your best cantrip by a margin that grows with its rank and shrinks as more slots remain. Frugal: half again as dear. Free-spending: slots are weighed on their damage alone.",
+        scope: "client", config: true, type: String, choices: { frugal: "Frugal", normal: "Normal", free: "Free-spending" }, default: "normal",
     });
     game.settings.register(MODULE_ID, "helperAutoOpen", {
         name: "Turn Helper: open on my turn",

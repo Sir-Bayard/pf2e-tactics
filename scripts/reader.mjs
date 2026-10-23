@@ -1017,7 +1017,8 @@ function spellAverage(spell, rank) {
         const steps = Math.floor((rank - base) / h.interval);
         for (const [k, f] of Object.entries(h.damage ?? {})) parts[k] = `${parts[k] ?? ""}+${Array(steps).fill(f).join("+")}`;
     } else if (h?.type === "interval" && h.interval && spell.isCantrip) {
-        const steps = Math.floor((rank - 1) / h.interval);
+        // A cantrip heightens from its own base rank (1 for most; a psychic's unique cantrips start at 3 or 5)
+        const steps = Math.max(0, Math.floor((rank - Math.max(1, base)) / h.interval));
         for (const [k, f] of Object.entries(h.damage ?? {})) parts[k] = `${parts[k] ?? ""}+${Array(steps).fill(f).join("+")}`;
     } else if (h?.type === "fixed") {
         for (const [lvl, data] of Object.entries(h.levels ?? {})) {
@@ -1062,7 +1063,7 @@ async function spellsOf(actor) {
                     // Heal and harm: two actions make them ranged (30 feet) and add 8 per rank
                     twoAction: /^(heal|harm)$/i.test(s.name) ? { avg: avg + 8 * rank, range: 30 } : null,
                     ...spellEffects(s),
-                    entry: entry.name,
+                    entry: entry.name, focus: !!entry.isFocusPool,
                 });
             }
         }

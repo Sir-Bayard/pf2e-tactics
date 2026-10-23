@@ -152,7 +152,7 @@ function wizard(board, ctx, out) {
                 : clear ? `the slot is worth it unless you're saving it`
                 : `keep the slot; the gain is small. Spend one only when the gain is clear, the foe is nearly down, or this is the day's last fight`;
             out.notes.push(`Against ${nameOf(t)}: ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}, ${slot.sp.name} (rank ${slot.sp.rank}) about ${Math.round(slot.e.expected)}; ${verdict}.`);
-        } else if (cantrip && !slot) out.notes.push(`Only cantrips reach ${nameOf(t)} from here: ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}.`);
+        } else if (cantrip && !slot) out.notes.push(`No damaging slot spell of yours reaches ${nameOf(t)} from here; ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}; your slots are for the save and utility spells.`);
     }
 
     // Arcane school: which prepared spells are its curriculum, and the school spells
