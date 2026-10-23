@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.5.0
+
+**Companions and summons, for every class**
+- An animal companion is planned for whatever class has one (a ranger's wolf, a champion's steed, a beastmaster's companion), not only a druid's: Command an Animal with the companion's own Strikes from its sheet, then your best two actions at the same foe, as one turn. A mature companion's free action is counted against the command; Side by Side flanks.
+- A summoned creature's Sustain is planned the same way (its two actions, then your two), and any caster with a summon spell gets the summon cast beside a foe, marked for spell thrift. A familiar gets a note.
+- A minion is yours when it names you as its master, or else when the same player owns it; another character's companion is left alone.
+
+**Scrolls and wands**
+- Spell thrift weighs a scroll or a wand like a slot of its rank with one use left, so the helper doesn't read a scroll or spend the wand's daily use for a small gain over a cantrip, and the plan says which it is.
+
+**Archetypes**
+- Checked with four multiclass characters (a rogue with Wizard Dedication, a champion with Fighter Dedication, a cleric with Rogue Dedication, a fighter with Beastmaster Dedication): each dedication brings in its class's read, and all of them are in the test set of real sheets.
+
 ## 3.4.1
 
 - When a combat ends, each character's record of that fight (Spellstrike's charge, the foe exploited, who it Demoralized...) is cleared from the character too, as the combat's own record already was. Nothing about a fight outlives it.

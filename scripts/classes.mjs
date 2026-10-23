@@ -6,6 +6,7 @@
  */
 import { has } from "./classes/_common.mjs";
 import { general, reactionsNote } from "./classes/general.mjs";
+import { minions } from "./classes/minions.mjs";
 import { rogue } from "./classes/rogue.mjs";
 import { fighter } from "./classes/fighter.mjs";
 import { barbarian } from "./classes/barbarian.mjs";
@@ -76,6 +77,7 @@ function classFeatures(board, ctx) {
     const cls = actor?.class?.slug ?? (actor?.class?.name ?? "").toLowerCase();
     const safe = (fn) => { try { fn(board, ctx, out); } catch (err) { console.warn("pf2e-tactics | class feature read failed", err); } };
     safe(general);
+    safe(minions); // a companion, a summon or a familiar, whatever the class
     for (const [slug, feature, read] of READS) if (cls === slug || [feature].flat().some((f) => has(actor, f))) safe(read);
     safe((b, c, o) => reactionsNote(b, o));
     return out;

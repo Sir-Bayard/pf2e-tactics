@@ -6,6 +6,7 @@
  * casting from here on), summons (worth on the turn they appear, what a Sustain buys afterwards), Untamed Shift,
  * Focus Points and the once-a-day features, and the spellshapes and reactions as "when" notes.
  */
+import { companionOf, summonedOf as summonedAlly } from "./minions.mjs";
 import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 /** The orders (Remaster first, Legacy after), with the order spell each grants. */
@@ -51,13 +52,6 @@ function unarmedBonus(board) {
     const m = board.strikes.filter((s) => !s.ranged).sort((a, b) => b.bonus - a.bonus)[0];
     return m ? m.bonus : level(board) + 2 + (board.me.actor?.system?.abilities?.str?.mod ?? 0);
 }
-/** The character's animal companion among its allies: a minion with the animal trait, or a companion-class actor. */
-function companionOf(board) {
-    return board.allies.find((a) => a.hp > 0 && a.type !== "familiar" && a.actor && !(a.traits ?? []).includes("summoned")
-        && (a.cls === "animal-companion" || ((a.traits ?? []).includes("minion") && (a.traits ?? []).includes("animal")) || !!a.actor.flags?.pf2e?.master || a.actor.system?.master?.id)) ?? null;
-}
-/** A creature the character summoned and still has about. */
-const summonedAlly = (board) => board.allies.find((a) => a.hp > 0 && (a.traits ?? []).includes("summoned")) ?? null;
 /** The best 2-action damage spell (cantrip when cantripOnly) against f, as expected damage; what a turn of casting is worth. */
 function bestCast(board, f, { cantripOnly = false } = {}) {
     let best = null;
@@ -130,33 +124,7 @@ function druid(board, ctx, out) {
     /* ---------------------------------------------------------------- the animal companion */
     if (companion) {
         const comp = companion;
-        const mature = has(actor, "mature-animal-companion-druid") || has(actor, "mature-animal-companion");
-        const strike = comp.reactiveStrike ?? { bonus: lv + 6, avg: 4 + lv };
-        const reach = comp.reach ?? 5;
-        // Side by Side (level 10): a foe adjacent to both of you is flanked, whatever the geometry
-        if (has(actor, "side-by-side-druid") || has(actor, "side-by-side")) {
-            for (const f of foes) if (inReach(me.rect, f.rect, myReach(board)) && inReach(comp.rect, f.rect, reach)) markOffGuard(board, f, `Side by Side: ${nameOf(comp)} and you are both on it`);
-        }
-        if (ctx.actions >= 1) {
-            const speed = allySpeed(comp);
-            for (const f of foes) {
-                const adjacent = inReach(comp.rect, f.rect, reach);
-                const canReach = adjacent || feetBetween(comp.rect, f.rect) <= speed + reach;
-                if (!canReach) continue;
-                // Command an Animal (1 action): two actions for it. Mature: it Strikes or Strides on its own anyway, so the
-                // command buys its second Strike (adjacent) or the Strike after a Stride (not)
-                const full = twoStrikes(strike.bonus, strike.avg, f);
-                const one = strikeExpected(strike.bonus, f.ac, strike.avg).expected;
-                const second = strikeExpected(strike.bonus - 5, f.ac, strike.avg).expected;
-                const ev = adjacent ? (mature ? second : full) : one;
-                const what = adjacent ? `Strike ${nameOf(f)} twice (${signed(strike.bonus)}, ${signed(strike.bonus - 5)}; about ${Math.round(strike.avg)} a hit)` : `Stride to ${nameOf(f)} and Strike (${signed(strike.bonus)}, about ${Math.round(strike.avg)})`;
-                const notes = [];
-                if (mature) notes.push(adjacent ? `Mature companion: it Strikes once on its own if you don't Command it; the command is worth the second Strike, about ${Math.round(second)}.` : "Mature companion: without the command it only Strides or Strikes, not both.");
-                if (has(actor, "primal-howl")) notes.push("Primal Howl: it can Howl instead (Demoralize all within 30 feet) when the foes are fresh and unfrightened.");
-                out.plans.push({ kind: "class", title: `Command ${nameOf(comp)} at ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null,
-                    steps: [{ cost: 1, text: `Command an Animal: ${nameOf(comp)} ${what}` }], notes });
-            }
-        }
+        // Command an Animal and Side by Side: classes/minions.mjs, for every class with a companion
         // Heal Animal: the advisor's heal plans don't know it heals only animals; the companion is the patient
         const ha = spellNamed(/^heal animal$/i);
         if (ha && focus > 0 && comp.hp <= comp.maxHp * 0.6) {
@@ -255,34 +223,9 @@ function druid(board, ctx, out) {
         if (shift.rank >= 6) out.notes.push("Untamed Shift at this rank gives two effects at once: claws with bleed, jaws with poison, elemental skin, vines for reach, or wings (2 actions).");
     }
 
-    /* ---------------------------------------------------------------- summons: the turn they appear, and the Sustain after */
+    /* ---------------------------------------------------------------- summons: classes/minions.mjs plans the cast and the Sustain */
     const summons = castable(board, (sp) => /^summon\b/i.test(sp.name ?? "") && !sp.cantrip && sp.cost === 3);
     const active = summonedAlly(board);
-    if (active) {
-        const f = nearest(foes, active.rect);
-        const st = active.reactiveStrike ?? { bonus: lv + 8, avg: 4 + lv * 1.5 };
-        if (f) {
-            const adjacent = inReach(active.rect, f.rect, active.reach ?? 5);
-            const value = adjacent ? twoStrikes(st.bonus, st.avg, f) : strikeExpected(st.bonus, f.ac, st.avg).expected;
-            const cantrip = bestCast(board, f, { cantripOnly: true });
-            if (board.sustain && /^summon/i.test(board.sustain.name ?? "")) board.sustain.value = Math.max(board.sustain.value ?? 0, value);
-            out.notes.push(`Sustain your summon (1 action): ${nameOf(active)} gets two actions, worth about ${Math.round(value)} against ${nameOf(f)}${adjacent ? "" : " after it closes"}; a cantrip costs two actions for about ${cantrip ? Math.round(cantrip.e) : 0}. Let it lapse only when it can't reach anything or you need all three actions.`);
-        }
-    } else if (summons.length && ctx.actions >= 3 && foes.length) {
-        for (const f of foes) {
-            if (feetBetween(me.rect, f.rect) > 30 || !squareBeside(board, f)) continue;
-            const sp = summons.slice().sort((a, b) => (b.rank ?? 1) - (a.rank ?? 1))[0];
-            const s = summonStats(sp.rank ?? 1);
-            const ev = twoStrikes(s.atk, s.avg, f);
-            const other = Math.max(bestCast(board, f)?.e ?? 0, strikeRun(board, f, 3, { made: ctx.made }).ev);
-            const cantrip = bestCast(board, f, { cantripOnly: true });
-            const notes = [`Each later turn, Sustain (1 action) buys its two actions, about ${Math.round(ev)} against this foe, and leaves you two for a cantrip${cantrip ? ` (${cantrip.sp.name}, about ${Math.round(cantrip.e)})` : ""}. ${ev + (cantrip?.e ?? 0) > other ? "That beats your best three-action turn from the second turn on." : "Your own best turn is about " + Math.round(other) + "; the summon is for a body in the way, not the damage."} It has the minion trait and goes at 0 HP; the spell lasts a minute.`];
-            if (has(actor, "primal-summons")) notes.push("Primal Summons: give it air (fly 60 feet), earth (burrow, +1d6 bludgeoning), fire (+1d6 fire, fire resistance) or water (swim, +1d6 bludgeoning) as you summon it.");
-            out.plans.push(spendsSlot({ kind: "class", title: `${sp.name} beside ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null,
-                steps: [{ cost: 3, text: `Cast ${sp.name} (rank ${sp.rank}): a level ${s.level} creature appears next to ${nameOf(f)} and Strikes twice at once (about ${signed(s.atk)}, ${Math.round(s.avg)} a hit)` }], notes }, sp));
-            break;
-        }
-    }
     if (!summons.length && !active && (has(actor, "call-of-the-wild") || has(actor, "elemental-summons"))) out.notes.push(`${has(actor, "call-of-the-wild") ? "Call of the Wild" : "Elemental Summons"}: between fights, 10 minutes turns a prepared spell into a summon of the same rank.`);
 
     /* ---------------------------------------------------------------- spellshapes and the rest: when they matter */

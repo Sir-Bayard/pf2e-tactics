@@ -648,7 +648,9 @@ function spellThrift(board, plans) {
     const mult = THRIFT[setting("helperThrift", "normal")] ?? 1;
     if (!mult) return null;
     const spells = board.spells ?? [];
-    const slotSpells = spells.filter((sp) => !sp.cantrip && !sp.consumable && !sp.potion && sp.cost !== null && !sp.focus && !sp.isFocus);
+    // scrolls and wands count as one-of-a-kind slots: a scroll is gone once read, a wand is spent for the day
+    const itemSpell = (sp) => sp.consumable === "scroll" || sp.consumable === "wand";
+    const slotSpells = spells.filter((sp) => !sp.cantrip && (!sp.consumable || itemSpell(sp)) && !sp.potion && sp.cost !== null && !sp.focus && !sp.isFocus);
     if (!slotSpells.length) return null;
     const byRank = slotsByRank(board.me.actor);
     const top = Math.max(...slotSpells.map((sp) => sp.rank || 1), ...Object.keys(byRank).map(Number));
@@ -665,19 +667,20 @@ function spellThrift(board, plans) {
     for (const p of plans) {
         if (p.thrifted) continue;
         const sp = spellOf(p);
-        if (!sp || sp.cantrip || sp.consumable || sp.potion || sp.focus || sp.isFocus || p.kind === "heal" || p.kind === "buff" || p.revive) continue;
+        if (!sp || sp.cantrip || (sp.consumable && !itemSpell(sp)) || sp.potion || sp.focus || sp.isFocus || p.kind === "heal" || p.kind === "buff" || p.revive) continue;
         const rank = sp.rank || 1;
-        const left = byRank[rank]?.left ?? null;
+        const item = itemSpell(sp) ? sp.consumable : null;
+        const left = item ? 1 : byRank[rank]?.left ?? null;
         if (left === 0) continue;   // nothing to spend: the advisor's spell list already dropped it, this is just in case
-        // an innate spell (no slot entry) or one from a staff or wand: no slot at stake
-        if (!byRank[rank] && sp.entry && !(board.me.actor?.spellcasting?.regular ?? []).some((e) => e.name === sp.entry && !e.isFocusPool && !e.isInnate)) continue;
+        // an innate spell (no slot entry): no slot at stake
+        if (!item && !byRank[rank] && sp.entry && !(board.me.actor?.spellcasting?.regular ?? []).some((e) => e.name === sp.entry && !e.isFocusPool && !e.isInnate)) continue;
         const scarcity = left === null ? 0.6 : left >= 4 ? 0.3 : [1, 1, 0.7, 0.45][left];
         const decisive = (p.caught?.length ?? 0) >= 2 || (p.target && p.target.hp > 0 && p.ev >= p.target.hp);
         const reserve = Math.round(10 * mult * (0.5 + 1.5 * rank / Math.max(1, top)) * scarcity * baseline * (decisive ? 0.5 : 1)) / 10;
         const gain = p.ev - (bestFree?.ev ?? 0);
         p.score = (p.score ?? p.ev) - reserve;
         p.notes = p.notes ?? [];
-        p.notes.push(`Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}: ${freeName ? `it has to beat ${freeName} (about ${Math.round(bestFree.ev)}) by about ${Math.round(reserve)} to be worth the slot; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : `, so ${bestCantrip ? "the cantrip" : "that"} keeps it`}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
+        p.notes.push(`${item === "scroll" ? `Uses up the scroll (rank ${rank})` : item === "wand" ? `Spends the wand's use for the day (rank ${rank})` : `Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}`}: ${freeName ? `it has to beat ${freeName} (about ${Math.round(bestFree.ev)}) by about ${Math.round(reserve)} to be worth ${item ? "it" : "the slot"}; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : `, so ${bestCantrip ? "the cantrip" : "that"} keeps it`}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
         taxed++;
     }
     if (!taxed) return null;
