@@ -4,10 +4,7 @@
  * The bard's layer: composition cantrips as one-action plans worth what the allies they reach will do with them,
  * the focus spells that shape them (Lingering, Fortissimo), the muse's upgrades as "when" notes, what to Sustain.
  */
-import { bestStrike, castable, effect, focusLeft, has, level, pct, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
-
-/** GM Core's standard DC by level, for Lingering Composition's check. */
-const DC_BY_LEVEL = [14, 15, 16, 18, 19, 20, 22, 23, 24, 26, 27, 28, 30, 31, 32, 34, 35, 36, 38, 39, 40];
+import { bestStrike, castable, effect, focusLeft, has, level, pct, standardDC, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 /** The compositions this read knows, by a name pattern that also takes the Legacy names. */
 const COMPS = {
     anthem: /^(courageous anthem|inspire courage)$/i,
@@ -128,7 +125,7 @@ function bard(board, ctx, out) {
                 const options = [];
                 if (lingering) {
                     const hi = Math.max(lv, ...allies.map((a) => a.level ?? lv));
-                    const dc = DC_BY_LEVEL[Math.max(0, Math.min(20, hi))];
+                    const dc = standardDC(hi);
                     const c = degreeChances(perf, dc);
                     const rounds = 4 * c.cs + 3 * c.s + 1 * (c.f + c.cf);
                     const evL = base * (1 + 0.8 * (rounds - 1)) + selfPart.ev;
@@ -218,7 +215,7 @@ function bard(board, ctx, out) {
             const r = rest(ctx.actions - anthemCost, ctx.made, 0);
             push(`${dirge.name}, then ${r.steps[0]?.text?.startsWith("Strike") ? "Strike" : r.ev > 0 ? "a cantrip" : "move"}`, evD + r.ev, [{ cost: anthemCost, text: `${dirge.name}: frightened 1 (no save) to ${inArea.map(nameOf).join(", ")} within 30 feet; they can't drop below frightened 1 while they stay in it` }, ...r.steps],
                 [`Frightened 1 is -1 to everything they roll and to their AC and DCs, for your whole side; no check, no save, no immunity after. ${fresh.length < inArea.length ? "A foe already frightened only keeps its fear. " : ""}Mindless foes are immune.${compNote()}`], 0.3);
-            if (anthem && !symphony && !has(actor, "harmonize")) out.notes.push(`One composition at a time: ${dirge.name} or ${anthem.name}, not both, until you have Harmonize (level 6).`);
+            if (anthem && !symphony && !has(actor, "harmonize")) out.notes.push(`One composition at a time: ${dirge.name} or ${anthem.name}, not both, until ${muses.includes("maestro") ? "you have Harmonize (maestro, level 6)" : "Symphony of the Muse (level 20; Harmonize at 6 is the maestro's)"}.`);
         }
         else out.notes.push(`${dirge.name}: frightened 1 to every foe within 30 feet, no save. None are that close.`);
     }
@@ -276,7 +273,7 @@ function bard(board, ctx, out) {
             const missing = Math.max(0, t.maxHp - t.hp);
             const ev = 0.8 * Math.min(missing, per * 4) * 0.7 + 0.5 * per;
             push(`Hymn of Healing on ${t === me ? "yourself" : nameOf(t)}`, ev, [{ cost: 2, text: `Hymn of Healing on ${t === me ? "yourself" : nameOf(t)} (${t.hp}/${t.maxHp}): fast healing ${per} for 4 rounds, ${per} temporary HP now and each time you Sustain it` }],
-                [`Sustain it (1 action) on rounds ${t === me ? "you're" : "they're"} still being hit, for the temporary HP; the fast healing runs either way.${has(actor, "effortless-concentration") ? " Effortless Concentration: the first Sustain each turn is free at the start of your turn." : ""} Focus Points: ${fp} left.`], 0.2);
+                [`Sustain it (1 action) on rounds ${t === me ? "you're" : "they're"} still being hit, for the temporary HP; the fast healing runs either way.${has(actor, "effortless-concentration") ? " Effortless Concentration: the first Sustain each turn is free at the start of your turn." : ""} Focus Points: ${fp} left.${compNote()}`], 0.2);
         }
     }
     // ---- Soothing Ballad (14, maestro; 2 actions, 1 Focus Point): heal the side within 30 feet, or counteract fear or paralysis
@@ -287,7 +284,7 @@ function bard(board, ctx, out) {
         const healed = side.reduce((s, c) => s + Math.min(avg, Math.max(0, c.maxHp - c.hp)), 0);
         const hurtOnes = side.filter((c) => c.hp <= c.maxHp * 0.7);
         if (healed >= avg * 0.8 || hurtOnes.length >= 2) {
-            push(`Soothing Ballad: heal ${hurtOnes.length ? hurtOnes.map((c) => (c === me ? "yourself" : nameOf(c))).join(", ") : "your side"}`, 0.8 * healed, [{ cost: 2, text: `Soothing Ballad: about ${Math.round(avg)} HP to you and each ally within 30 feet, about ${Math.round(healed)} HP restored in all` }], [`One Focus Point for the whole side; ${fp} left.`], 0.3);
+            push(`Soothing Ballad: heal ${hurtOnes.length ? hurtOnes.map((c) => (c === me ? "yourself" : nameOf(c))).join(", ") : "your side"}`, 0.8 * healed, [{ cost: 2, text: `Soothing Ballad: about ${Math.round(avg)} HP to you and each ally within 30 feet, about ${Math.round(healed)} HP restored in all` }], [`One Focus Point for the whole side; ${fp} left.${compNote()}`], 0.3);
         }
         const scared = side.filter((c) => c.conditions?.has?.("frightened") || c.conditions?.has?.("paralyzed"));
         if (scared.length) out.notes.push(`Soothing Ballad can instead counteract fear or paralysis on your side within 30 feet: ${scared.map(nameOf).join(", ")}.`);
@@ -299,20 +296,22 @@ function bard(board, ctx, out) {
         const held = [me, ...(board.allies ?? [])].map((c) => ({ c, cond: conds.find((k) => c.conditions?.has?.(k)) })).filter((x) => x.cond && x.c.hp > 0 && feetBetween(me.rect, x.c.rect) <= 30).sort((x, y) => worth(board, y.cond) - worth(board, x.cond));
         const top = held.slice(0, lv >= 17 ? 4 : 1);
         if (top.length) {
-            const dc = DC_BY_LEVEL[Math.max(0, Math.min(20, near(me)?.level ?? lv))] + 2;
+            // The effect's DC isn't known: a hard DC for a creature of your level is the guess (a foe's level is never read)
+            const dc = standardDC(lv) + 2;
             const c = degreeChances(perf, dc);
             const odds = c.s + c.cs;
             const ev = top.reduce((s, x) => s + worth(board, x.cond) * 1.5, 0) * odds;
-            push(`Symphony of the Unfettered Heart: free ${top.map((x) => (x.c === me ? "yourself" : nameOf(x.c))).join(", ")}`, ev, [{ cost: 2, text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against a DC near ${dc}` }], [`A failure locks that effect out for a day. Focus Points: ${fp} left.`], 0.3);
+            push(`Symphony of the Unfettered Heart: free ${top.map((x) => (x.c === me ? "yourself" : nameOf(x.c))).join(", ")}`, ev, [{ cost: 2, text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against a DC near ${dc}` }], [`A failure locks that effect out for a day. Focus Points: ${fp} left.${compNote()}`], 0.3);
         }
     }
     // ---- Fatal Aria (20; 1 action, 1 Focus Point, 30 feet): a foe of level 16 or lower dies; 17 dies under 51 HP; 18 and up takes 50
+    // The odds use the estimate's level (the party's, or the GM's setting behind the scenes); the text never states a foe's level
     const aria = comp("aria");
     if (aria && (fp ?? 0) > 0 && ctx.actions >= 1) {
         for (const f of foes.filter((x) => feetBetween(me.rect, x.rect) <= 30)) {
             const L = f.level ?? lv;
             const ev = L <= 16 ? f.hp * 1.2 : L === 17 ? (f.hp <= 50 ? f.hp * 1.2 : f.hp) : Math.min(50, f.hp);
-            push(`Fatal Aria on ${nameOf(f)}`, ev, [{ cost: 1, text: `Fatal Aria on ${nameOf(f)}: ${L <= 16 ? "it dies outright" : L === 17 ? "it dies at 50 HP or fewer, else drops to 0 and dying 1" : "50 damage, death at 0 HP"} (level ${L}${f.estimated ? " by the party's guess" : ""}, no save)` }], ["Once a minute per target; it's immune after. Focus Points: " + fp + " left."], 0.5);
+            push(`Fatal Aria on ${nameOf(f)}`, ev, [{ cost: 1, text: `Fatal Aria on ${nameOf(f)}, no save: a creature of level 16 or lower dies outright, level 17 dies at 50 HP or fewer (else drops to 0 and dying 1), and anything higher takes 50 damage and dies at 0 HP` }], ["Once a minute per target; it's immune after. Focus Points: " + fp + " left." + compNote()], 0.5);
         }
     }
 
@@ -329,6 +328,7 @@ function bard(board, ctx, out) {
     if (has(actor, "bard-weapon-expertise")) out.notes.push("Bard Weapon Expertise: your critical hits apply the weapon's critical specialization while a composition is running.");
     if (has(actor, "combat-reading") && foes.some((f) => f.estimated)) out.notes.push("Combat Reading (1 action, secret check): the GM tells you a foe's lowest save, highest weakness, an immunity or its highest resistance. Worth a first-round action on a foe that will take a while.");
     if (has(actor, "harmonize") && !symphony && anthem && dirge) out.notes.push("Harmonize (1 action): the next composition keeps running when you cast another, so an anthem and a Dirge can both be up.");
+    if (lv >= 10 && has(actor, "quickened-casting")) { const top = Math.max(1, ...(board.spells ?? []).filter((sp) => !sp.cantrip && !sp.consumable && !(sp.traits ?? []).includes("focus")).map((sp) => sp.rank ?? 1)); out.notes.push(`Quickened Casting (free, once a day): a cantrip or a spell of rank ${Math.max(1, top - 2)} or lower costs one action less: two spells this turn, or a composition, a quickened spell and an action to spare.`); }
     if (eternal) out.notes.push("Eternal Composition: you're permanently quickened for one-action composition cantrips, and the one you performed while exploring is already up on round 1.");
     if (has(actor, "effortless-concentration") && !hymn) out.notes.push("Effortless Concentration: at the start of your turn one of your class spells is Sustained for free.");
     if (has(actor, "discordant-voice") && anthem) out.notes.push(`Discordant Voice: allies under your ${anthem.name} add 1d6 sonic to weapon and unarmed Strikes; the anthem plans count it.`);

@@ -8,15 +8,10 @@
  * push), Explode, Megavolt, Searing Restoration, Tamper then Strike, Oil Fire, Electrify Armor, Wukong Extension, Overdrive
  * Ally, Helpful Tinkering, Command (and Lock On), Engine of Destruction, Devastating Weaponry. The rest are when-notes.
  */
-import { effect, has, level, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { choiceOf, effect, has, hasAny, level, pct, squareToReach, standardDC, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 
-/** Foundry's slugs drop apostrophes ("hunters-aim"); the catalog's keep a dash for them ("hunter-s-aim"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
-/** The standard DC by level (Player Core, Table 10-5), level 0 to 20. */
-const STANDARD_DC = [14, 15, 16, 18, 19, 20, 22, 23, 24, 26, 27, 28, 30, 31, 32, 34, 35, 36, 38, 39, 40];
-const standardDC = (lv) => STANDARD_DC[Math.max(0, Math.min(20, lv))];
 const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
 const crafting = (actor, lv) => { const c = actor?.skills?.crafting; return c && c.mod != null ? Number(c.mod) || 0 : lv + abil(actor, "int") + (lv >= 15 ? 8 : lv >= 7 ? 6 : lv >= 3 ? 4 : 2); };
 const strikeText = (f, used, tail = "") => `Strike ${nameOf(f)} with ${used[0].s.label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})${tail}`;
@@ -75,7 +70,7 @@ function inventor(board, ctx, out) {
     const actor = board.me.actor;
     const me = board.me;
     const lv = level(board);
-    if (!hasAny(actor, "overdrive", "innovation", "weapon-innovation", "armor-innovation", "construct-innovation")) return;
+    if (!hasAny(actor, "overdrive", "innovation", "weapon-innovation", "armor-innovation", "construct-innovation", "inventor-dedication")) return;
     const foes = targets(board);
     const int = abil(actor, "int");
     const dc = classDC(actor, lv);
@@ -104,9 +99,10 @@ function inventor(board, ctx, out) {
     const broken = (kind === "weapon" && innovation?.item?.isBroken) || !!effect(actor, /^effect-broken-innovation/);
     const locked = !!effect(actor, /unstable-check-failure/);
     const redundancies = lv >= 14 && has(actor, "unstable-redundancies");
-    /** Strikes that carry the innovation's boosts: the weapon innovation, every melee Strike with the armor (unarmed, plus one prepared weapon). */
-    const boosted = (s) => (kind === "weapon" ? s === innovation : kind === "armor" ? !s.ranged : false);
-    const coreType = has(actor, "variable-core") ? (actor.flags?.pf2e?.rulesSelections?.variableCore ?? actor.flags?.pf2e?.inventor?.variableCore ?? "acid, cold or electricity (your core's type)") : "fire";
+    /** Strikes that carry the innovation's boosts: the weapon innovation; with the armor, melee unarmed Strikes (and one weapon chosen at daily preparations, which the sheet doesn't name). */
+    const boosted = (s) => (kind === "weapon" ? s === innovation : kind === "armor" ? !s.ranged && !!s.traits?.includes("unarmed") : false);
+    // Explode's damage type: the system's flag (fire, or Variable Core's choice), else the feat's own selection
+    const coreType = actor?.flags?.system?.inventor?.explode ?? (has(actor, "variable-core") ? (choiceOf(actor, "variable-core", "variableCore") ?? "acid, cold or electricity (your core's type)") : "fire");
 
     // ---- Overdrive: up, or the plan
     const od = effect(actor, /^effect-overdrive$/);
@@ -114,20 +110,25 @@ function inventor(board, ctx, out) {
     const tier = lv >= 15 && has(actor, "legendary-overdrive") ? 3 : lv >= 7 && has(actor, "master-overdrive") ? 2 : lv >= 3 && has(actor, "expert-overdrive") ? 1 : 0;
     const odDamage = (outcome) => (outcome === "critical-success" ? int + tier : outcome === "success" ? Math.floor(int / 2) + tier : outcome === "failure" ? 1 : 0);
     const odUp = od && odOutcome !== "failure";
+    // Overdrive is once a round: the action item carries the frequency (the class feature of the same slug doesn't). A
+    // dedication has no Overdrive at all. The critical failure's 1d4-round lock and the minute after an Overdrive ends
+    // aren't on the sheet: the plan's note names them.
+    const odUses = usesLeft({ items: actor?.items?.filter?.((i) => i.type === "action") ?? [] }, "overdrive");
+    const canOverdrive = has(actor, "overdrive") && odUses !== 0;
     if (od) {
         const dmg = odDamage(odOutcome);
         for (const s of board.strikes) if (!s.overdriveCounted) { s.overdriveCounted = true; s.avg += dmg; }
-        if (odOutcome === "failure") out.notes.push("Overdrive failed: +1 fire damage on your Strikes for the minute, nothing more. Overdrive again (1 action) for the real bonus; a critical failure ends it.");
+        if (odOutcome === "failure") out.notes.push(`Overdrive failed: +1 fire damage on your Strikes for the minute, nothing more. ${canOverdrive ? "Overdrive again (1 action, once a round) for the real bonus" : "Next round, Overdrive again (1 action) for the real bonus"}; a critical failure ends it.`);
         else out.notes.push(`${odOutcome === "critical-success" ? "Critical overdrive" : "Overdrive"}: +${dmg} damage on every Strike for a minute${kind === "weapon" ? ", fire if you choose" : ""}; the plans count it.${construct ? ` ${nameOf(construct)} gets the same.` : ""}${odOutcome === "success" && int + tier > dmg ? ` Overdrive again only to try for a critical (+${int + tier}); a critical failure ends it.` : ""}`);
         if (kind === "armor" && has(actor, "muscular-exoskeleton") && me.athletics != null && !me.exoCounted) { me.exoCounted = true; me.athletics += craft >= lv + 12 ? 2 : 1; }
     }
     // Offensive Boost (9): +1d6 on the innovation's Strikes; Persistent Boost (16): +1d8 persistent on a boosted hit
-    const boostType = actor?.flags?.pf2e?.inventor?.offensiveBoost ?? null;
+    const boostType = actor?.flags?.system?.inventor?.offensiveBoost ?? choiceOf(actor, "offensive-boost", "offensiveBoostDamage") ?? Object.keys(actor?.rollOptions?.all ?? {}).find((k) => k.startsWith("offensive-boost:"))?.slice("offensive-boost:".length) ?? null;
     if (lv >= 9 && has(actor, "offensive-boost") && kind !== "construct") {
         const persistent = lv >= 16 && has(actor, "persistent-boost");
         let marked = 0;
         for (const s of board.strikes) if (boosted(s) && !s.boostCounted) { s.boostCounted = true; s.avg += 3.5 + (persistent ? 1.5 * 4.5 : 0); marked += 1; }
-        if (marked) out.notes.push(`Offensive Boost: +1d6${boostType ? ` ${boostType}` : ""} damage on ${kind === "weapon" ? `${innovation?.label ?? "your innovation"}` : "your unarmed Strikes and the weapon you prepared"}${persistent ? ", and Persistent Boost adds 1d8 persistent of the same type on a hit" : ""}; the plans count it.${has(actor, "boost-modulation") ? " Boost Modulation: an Interact swaps the type among your three against a foe that resists it." : ""}`);
+        if (marked) out.notes.push(`Offensive Boost: +1d6${boostType ? ` ${boostType}` : ""} damage on ${kind === "weapon" ? `${innovation?.label ?? "your innovation"}` : "your unarmed Strikes (and the weapon you chose at daily preparations, which the plans don't count)"}${persistent ? ", and Persistent Boost adds 1d8 persistent of the same type on a hit" : ""}; the plans count it.${has(actor, "boost-modulation") ? " Boost Modulation: an Interact swaps the type among your three against a foe that resists it." : ""}`);
     } else if (lv >= 9 && has(actor, "offensive-boost") && construct) out.notes.push(`Offensive Boost: ${nameOf(construct)}'s Strikes deal +1d6${boostType ? ` ${boostType}` : ""} damage${lv >= 16 && has(actor, "persistent-boost") ? ", plus 1d8 persistent on a hit" : ""}.`);
 
     // ---- the unstable economy: one a fight unless the flat check passed
@@ -142,10 +143,12 @@ function inventor(board, ctx, out) {
     const sdc = standardDC(lv);
     const c = degreeChances(craft, sdc);
     const expectedOd = c.cs * odDamage("critical-success") + c.s * odDamage("success") + c.f * 1;
+    // after a failed Overdrive the Strikes already carry its +1: a new roll only replaces it on a success
+    const gainOd = odOutcome === "failure" ? c.cs * (odDamage("critical-success") - 1) + c.s * (odDamage("success") - 1) : expectedOd;
     const ubiquitous = lv >= 20 && has(actor, "ubiquitous-overdrive") ? (board.allies ?? []).filter((a) => a.canAct !== false && a.hasMelee !== false && feetBetween(me.rect, a.rect) <= 30 && a !== construct) : [];
     const odText = () => `Overdrive: Crafting ${signed(craft)} against DC ${sdc}, about ${pct(c.s + c.cs)} for +${odDamage("success")} on your Strikes for a minute (${pct(c.cs)} critical: +${odDamage("critical-success")}; a critical failure burns you for ${Math.ceil(lv / 2)} fire and locks it for 1d4 rounds)${construct ? `; ${nameOf(construct)} gets it too` : ""}${ubiquitous.length ? `; Ubiquitous Overdrive gives ${ubiquitous.map(nameOf).join(", ")} the base bonus` : ""}`;
-    if (!odUp && ctx.actions >= 2 && foes.length) {
-        const forward = expectedOd * 0.6 * 3 * (construct ? 2 : 1) + ubiquitous.length * (c.cs * int + c.s * Math.floor(int / 2)) * 0.6 * 3 - c.cf * Math.ceil(lv / 2) * 0.5;
+    if (!odUp && canOverdrive && ctx.actions >= 2 && foes.length) {
+        const forward = gainOd * 0.6 * 3 * (construct ? 2 : 1) + ubiquitous.length * (c.cs * int + c.s * Math.floor(int / 2)) * 0.6 * 3 - c.cf * Math.ceil(lv / 2) * 0.5;
         const odPlans = [];
         for (const f of foes) {
             const spare = ctx.actions - 1;
@@ -155,16 +158,17 @@ function inventor(board, ctx, out) {
             const moveActs = sq ? sq.route.actions : 0;
             const left = spare - moveActs;
             if (left < 1) continue;
-            const r = strikeRun(board, f, left, { made: ctx.made, extra: expectedOd, melee: !!sq });
+            const r = strikeRun(board, f, left, { made: ctx.made, extra: gainOd, melee: !!sq });
             if (!r.used.length) continue;
             const steps = [{ cost: 1, text: odText() }];
             if (moveActs) steps.push({ cost: moveActs, text: `${sq.route.via ?? "Stride"}${moveActs > 1 ? ` ×${moveActs}` : ""} into reach of ${nameOf(f)}` });
-            steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)}, about +${Math.round(expectedOd * 10) / 10} each from the Overdrive` });
-            odPlans.push({ title: `Overdrive, then Strike ${nameOf(f)}`, target: f, ev: r.ev + forward, bias: 0.4, dest: moveActs ? { x: sq.x, y: sq.y } : null, steps, notes: ["Overdrive lasts a minute; the plan's value counts this turn's Strikes and about three more hits later in the fight. A plain failure only smokes; a critical failure locks it for 1d4 rounds."] });
+            steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)}, about +${Math.round(gainOd * 10) / 10} each from the Overdrive` });
+            odPlans.push({ title: `Overdrive, then Strike ${nameOf(f)}`, target: f, ev: r.ev + forward, bias: 0.4, dest: moveActs ? { x: sq.x, y: sq.y } : null, steps, notes: ["Overdrive lasts a minute; the plan's value counts this turn's Strikes and about three more hits later in the fight. A plain failure only smokes; a critical failure locks it for 1d4 rounds.", "Not open if an Overdrive critically failed in the last 1d4 rounds, or one ended less than a minute ago: the sheet shows neither, so skip this plan then."] });
         }
         odPlans.sort((a, b) => b.ev - a.ev);
         for (const pl of odPlans.slice(0, 3)) push(pl);
-    } else if (!odUp && ctx.actions === 1 && foes.length) out.notes.push(`${odText()}.`);
+    } else if (!odUp && canOverdrive && ctx.actions === 1 && foes.length) out.notes.push(`${odText()}.`);
+    else if (!odUp && has(actor, "overdrive") && odUses === 0 && !od) out.notes.push("Overdrive is spent this round (a critical failure leaves nothing running): next round at the earliest, and a critical failure locks it for 1d4 rounds.");
 
     /** A run of Strikes with the innovation (or any melee Strike with the armor) at f: the best boosted Strike each time. */
     const innovationRun = (f, n, made, { extra = 0, at = me.rect } = {}) => {
@@ -322,7 +326,7 @@ function inventor(board, ctx, out) {
     }
 
     // ---- Devastating Weaponry (18, 3 actions): the innovation Strikes every foe within 30 feet, no penalty growth until after
-    if (has(actor, "devastating-weaponry") && kind === "weapon" && innovation && ctx.actions === 3 && !(innovation.reload > 0)) {
+    if (has(actor, "devastating-weaponry") && kind === "weapon" && innovation && ctx.actions >= 3 && !(innovation.reload > 0)) {
         const hit = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30);
         if (hit.length >= 2) {
             const b = innovation.bonus + mapFor(ctx.made, innovation.agile);
@@ -344,9 +348,7 @@ function inventor(board, ctx, out) {
     }
     // ---- Helpful Tinkering (10, 1 action, once per 10 minutes): an ally's weapon gets your offensive boost for a minute
     if (lv >= 10 && has(actor, "helpful-tinkering") && has(actor, "offensive-boost") && ctx.actions >= 1) {
-        const item = actor.items?.find?.((i) => (i.slug ?? i.system?.slug) === "helpful-tinkering");
-        const usesLeft = item?.system?.frequency?.value;
-        if (usesLeft !== 0) {
+        if (usesLeft(actor, "helpful-tinkering") !== 0) {
             const t = degreeChances(craft, standardDC(lv) + 2);
             const ally = (board.allies ?? []).filter((a) => a !== construct && a.canAct !== false && a.hasMelee !== false && inReach(me.rect, a.rect, 5)).sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
             if (ally) push({ title: `Helpful Tinkering on ${nameOf(ally)}'s weapon`, target: null, ev: (t.s + t.cs) * 3.5 * 0.6 * 5 - t.cf * 3.5, bias: 0.1,
@@ -394,7 +396,7 @@ function inventor(board, ctx, out) {
                 }
             }
         }
-        if (lv >= 18 && has(actor, "engine-of-destruction") && ctx.actions === 3) {
+        if (lv >= 18 && has(actor, "engine-of-destruction") && ctx.actions >= 3) {
             const near = foes.filter((f) => feetBetween(construct.rect, f.rect) <= 30 + speed);
             if (near.length >= 2) {
                 let ev = 0;

@@ -8,17 +8,13 @@
  * Clobber, Demolish Defenses, Bloody Denial, Belly Flop, Momentum Strike); the shoves and charges (Flying Tackle, Stomp
  * Ground, Scattering Charge, Retaliating Rescue, Armor Break); Blanket Defense; the once-a-while HP feats; and when-notes
  * for the reactions and the passives that change a maneuver (Larger Than Life, Punishing Shove, Right Where You Want Them).
- * Slugs are checked in both spellings ("guardians-armor" / "guardian-s-armor").
+ * Slugs are checked in both spellings ("guardians-armor" / "guardian-s-armor") by _common's has().
  */
-import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("guardians-armor"); the catalog's keep a dash ("guardian-s-armor"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s) || has(actor, s.replace(/-s-/g, "s-")) || has(actor, s.replace(/([a-z])s-/, "$1-s-")));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** The average of one weapon die of a Strike: from its formula ("2d12+6" -> 6.5), else a d8. */
 const dieAvg = (s) => { const m = /(\d+)d(\d+)/.exec(String(s?.formula ?? "")); return m ? (Number(m[2]) + 1) / 2 : 4.5; };
-/** Uses left today or this hour of a feat with a frequency, or null when the sheet doesn't say. */
-const usesLeft = (actor, slug) => { const i = actor?.items?.find?.((x) => (x.slug ?? x.system?.slug) === slug); const v = i?.system?.frequency?.value; return v == null ? null : Number(v); };
 const plural = (xs) => (xs.length > 1 ? "are" : "is");
 const list = (xs) => xs.map(nameOf).join(", ");
 
@@ -26,7 +22,7 @@ function guardian(board, ctx, out) {
     const actor = board.me.actor;
     const me = board.me;
     const lv = level(board);
-    if (!(has(actor, "taunt") || has(actor, "intercept-attack") || hasAny(actor, "guardian-s-techniques"))) return;
+    if (!(has(actor, "taunt") || has(actor, "intercept-attack") || hasAny(actor, "guardian-s-techniques", "guardian-dedication"))) return;
     const foes = targets(board);
     const allies = board.allies.filter((a) => a.canAct !== false || a.hp > 0);
     const str = abil(actor, "str");
@@ -47,6 +43,7 @@ function guardian(board, ctx, out) {
     const bestMelee = melee.slice().sort((a, b) => b.bonus - a.bonus)[0] ?? null;
     const push = (title, target, ev, sq, steps, notes = [], bias = 0.3) => out.plans.push({ kind: "class", title, target, ev, score: ev + bias, dest: sq?.route?.actions ? { x: sq.x, y: sq.y, z: sq.z } : null, steps, notes });
 
+    const trueSize = me.largerThanLife ? (me.sizeRank ?? 2) - 1 : (me.sizeRank ?? 2); // before Larger Than Life's maneuver size
     // --- Marks: Larger Than Life makes your Shove, Trip, Grapple and Reposition reach a size larger (the advisor's maneuver plans see it)
     if (hasAny(actor, "larger-than-life-guardian", "larger-than-life") && heavy && !me.largerThanLife) { me.largerThanLife = true; me.sizeRank = (me.sizeRank ?? 2) + 1; out.notes.push("Larger Than Life: in heavy armor you count as one size larger for Shove, Trip, Grapple, Reposition and Swallow Whole; the maneuver plans count it."); }
 
@@ -80,7 +77,6 @@ function guardian(board, ctx, out) {
         if (has(actor, "quick-vengeance")) bits.push("Quick Vengeance: after it or Shield Block you're quickened next turn to Stride at or Strike that foe");
         out.notes.push(bits.join("; ") + ".");
         if (has(actor, "reaction-time")) out.notes.push(`Reaction Time: a second reaction each turn for guardian reactions, so Intercept Attack and ${has(actor, "shield-block") ? "Shield Block" : "another guardian reaction"} can both fire in one round.`);
-        else if ((board.round ?? 2) <= 1) out.notes.push("Ever Ready: you have a reaction before your first turn, for Intercept Attack or another guardian reaction.");
     }
 
     // --- Taunt: the foe most likely to hurt an ally, then Strikes from a square that also keeps Intercept Attack in range
@@ -172,10 +168,20 @@ function guardian(board, ctx, out) {
     }
 
     // --- The foe that ignored your Taunt: it's off-guard, and Proud Nail or Ring Their Bell make it pay
-    const fist = melee.find((s) => /\bfist\b/i.test(s.label)) ?? null;
-    const shieldStrike = melee.find((s) => /shield (?:bash|boss|spikes)/i.test(s.label)) ?? null;
-    const armorStrike = () => shieldStrike ?? fist ?? (bestMelee ? { label: "Fist", bonus: bestMelee.bonus, avg: 2.5 + str, agile: true, ranged: false, reach: 5, traits: ["agile", "unarmed"], deadly: 0 } : null);
-    const ignored = foes.filter((f) => f.conditions?.has?.("off-guard") && inReach(me.rect, f.rect, reach));
+    // Shoulder Check, Ring Their Bell and Belly Flop: "a fist Strike ... if you're wielding a shield boss or shield spikes, you can
+    // make a Strike with one of those weapons instead". Shield Wallop alone also takes a plain shield bash.
+    const fist = melee.find((s) => (s.traits ?? []).includes("unarmed") && /\bfist\b|unarmed/i.test(s.label)) ?? melee.find((s) => (s.traits ?? []).includes("unarmed")) ?? null;
+    const isShield = (s) => /shield/i.test(`${s.label} ${s.item?.name ?? ""}`) || s.item?.type === "shield";
+    const bossOrSpikes = melee.find((s) => /shield (?:boss|spikes?)|spiked shield/i.test(`${s.label} ${s.item?.name ?? ""}`)) ?? null;
+    const shieldStrike = bossOrSpikes ?? melee.find(isShield) ?? null;
+    // no fist on the board: the weapon's bonus less its potency rune, a d4 and Strength
+    const fistGuess = bestMelee ? { label: "Fist", bonus: bestMelee.bonus - (Number(bestMelee.item?.system?.runes?.potency) || 0), avg: 2.5 + str, agile: true, ranged: false, reach: 5, traits: ["agile", "finesse", "unarmed"], deadly: 0 } : null;
+    const armorStrike = () => [bossOrSpikes, fist ?? fistGuess].filter(Boolean).sort((a, b) => b.bonus + b.avg / 4 - (a.bonus + a.avg / 4))[0] ?? null;
+    // The board can't show your Taunt (PF2e's Effect: Taunt sits on the foe's sheet) or why a foe is off-guard: only a foe
+    // off-guard with no other visible cause (prone, grabbed, a read's mark...) may be the one that ignored you
+    const otherCause = (f) => !!f.offGuardWhy?.length || ["prone", "grabbed", "restrained", "paralyzed", "unconscious", "blinded"].some((c) => f.conditions?.has?.(c));
+    const ignored = foes.filter((f) => f.conditions?.has?.("off-guard") && !otherCause(f) && inReach(me.rect, f.rect, reach));
+    const unsure = 0.6; // the share of the plan's worth that counts in its score: the read can't confirm the Taunt
     if (acts >= 1 && ignored.length && (has(actor, "proud-nail") || has(actor, "ring-their-bell"))) {
         for (const f of ignored) {
             if (has(actor, "proud-nail")) {
@@ -185,7 +191,8 @@ function guardian(board, ctx, out) {
                     const run = acts > 1 ? strikeRun(board, f, acts - 1, { made: ctx.made + 1 }) : null;
                     const steps = [{ cost: 1, text: `Proud Nail ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): ${dice} extra weapon ${dice > 1 ? "dice" : "die"} on a hit` }];
                     if (run?.used.length) steps.push({ cost: run.used.length, text: run.text });
-                    push(`Proud Nail ${nameOf(f)}`, f, b.e.expected + (run?.ev ?? 0), null, steps, ["Only if it's off-guard for ignoring your Taunt (it went for an ally and not you). Flourish: one a turn."], 0.3);
+                    const ev = b.e.expected + (run?.ev ?? 0);
+                    out.plans.push({ kind: "class", title: `Proud Nail ${nameOf(f)}`, target: f, ev, score: unsure * ev + 0.2, dest: null, steps, notes: ["Only if it's your taunted foe and off-guard for ignoring your Taunt (it went for an ally and not you); the read can't see your Taunt, so it's scored below its worth. Otherwise Strike plainly. Flourish: one a turn."] });
                 }
             }
             if (has(actor, "ring-their-bell") && armored) {
@@ -193,13 +200,13 @@ function guardian(board, ctx, out) {
                 if (s) {
                     const bonus = s.bonus + mapFor(ctx.made, s.agile);
                     const e = strikeExpected(bonus, f.ac, s.avg, { deadly: s.deadly });
-                    const c = degreeChances(f.saves?.fortitude ?? lv + 5, classDC);
+                    const c = degreeChances(f.saves?.fortitude ?? lv + 5, classDC, (f.level ?? lv) > lv ? 1 : 0); // incapacitation
                     const stun = c.s * 1 + c.f * 2 + c.cf * 3;
                     const ev = e.expected + e.hit * stun * worth(board, "stunned") * 0.8;
                     const run = acts > 1 ? strikeRun(board, f, acts - 1, { made: ctx.made + 1 }) : null;
                     const steps = [{ cost: 1, text: `Ring Their Bell: ${s.label} Strike ${nameOf(f)} (${signed(bonus)}); a hit makes it save (Fortitude DC ${classDC}) or be stunned 1, stunned 2 on a failure (about ${pct(c.f + c.cf)}), 3 on a critical failure` }];
                     if (run?.used.length) steps.push({ cost: run.used.length, text: run.text });
-                    push(`Ring Their Bell ${nameOf(f)}`, f, ev + (run?.ev ?? 0), null, steps, ["Only if it's off-guard for ignoring your Taunt. Incapacitation: a foe above your level treats its save as one degree better. Flourish: one a turn."], 0.3);
+                    out.plans.push({ kind: "class", title: `Ring Their Bell ${nameOf(f)}`, target: f, ev: ev + (run?.ev ?? 0), score: unsure * (ev + (run?.ev ?? 0)) + 0.2, dest: null, steps, notes: ["Only if it's your taunted foe and off-guard for ignoring your Taunt; the read can't see your Taunt, so it's scored below its worth. Incapacitation: a foe above your level treats its save as one degree better. Flourish: one a turn."] });
                 }
             }
         }
@@ -245,7 +252,7 @@ function guardian(board, ctx, out) {
             const bonus = s.bonus + mapFor(ctx.made, s.agile);
             const e = strikeExpected(bonus, f.ac, s.avg, { deadly: s.deadly });
             const stup = tower ? 2 : 1;
-            let rider = stup * worth(board, "stupefied") * (f.caster ? 1 : 0.4);
+            let rider = (stup + (e.hit > 0 ? e.crit / e.hit : 0)) * worth(board, "stupefied") * (f.caster ? 1 : 0.4); // one more on a critical hit
             let acAdj = 0;
             if (dev) {
                 const c = degreeChances(f.saves?.fortitude ?? lv + 5, classDC + (tower ? 2 : 0));
@@ -256,7 +263,7 @@ function guardian(board, ctx, out) {
             const ev = e.expected + e.hit * rider + (rest?.ev ?? 0);
             const steps = [];
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
-            steps.push({ cost: 1, text: `Shield Wallop ${nameOf(f)} with your ${s.label.toLowerCase()} (${signed(bonus)}): a hit leaves it stupefied ${stup} until your next turn${dev ? ` and it saves (Fortitude DC ${classDC}${tower ? ", -2 from your tower shield" : ""}) or is off-guard this turn, prone on a failure, prone and stunned 1 on a critical failure` : ""}` });
+            steps.push({ cost: 1, text: `Shield Wallop ${nameOf(f)} with your ${s.label.toLowerCase()} (${signed(bonus)}): a hit leaves it stupefied ${stup} until your next turn (${stup + 1} on a critical hit)${dev ? ` and it saves (Fortitude DC ${classDC}${tower ? ", -2 from your tower shield" : ""}) or is off-guard this turn, prone on a failure, prone and stunned 1 on a critical failure` : ""}` });
             if (rest?.used.length) steps.push({ cost: rest.used.length, text: rest.text });
             push(`Shield Wallop ${nameOf(f)}`, f, ev, sq, steps, ["Flourish: one a turn. Stupefied matters most against a caster."], 0.25);
         }
@@ -270,20 +277,28 @@ function guardian(board, ctx, out) {
             const b = bestStrike(board, f, { made: ctx.made, extra: dieAvg(bestMelee) });
             if (!b) continue;
             const left = acts - 2 - sq.route.actions;
-            const rest = left >= 1 ? strikeRun(board, f, left, { made: ctx.made + 2, acAdj: f.conditions?.has?.("off-guard") ? 0 : -2 * b.e.hit }) : null;
-            const ev = b.e.expected + b.e.hit * (worth(board, "prone") + punish + 1) + (rest?.ev ?? 0);
+            // The Shove ("you can automatically Shove") moves it 5 feet (10 with Right Where You Want Them); it falls prone after.
+            // A follow-up Strike needs it still in reach: with a short reach, skip the Shove (and the fall that follows it).
+            const shoveFeet = has(actor, "right-where-you-want-them") ? 10 : 5;
+            const keepsReach = b.s.ranged ? false : (b.s.reach || 5) >= 5 + shoveFeet;
+            const shoved = b.e.expected + b.e.hit * (worth(board, "prone") + punish + 1);
+            const restShoved = left >= 1 && keepsReach ? strikeRun(board, f, left, { made: ctx.made + 2, acAdj: f.conditions?.has?.("off-guard") ? 0 : -2 * b.e.hit }) : null;
+            const restStill = left >= 1 && !keepsReach ? strikeRun(board, f, left, { made: ctx.made + 2 }) : null;
+            const skip = !!restStill?.used.length && b.e.expected + restStill.ev > shoved;
+            const rest = skip ? restStill : restShoved;
+            const ev = (skip ? b.e.expected : shoved) + (rest?.ev ?? 0);
             const steps = [];
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
-            steps.push({ cost: 2, text: `Clobber ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}, one extra weapon die): a hit Shoves it ${has(actor, "right-where-you-want-them") ? "10" : "5"} feet${punish ? ` for ${punish} more bludgeoning` : ""} and knocks it prone` });
+            steps.push({ cost: 2, text: skip ? `Clobber ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}, one extra weapon die); skip the Shove so it stays in your reach` : `Clobber ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}, one extra weapon die): a hit Shoves it ${shoveFeet} feet${punish ? ` for ${punish} more bludgeoning` : ""} and it falls prone` });
             if (rest?.used.length) steps.push({ cost: rest.used.length, text: rest.text.replace(/\(([^)]*)\)$/, "($1, after two attacks' penalty)") });
-            push(`Clobber ${nameOf(f)}`, f, ev, sq, steps, ["Clobber counts as two attacks for your penalty; a pushed foe out of your reach ends the follow-up."], 0.3);
+            push(`Clobber ${nameOf(f)}`, f, ev, sq, steps, [skip ? "Clobber counts as two attacks for your penalty. Shoving it would put it out of your reach for the last Strike, so the plan keeps it close; the Shove and the fall are worth it when you've no Strike left." : `Clobber counts as two attacks for your penalty.${!keepsReach && left >= 1 ? " The Shove takes it out of your reach, so there's no follow-up Strike." : ""}`], 0.3);
         }
     }
 
     // --- Momentum Strike (10th): a hit shoves the foe into a creature beside it for double your Strength
     if (has(actor, "momentum-strike") && acts >= 2 && str > 0) {
         for (const f of foes) {
-            if ((f.sizeRank ?? 2) > (me.sizeRank ?? 2)) continue;
+            if ((f.sizeRank ?? 2) > trueSize) continue; // "your size or smaller": Larger Than Life doesn't cover it
             const sq = squareToReach(board, f, reach, acts - 2);
             if (!sq) continue;
             const at = { ...me.rect, x: sq.x, y: sq.y };
@@ -447,7 +462,7 @@ function guardian(board, ctx, out) {
         out.notes.push(adjAllies.length ? `Covering Stance: at the end of your turn give the cover to ${nameOf(adjAllies[0])}${adjAllies.length > 1 ? ` (${list(adjAllies.slice(1))} also beside you)` : ""}; it lasts while they stay adjacent.` : "Covering Stance: nobody is beside you to cover at the end of this turn.");
     }
     if (hampering) {
-        if (has(actor, "not-so-fast")) out.notes.push("Not So Fast! (reaction, in Hampering Stance): a melee Strike at a foe leaving a square within your reach; a hit cuts its Speed by 10 feet for that move, a critical hit stops it.");
+        if (has(actor, "not-so-fast")) out.notes.push("Not So Fast! (reaction, in Hampering Stance): a melee Strike at a foe leaving a square within your reach; a hit cuts its Speed by 10 feet for that move, a miss by 5 feet, a critical hit stops it.");
         // Lock Down: the last Strike of the turn, since another attack with that weapon ends it
         if (has(actor, "lock-down") && acts >= 1) {
             for (const f of foes.filter((f) => inReach(me.rect, f.rect, reach))) {

@@ -10,15 +10,10 @@
  * Counter Thought and the other reactions, and "when" notes for the rest.
  * Plans here: the amped psi cantrip turns, Brain Drain, Restore the Mind, Psi Burst and Violent Unleash as steps.
  */
-import { bestStrike, castable, effect, focusLeft, has, level, pct, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { isOffGuard } from "../advisor.mjs";
 
 const lc = (s) => String(s ?? "").toLowerCase().trim();
-const slugOf = (i) => i?.slug ?? i?.system?.slug ?? lc(i?.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-/** Foundry's sluggify drops apostrophes (dark-personas-presence); the catalog keeps a dash (dark-persona-s-presence). Both are read. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
-const item = (actor, ...slugs) => actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && slugs.includes(slugOf(i))) ?? null;
-/** Uses left today of a feat with a frequency, or null when the sheet doesn't count them. */
-function usesLeft(actor, ...slugs) { const f = item(actor, ...slugs)?.system?.frequency; return f && typeof f.value === "number" ? f.value : null; }
 const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 const points = (n) => `${n} Focus Point${n === 1 ? "" : "s"}`;
 const spellSlug = (sp) => sp.spell?.slug ?? sp.spell?.system?.slug ?? lc(sp.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -97,6 +92,26 @@ function unleashUp(actor) {
     if (rd && (rd.expired || (Number.isFinite(Number(rd.remaining)) && Number(rd.remaining) <= 0))) return null;
     return e;
 }
+/** The Unleash effect's full length in seconds: its own duration (2 rounds, 4 if you doubled it with Twin Psyche), else judged from what's left. */
+function unleashLength(e, rem) {
+    const d = e?.system?.duration;
+    const per = { rounds: 6, minutes: 60 }[d?.unit];
+    if (per && Number(d.value) > 0) return Number(d.value) * per;
+    return rem > 12 ? 24 : 12;
+}
+/** Actions already spent this turn: ctx.spent when given, else the turn's actions (3, less slowed or stunned, plus quickened) less those left. */
+function spentThisTurn(me, ctx) {
+    if (Number.isFinite(ctx.spent)) return ctx.spent;
+    const cv = me.conditionValues ?? {};
+    const base = Math.max(0, Math.min(3, 3 - (cv.stunned ? cv.stunned : cv.slowed ?? 0))) + (me.conditions?.has?.("quickened") && !cv.stunned ? 1 : 0);
+    return Math.max(0, base - ctx.actions, ctx.made > 0 ? 1 : 0);
+}
+/** Spells cast with your psychic spellcasting (Unleash Psyche's bonus): the occult spontaneous entries, as the system's own rule has it. */
+function psychicEntries(actor) {
+    const entries = actor?.spellcasting?.regular ?? [];
+    const named = Array.isArray(entries) ? entries : [];
+    return new Set(named.filter((e) => (e.tradition ?? e.system?.tradition?.value) === "occult" && (e.category ?? e.system?.prepared?.value) === "spontaneous").map((e) => e.name));
+}
 
 function psychic(board, ctx, out) {
     const actor = board.me.actor;
@@ -118,8 +133,11 @@ function psychic(board, ctx, out) {
     const unleash = unleashUp(actor);
     const unleashed = !!unleash;
     const rem = Number(unleash?.remainingDuration?.remaining);
-    const justUnleashed = unleashed && Number.isFinite(rem) && rem >= 12;
-    const dc = spells.map((s) => s.dc).find((d) => Number.isFinite(d)) ?? Number(actor?.classDC?.value) ?? 10 + lv + 4;
+    // Violent Unleash needs the Unleash as your previous action: only the turn it began (the effect's full length still
+    // left; turn 2 of a Twin Psyche doesn't count) and only before you've acted
+    const justUnleashed = unleashed && Number.isFinite(rem) && rem >= unleashLength(unleash, rem) && spentThisTurn(me, ctx) === 0;
+    const roundsLeft = Number.isFinite(rem) ? Math.max(1, Math.ceil(rem / 6)) : null;
+    const dc = spells.map((s) => s.dc).find((d) => Number.isFinite(d)) ?? (Number(actor?.classDC?.value) || 10 + lv + 4);
     const spellAtk = spells.map((s) => s.attack).find((a) => Number.isFinite(a)) ?? dc - 10;
     const plans = [];
 
@@ -130,9 +148,14 @@ function psychic(board, ctx, out) {
 
     // Unleash Psyche up: +2 per rank status damage on every damaging spell cast with your psychic spellcasting (the
     // sheet's formula doesn't carry it, so the board's averages get it here, once, and the advisor's spell plans see it).
+    // Psychic spellcasting: a psi cantrip, or a spell of an occult spontaneous entry (the system's predicate); another
+    // class's or a dedication's slots, innate spells and an archetype's focus spells don't get it.
+    const psyEntries = psychicEntries(actor);
+    const psychicCast = (sp) => psiSlugs.has(spellSlug(sp)) || (psyEntries.size ? psyEntries.has(sp.entry) : sp.entry == null || /psychic|psi\b/i.test(String(sp.entry)));
     if (unleashed) {
         for (const sp of spells) {
             if (sp._unleash || !(sp.avg > 0) || sp.heals || sp.consumable) continue;
+            if (!psychicCast(sp)) continue;
             if (sp.focus && !sp.cantrip && !psiSlugs.has(spellSlug(sp))) continue; // an archetype's focus spell isn't psychic spellcasting
             sp._unleash = 2 * sp.rank;
             sp.avg += sp._unleash;
@@ -158,7 +181,8 @@ function psychic(board, ctx, out) {
             const plainOk = dist <= m.range;
             const probe = { ...sp, save: m.save ? { stat: m.save, basic: true } : null, attack: m.attack ? sp.attack ?? spellAtk : null, dc: sp.dc ?? dc };
             const pe = plainOk ? spellExpected(board, probe, f, m.plain(r, melee) + un, ctx.made) : { expected: 0, hit: 0, fail: 0, critFail: 0 };
-            const ae = spellExpected(board, probe, { ...f, ac: f.ac + (m.acAdj ?? 0) }, m.amped(r, melee) + un, ctx.made);
+            // Phase Bolt's amp makes it off-guard to the bolt: nothing more when it's off-guard already (its estimate has the -2)
+            const ae = spellExpected(board, probe, { ...f, ac: f.ac + (m.acAdj && !(f.conditions && isOffGuard(f)) ? m.acAdj : 0) }, m.amped(r, melee) + un, ctx.made);
             if (!ae) continue;
             let plainEv = pe.expected * (m.conditional ?? 1);
             let ampEv = (ae.expected + m.riderWorth(r, ae)) * (m.conditional ?? 1);
@@ -218,13 +242,13 @@ function psychic(board, ctx, out) {
             const steps = [{ cost: 0, text: fpAvailable > 0 ? `Amp ${c.sp.name} (1 Focus Point, ${fpAvailable - 1} left after)` : `Strain Mind: amp ${c.sp.name} for ${strainCost} HP instead of a Focus Point (once an hour)` }];
             const how = useAlt ? `${alt.name}: ${alt.text}` : c.m.rider;
             steps.push({ cost: c.m.cost, text: `Cast amped ${c.sp.name} at ${tgt} (about ${Math.round(ampEv * castOk)}; ${how})` });
-            const notes = [`The plain cantrip does about ${Math.round(c.plainEv * castOk)}; the amp adds about ${Math.round(gain * castOk)}${c.finishes ? ` and can finish ${nameOf(c.f)} at ${c.f.hp} HP` : ""}.`];
+            const notes = [`The plain cantrip does about ${Math.round(c.plainEv * castOk)}; the amp adds about ${Math.round(gain * castOk)}${c.finishes ? ` and can finish ${nameOf(c.f)} at ${c.f.estimated ? "an estimated " : ""}${c.f.hp} HP` : ""}.`];
             if (unleashed) notes.push(`Your psyche is unleashed: +${2 * c.r} damage rides on it already.`);
             if (c.m.twoTargets && !c.others.length) notes.push("Only one foe is in reach, so the second weapon has no target; the amp still doubles the dice.");
             if (c.melee && spellSlug(c.sp) === "ignition") notes.push("In reach, so the flame is a melee spell attack with d12s.");
             let ev = ampEv * castOk;
             const rest = ctx.actions - c.m.cost;
-            if (rest >= 1) { const fill = filler(board, ctx, c.f, rest, ctx.made, { unleashed, sub, dc, lv, castOk }); steps.push(...fill.steps); ev += fill.ev; notes.push(...fill.notes); }
+            if (rest >= 1) { const fill = filler(board, ctx, c.f, rest, ctx.made, { unleashed, sub, dc, lv, castOk, psiStrikes: true }); steps.push(...fill.steps); ev += fill.ev; notes.push(...fill.notes); }
             plans.push({ kind: "class", title: `Amped ${c.sp.name} at ${nameOf(c.f)}`, target: c.f, ev, score: ev + 0.3, dest: null, steps, notes });
         } else if (fpAvailable > 0 || strainOk) {
             out.notes.push(`Keep the Focus Point${fpAvailable > 0 ? "" : " (Strain Mind)"}: amped ${c.sp.name} at ${tgt} adds only about ${Math.round(Math.max(0, gain))} over the plain cantrip (about ${Math.round(c.plainEv)}). An amp earns its point when it adds ${b} or more, or finishes the foe.`);
@@ -244,7 +268,7 @@ function psychic(board, ctx, out) {
         for (const [s, n] of [["psi-burst", "Psi Burst"], ["dream-guise", "Dream Guise"], ["emotional-surge", "Emotional Surge"], ["impose-order-psychic", "Impose Order"], ["impose-order", "Impose Order"], ["scour-the-library", "Scour the Library"], ["psi-catastrophe", "Psi Catastrophe"], ["wandering-thoughts", "Wandering Thoughts"], ["cranial-detonation", "Cranial Detonation"], ["all-in-your-head", "All in Your Head"]]) if (has(actor, s) && !psycheActs.includes(n)) psycheActs.push(n);
         const bestDmg = spells.filter((s) => s.avg > 0 && !s.heals && s.cost && s.cost <= ctx.actions).sort((a, b) => b.rank - a.rank || b.avg - a.avg)[0];
         if (unleashed) {
-            out.notes.push(`Your psyche is unleashed${Number.isFinite(rem) ? ` (${rem >= 12 ? "this round and the next" : "this round only"})` : ""}: every damaging spell you cast gets +2 per rank (${bestDmg ? `${bestDmg.name} +${2 * bestDmg.rank}` : `a cantrip +${2 * rank}`}), and your psyche actions are open${psycheActs.length ? `: ${psycheActs.join(", ")}` : ""}. When it ends you're stupefied 1 for 2 rounds (a DC 6 flat check to cast, -1 to spell attacks and DCs), so make these the spell turns and spend your amps now.${has(actor, "mental-buffer") ? ` Mental Buffer: resistance ${lv} to mental damage while it lasts.` : ""}${has(actor, "thoughtsense") ? " Thoughtsense is imprecise to 30 feet now, so you can Seek thinking creatures with it." : ""}${has(actor, "constant-levitation") ? " Constant Levitation: +10 feet to your fly Speed." : ""}`);
+            out.notes.push(`Your psyche is unleashed${roundsLeft ? ` (${roundsLeft === 1 ? "this round only" : roundsLeft === 2 ? "this round and the next" : `this round and ${roundsLeft - 1} more`})` : ""}: every damaging spell you cast gets +2 per rank (${bestDmg ? `${bestDmg.name} +${2 * bestDmg.rank}` : `a cantrip +${2 * rank}`}), and your psyche actions are open${psycheActs.length ? `: ${psycheActs.join(", ")}` : ""}. When it ends you're stupefied 1 for 2 rounds (a DC 6 flat check to cast, -1 to spell attacks and DCs), so make these the spell turns and spend your amps now.${has(actor, "mental-buffer") ? ` Mental Buffer: resistance ${lv} to mental damage while it lasts.` : ""}${has(actor, "thoughtsense") ? " Thoughtsense is imprecise to 30 feet now, so you can Seek thinking creatures with it." : ""}${has(actor, "constant-levitation") ? " Constant Levitation: +10 feet to your fly Speed." : ""}`);
             if (sub?.slug === "calculate-threats" && foes.some((f) => f.reach && feetBetween(me.rect, f.rect) <= (f.reach + (f.speed ?? 25)))) out.notes.push("Calculate Threats (1 action, psyche): +2 circumstance to AC and Reflex until your next turn; worth an action when a foe can reach you this round.");
             if (sub?.slug === "fade-into-daydreams" && foes.length) out.notes.push("Fade Into Daydreams (1 action, psyche): concealed until your next turn, a DC 5 flat check on every attack at you; worth an action when you're in reach or under fire, not for Hiding.");
             if (sub?.slug === "recall-the-teachings" && board.allies.length) out.notes.push("Recall the Teachings (1 action, psyche): you count as prepared to Aid every ally within 30 feet until your next turn, with Occultism; worth it when an ally's big Strike or check comes before your turn.");
@@ -294,7 +318,7 @@ function psychic(board, ctx, out) {
             const steps = [{ cost: 1, text: `Violent Unleash (first action, right after Unleash): ${Math.round(avg)} force in a 20-foot emanation at ${inArea.map(nameOf).join(", ")}, basic Reflex (about ${Math.round(ev)})` }];
             let total = ev;
             const f = inArea.sort((a, b) => a.hp - b.hp)[0];
-            if (ctx.actions > 1) { const fill = filler(board, ctx, f, ctx.actions - 1, ctx.made, { unleashed, sub, dc, lv, castOk, spells }); steps.push(...fill.steps); total += fill.ev; }
+            if (ctx.actions > 1) { const fill = filler(board, ctx, f, ctx.actions - 1, ctx.made, { unleashed, sub, dc, lv, castOk, psiStrikes: false }); steps.push(...fill.steps); total += fill.ev; }
             plans.push({ kind: "class", title: "Violent Unleash", target: f, ev: total, score: total + 0.3, dest: null, steps, notes: alliesIn.length ? [`${alliesIn.map(nameOf).join(", ")} ${alliesIn.length > 1 ? "are" : "is"} in the emanation too.`] : [] });
         }
     }
@@ -308,8 +332,39 @@ function psychic(board, ctx, out) {
             const steps = [{ cost: 1, text: `Restore the Mind (psyche) on ${nameOf(a)}: ${heal} HP back (it's at ${a.hp}/${a.maxHp})` }];
             let total = v;
             const f = foes.filter((x) => x.hp > 0).sort((x, y) => feetBetween(me.rect, x.rect) - feetBetween(me.rect, y.rect))[0];
-            if (ctx.actions > 1 && f) { const fill = filler(board, ctx, f, ctx.actions - 1, ctx.made, { unleashed, sub, dc, lv, castOk, spells, noRestore: true }); steps.push(...fill.steps); total += fill.ev; }
+            if (ctx.actions > 1 && f) { const fill = filler(board, ctx, f, ctx.actions - 1, ctx.made, { unleashed, sub, dc, lv, castOk, noRestore: true, psiStrikes: false }); steps.push(...fill.steps); total += fill.ev; }
             plans.push({ kind: "class", title: `Restore the Mind on ${nameOf(a)}`, target: null, ev: total, score: total + 0.2, dest: null, steps, notes: ["An ally healed this way is immune to it for 10 minutes; the other choice is +1 to its saves against mental effects while your psyche lasts."] });
+        }
+    }
+
+    // Psi Burst (psyche, once a round) on a spell turn while unleashed: the best damaging spell, then the Burst. psi-burst is
+    // in CLASS_HANDLED, so the advisor never plans it: without this plan it would show only inside an amp or Violent Unleash.
+    if (unleashed && has(actor, "psi-burst") && usesLeft(actor, "psi-burst") !== 0 && ctx.actions >= 1) {
+        const avg = 2.5 * Math.ceil(lv / 2);
+        let best = null;
+        for (const f of foes) {
+            if (!(f.hp > 0) || feetBetween(me.rect, f.rect) > 30) continue;
+            const burst = saveExpected(f.saves?.reflex ?? lv + 5, dc, avg, { basic: true }).expected;
+            let sp = null, spe = 0;
+            for (const s of spells) {
+                if (!(s.avg > 0) || s.heals || !s.cost || s.cost > ctx.actions - 1) continue;
+                if (s.range > 0 && feetBetween(me.rect, f.rect) > s.range) continue;
+                const e = spellExpected(board, s, f, s.avg, ctx.made);
+                if (e && e.expected * castOk > spe) { sp = s; spe = e.expected * castOk; }
+            }
+            if (!best || burst + spe > best.ev) best = { f, sp, spe, burst, ev: burst + spe };
+        }
+        if (best) {
+            const { f, sp } = best;
+            const steps = [];
+            if (sp) steps.push({ cost: sp.cost, text: `Cast ${sp.name}${isSlot(sp) ? ` (rank ${sp.rank})` : ""} at ${nameOf(f)} (about ${Math.round(best.spe)}${sp._unleash ? `, +${sp._unleash} unleashed counted` : ""})` });
+            steps.push({ cost: 1, text: `Psi Burst (psyche, once a round) at ${nameOf(f)}: ${Math.round(avg)} bludgeoning, basic Reflex DC ${dc} (about ${Math.round(best.burst)})` });
+            let ev = best.ev;
+            const rest = ctx.actions - (sp?.cost ?? 0) - 1;
+            if (rest >= 1) { const fill = filler(board, ctx, f, rest, ctx.made, { unleashed, sub, dc, lv, castOk, psiStrikes: !!sp, noBurst: true }); steps.push(...fill.steps); ev += fill.ev; }
+            const plan = { kind: "class", title: sp ? `${sp.name}, then Psi Burst at ${nameOf(f)}` : `Psi Burst at ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps, notes: [] };
+            if (sp && isSlot(sp)) spendsSlot(plan, sp);
+            plans.push(plan);
         }
     }
 
@@ -325,40 +380,15 @@ function psychic(board, ctx, out) {
         }
     }
 
-    // --- Slots left, cantrip or slot, signature spells (the advisor taxes slot spells itself: not again here) ----------
+    // --- Slots left and signature spells (spell thrift weighs a slot against a cantrip: not again here) -----------------
     const slots = slotsLeft(actor);
     const topRank = slots.filter((s) => s.left > 0).map((s) => s.rank).pop() ?? Math.max(0, ...spells.filter(isSlot).map((s) => s.rank));
     if (slots.length) {
         const txt = slots.map((s) => `${ordinal(s.rank)} ${s.left}/${s.max}`).join(", ");
         out.notes.push(`Slots left: ${txt}. You have fewer than other casters, so the psi cantrips and their amps are the everyday damage; a slot is for the save spell on the biggest foe or the area with two or more in it.${has(actor, "conscious-spell-specialization") ? ` Conscious Spell Specialization: an extra slot of 1st to 4th${lv >= 18 ? " and 5th" : ""} rank for your conscious mind's spells only (${mind?.granted ?? "the granted spells"}).` : ""}`);
     }
-    if (foes.length) {
-        let pick = null;
-        for (const f of foes) {
-            let cantrip = null, slot = null;
-            for (const sp of spells) {
-                if (!(sp.avg > 0) || sp.heals || !sp.cost || sp.cost > ctx.actions) continue;
-                const e = spellExpected(board, sp, f, sp.avg, ctx.made);
-                if (!e) continue;
-                const x = { sp, e };
-                if (sp.cantrip) { if (!cantrip || e.expected > cantrip.e.expected) cantrip = x; }
-                else if (isSlot(sp)) { if (!slot || e.expected > slot.e.expected) slot = x; }
-            }
-            if (!slot) continue;
-            const gain = slot.e.expected - (cantrip?.e.expected ?? 0);
-            if (!pick || gain > pick.gain) pick = { f, cantrip, slot, gain };
-        }
-        if (pick) {
-            const { f, cantrip, slot, gain } = pick;
-            const finishes = f.hp > 0 && f.hp <= slot.e.expected && (!cantrip || f.hp > cantrip.e.expected);
-            const b = 3 + slot.sp.rank;
-            const left = slots.find((s) => s.rank === slot.sp.rank);
-            const ampTxt = ampPick && ampPick.f === f ? ` (amped ${ampPick.sp.name} does about ${Math.round(ampPick.ampEv)} for a Focus Point)` : "";
-            out.notes.push(gain >= b || finishes
-                ? `Spend a slot on ${nameOf(f)}: ${slot.sp.name} (rank ${slot.sp.rank}${left ? `, ${left.left} of ${left.max} left` : ""}${slot.sp._unleash ? `, +${slot.sp._unleash} unleashed` : ""}) does about ${Math.round(slot.e.expected)}${finishes ? `, enough to finish it at ${f.hp} HP` : ` against ${cantrip ? `${cantrip.sp.name}'s about ${Math.round(cantrip.e.expected)}` : "no damaging cantrip"}`}${ampTxt}.`
-                : `Keep the slot against ${nameOf(f)}: ${cantrip ? `${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}` : "you have no damaging cantrip for it"}${ampTxt}; ${slot.sp.name} (rank ${slot.sp.rank}) adds only about ${Math.round(Math.max(0, gain))}. A slot earns its place when it adds ${b} or more, or finishes the foe.`);
-        }
-    }
+    // The cantrip-or-slot verdict is spell thrift's (player.mjs), which weighs every slot spell the advisor or a class plan
+    // casts; a second verdict here could only disagree with it.
     const sigs = spells.filter((sp) => isSlot(sp) && isSignature(sp));
     if (sigs.length) {
         let said = false;
@@ -372,7 +402,7 @@ function psychic(board, ctx, out) {
                 for (const r of lowRanks.filter((r) => r >= base && r < sp.rank)) {
                     const avgAt = Math.max(0, sp.avg - (sp._unleash ?? 0)) * (r / Math.max(1, sp.rank)) + (sp._unleash ? 2 * r : 0);
                     const e = spellExpected(board, sp, f, avgAt, ctx.made);
-                    if (e && e.expected >= f.hp) { out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.hp} HP) and keep the ${ordinal(sp.rank)}.`); said = true; break; }
+                    if (e && e.expected >= f.hp) { out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.estimated ? "about " : ""}${f.hp} HP) and keep the ${ordinal(sp.rank)}.`); said = true; break; }
                 }
                 if (said) break;
             }
@@ -451,23 +481,25 @@ function psychic(board, ctx, out) {
  * What fills the actions after a psi cantrip: Psi Burst while unleashed (once a round), a Strike in reach (with Psi
  * Strikes' die when known), Restore the Mind on a hurt ally while unleashed. { steps, ev, notes }.
  */
-function filler(board, ctx, t, rest, made, { unleashed, sub, dc, lv, castOk = 1, noRestore = false }) {
+function filler(board, ctx, t, rest, made, { unleashed, sub, dc, lv, castOk = 1, noRestore = false, psiStrikes = false, noBurst = false }) {
     const actor = board.me.actor;
     const me = board.me;
     const steps = [];
     const notes = [];
     let ev = 0;
-    let burstUsed = false;
+    let burstUsed = noBurst;
     let guard = 0;
     while (rest >= 1 && guard++ < 3) {
         const opts = [];
-        if (unleashed && !burstUsed && has(actor, "psi-burst") && t && feetBetween(me.rect, t.rect) <= 30) {
+        if (unleashed && !burstUsed && has(actor, "psi-burst") && usesLeft(actor, "psi-burst") !== 0 && t && feetBetween(me.rect, t.rect) <= 30) {
             const avg = 2.5 * Math.ceil(lv / 2);
             const e = saveExpected(t.saves?.reflex ?? lv + 5, dc, avg, { basic: true });
             opts.push({ ev: e.expected, cost: 1, text: `Psi Burst (psyche, once a round) at ${nameOf(t)}: ${Math.round(avg)} bludgeoning, basic Reflex (about ${Math.round(e.expected)})`, burst: true });
         }
-        const b = t ? bestStrike(board, t, { made, extra: has(actor, "psi-strikes") ? 3.5 : 0 }) : null;
-        if (b && inReach(me.rect, t.rect, b.s.reach || 5)) opts.push({ ev: b.e.expected, cost: 1, text: `Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)}, about ${Math.round(b.e.expected)}${has(actor, "psi-strikes") ? ", Psi Strikes' 1d6 force in" : ""})`, strike: true });
+        // Psi Strikes needs a Cast a Spell (or the Unleash) as your most recent action: only right after the cantrip
+        const ps = psiStrikes && has(actor, "psi-strikes") && usesLeft(actor, "psi-strikes") !== 0;
+        const b = t ? bestStrike(board, t, { made, extra: ps ? 3.5 : 0 }) : null;
+        if (b && inReach(me.rect, t.rect, b.s.reach || 5)) opts.push({ ev: b.e.expected, cost: 1, text: `Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)}, about ${Math.round(b.e.expected)}${ps ? ", Psi Strikes' 1d6 force in: take it (free) right after the cast" : ""})`, strike: true });
         if (unleashed && !noRestore && sub?.slug === "restore-the-mind") {
             const heal = 2 + 2 * lv;
             const a = board.allies.filter((x) => x.maxHp > 0 && x.maxHp - x.hp >= Math.min(heal, x.maxHp * 0.25) && feetBetween(me.rect, x.rect) <= 30).sort((x, y) => (x.hp / x.maxHp) - (y.hp / y.maxHp))[0];

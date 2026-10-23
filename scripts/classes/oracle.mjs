@@ -8,10 +8,11 @@
  * Remaster text (Player Core 2): revelation spells are plain focus spells; only the cursebound feats (and a Diverse
  * Mystery spell) raise the curse. The sheet already carries every curse penalty (the system's rule elements), so the
  * read never applies a stage twice; it only folds the stage a plan would reach into that plan's own follow-ups.
+ * A cursebound ability raises the curse after it resolves, so "if you are cursebound N when you use it" reads the
+ * stage before the rise. Whether a slot is worth spending over a cantrip is spell thrift's call (player.mjs).
  */
-import { bestStrike, castable, focusLeft, has, level, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, focusLeft, has, hasAny, level, pct, spendsSlot, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
 const dice = (n, d) => n * (d + 1) / 2;
 
@@ -28,7 +29,7 @@ const MYSTERIES = {
         stages: (lv) => ["weakness 2 to acid and poison", "-1 to saves against disease and poison, and Treat Wounds on you at -1", `weakness ${2 * lv} to acid and poison`, "-2 to those saves and to Treat Wounds on you"] },
     bones: { curse: "curse-of-the-living-death", feat: "nudge-the-scales", spells: ["Soul Siphon", "Armor of Bones", "Claim Undead"],
         stages: (lv) => ["weakness 2 to vitality and void, and both hurt you", "-1 to Fortitude saves", `weakness ${5 + lv} to vitality and void`, "-2 to Fortitude saves"] },
-    cosmos: { curse: "curse-of-the-sky-s-call", feat: "oracular-warning", spells: ["Spray of Stars", "Interstellar Void", "Moonlight Bridge"],
+    cosmos: { curse: "curse-of-the-skys-call", feat: "oracular-warning", spells: ["Spray of Stars", "Interstellar Void", "Moonlight Bridge"],
         value: (n) => `enfeebled ${n} (${signed(-n)} to melee attack and damage) and ${signed(-n)} against forced movement` },
     flames: { curse: "curse-of-engulfing-flames", feat: "foretell-harm", spells: ["Incendiary Aura", "Whirling Flames", "Flaming Fusillade"],
         value: (n) => `${n} persistent fire on you each round, your fire resistance off` },
@@ -117,7 +118,6 @@ function spellExpected(sp, t, avg, made) {
 const avgAtRank = (sp, r) => (sp.avg ?? 0) * (r / Math.max(1, sp.rank));
 const spellDC = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.dc) || 0)) || Number(board.me.actor?.classDC?.value) || 10 + level(board) + 5;
 const spellAttack = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.attack) || 0)) || spellDC(board) - 10;
-const usesLeft = (actor, slug) => { const it = actor?.items?.find?.((i) => (i.slug ?? i.system?.slug) === slug); const f = it?.system?.frequency; return f && f.max ? (Number(f.value) ?? f.max) : null; };
 const hurtOf = (c) => Math.max(0, (c.maxHp ?? 0) - (c.hp ?? 0));
 const within = (me, c, ft) => feetBetween(me.rect, c.rect) <= ft;
 
@@ -162,17 +162,22 @@ function oracle(board, ctx, out) {
                 if (!sq) continue;
                 const n = left - sq.route.actions;
                 if (n < 1) continue;
-                const first = bestStrike(board, f, { made: ctx.made, melee, acAdj: -2 });
+                // Ranged: only the bows and throws whose first range increment reaches it from here
+                const b = melee ? board : { ...board, strikes: board.strikes.filter((s) => !s.ranged || feetBetween(me.rect, f.rect) <= (s.range ?? 30)) };
+                // The curse rises as Whispers resolves: at cursebound 2 every ranged roll after it is at -2, the first included
+                const curse = rangedCurseNext && !melee ? 2 : 0;
+                const first = bestStrike(b, f, { made: ctx.made, melee, acAdj: -2 + curse });
                 if (!first) continue;
-                const rest = n > 1 ? strikeRun(board, f, n - 1, { made: ctx.made + 1, melee, acAdj: rangedCurseNext && !melee ? 2 : 0 }) : { used: [], ev: 0, text: "" };
+                const rest = n > 1 ? strikeRun(b, f, n - 1, { made: ctx.made + 1, melee, acAdj: curse }) : { used: [], ev: 0, text: "" };
                 const ev = first.e.expected + rest.ev + 1;
                 if (!best || ev > best.ev) best = { f, ev, sq, first, rest, melee, kind: "strike" };
             }
             // Or a spell attack with the +2
-            for (const sp of spells.filter((s) => s.attack !== null && s.attack !== undefined && s.avg > 0 && s.cost && s.cost <= left)) {
-                const e = strikeExpected(sp.attack + 2 + mapFor(ctx.made, false), f.ac, sp.avg);
+            for (const sp of spells.filter((s) => s.attack !== null && s.attack !== undefined && s.avg > 0 && s.cost && s.cost <= left && Math.max(5, s.range ?? 30) >= feetBetween(me.rect, f.rect))) {
+                const curse = rangedCurseNext && (sp.range ?? 30) > 5 ? 2 : 0;
+                const e = strikeExpected(sp.attack + 2 - curse + mapFor(ctx.made, false), f.ac, sp.avg);
                 const ev = e.expected + 1;
-                if (!best || ev > best.ev) best = { f, ev, sp, e, kind: "spell" };
+                if (!best || ev > best.ev) best = { f, ev, sp, e, curse, kind: "spell" };
             }
         }
         if (best) {
@@ -180,14 +185,16 @@ function oracle(board, ctx, out) {
             const steps = [{ cost: 1, text: `Whispers of Weakness on ${nameOf(f)}: you learn its weaknesses and its lowest save, and your next attack roll on it this turn is at +2` }];
             if (best.kind === "strike") {
                 if (best.sq.route.actions) steps.push({ cost: best.sq.route.actions, text: `${best.sq.route.via ?? "Stride"} into reach of ${nameOf(f)}` });
-                steps.push({ cost: 1, text: `Strike ${nameOf(f)} with ${best.first.s.label} (${signed(best.first.bonus + 2)}, about ${pct(best.first.e.hit)})` });
+                steps.push({ cost: 1, text: `Strike ${nameOf(f)} with ${best.first.s.label} (${signed(best.first.bonus + 2 - (rangedCurseNext && !best.melee ? 2 : 0))}, about ${pct(best.first.e.hit)})` });
                 if (best.rest.used.length) steps.push({ cost: best.rest.used.length, text: best.rest.text });
             } else {
-                steps.push({ cost: best.sp.cost, text: `Cast ${best.sp.name} at ${nameOf(f)} (${signed(best.sp.attack + 2 + mapFor(ctx.made, false))}, about ${pct(best.e.hit)})` });
+                steps.push({ cost: best.sp.cost, text: `Cast ${best.sp.name}${isSlot(best.sp) ? ` (rank ${best.sp.rank})` : ""} at ${nameOf(f)} (${signed(best.sp.attack + 2 - best.curse + mapFor(ctx.made, false))}, about ${pct(best.e.hit)})` });
             }
             const notes = [`Whispers of Weakness ${raise()}.${forestall ? " Forestall Curse (1 action, once a day) first would hold the curse where it is." : ""}`];
-            if (rangedCurseNext && best.kind === "strike" && !best.melee) notes.push("At cursebound 2 your ranged attacks after the first are at -2; the plan counts it.");
-            out.plans.push({ kind: "class", title: `Whispers of Weakness, then ${best.kind === "strike" ? "Strike" : best.sp.name} ${nameOf(f)}`, target: f, ev: best.ev, score: best.ev + 0.3, dest: best.kind === "strike" && best.sq.route.actions ? { x: best.sq.x, y: best.sq.y } : null, steps, notes });
+            if (rangedCurseNext && (best.kind === "strike" ? !best.melee : best.curse)) notes.push("Whispers raises your curse to 2 as it resolves, so your ranged attack rolls are at -2 from then on: the +2 only cancels it on the first; the plan counts it.");
+            const plan = { kind: "class", title: `Whispers of Weakness, then ${best.kind === "strike" ? "Strike" : best.sp.name} ${nameOf(f)}`, target: f, ev: best.ev, score: best.ev + 0.3, dest: best.kind === "strike" && best.sq.route.actions ? { x: best.sq.x, y: best.sq.y } : null, steps, notes };
+            if (best.kind === "spell" && isSlot(best.sp)) spendsSlot(plan, best.sp);
+            out.plans.push(plan);
         }
     }
 
@@ -197,15 +204,15 @@ function oracle(board, ctx, out) {
         const cands = [...allies.map((a) => ({ c: a, self: false })), { c: me, self: true }].filter(({ c }) => hurtOf(c) > 0 && within(me, c, 30));
         let best = null;
         for (const { c, self } of cands) {
-            const penalty = self && mSlug === "life" ? Math.max(1, lv) * (cb + 1) : 0;
+            const penalty = self && mSlug === "life" ? Math.max(1, lv) * cb : 0;
             const got = Math.min(Math.max(0, heal - penalty), hurtOf(c));
             const ev = 0.8 * got;
-            if (ev > 0 && (!best || ev > best.ev)) best = { c, self, got, ev };
+            if (ev > 0 && (!best || ev > best.ev)) best = { c, self, got, ev, penalty };
         }
         if (best && best.got >= heal / 2) {
             const who = best.self ? "yourself" : nameOf(best.c);
             out.plans.push({ kind: "class", title: `Nudge the Scales on ${who}`, target: null, ev: best.ev, score: best.ev + 0.2, dest: null,
-                steps: [{ cost: 1, text: `Nudge the Scales: ${who} ${best.self ? "regain" : "regains"} ${best.got} HP${best.self && mSlug === "life" ? ` (${heal} less your curse's ${heal - best.got})` : ""}` }],
+                steps: [{ cost: 1, text: `Nudge the Scales: ${who} ${best.self ? "regain" : "regains"} ${best.got} HP${best.penalty ? ` (${heal} less your curse's ${best.penalty})` : ""}` }],
                 notes: [`Nudge the Scales ${raise()}. It heals undead too.`] });
         }
     }
@@ -278,35 +285,35 @@ function oracle(board, ctx, out) {
 
     // Waters of Creation (2 actions): a 15-foot emanation heals every creature in it, foes too; d8s instead of d6s at cursebound 3.
     if (has(actor, "waters-of-creation") && !atMax && ctx.actions >= 2) {
-        const d8 = cb + 1 >= 3;
+        const d8 = cb >= 3;
         const heal = dice(Math.floor(lv / 2), d8 ? 8 : 6);
-        const selfPenalty = mSlug === "life" ? Math.max(1, lv) * (cb + 1) : 0;
+        const selfPenalty = mSlug === "life" ? Math.max(1, lv) * cb : 0;
         const group = [...allies.filter((a) => within(me, a, 15)).map((a) => Math.min(heal, hurtOf(a))), Math.min(Math.max(0, heal - selfPenalty), hurtOf(me))];
         const healed = group.reduce((t, x) => t + x, 0);
         const foeHeal = live.filter((f) => within(me, f, 15)).reduce((t, f) => t + Math.min(heal, hurtOf(f)), 0);
         const ev = 0.8 * (healed - foeHeal);
         if (ev > 0 && healed >= heal) out.plans.push({ kind: "class", title: `Waters of Creation`, target: null, ev, score: ev + 0.2, dest: null,
             steps: [{ cost: 2, text: `Waters of Creation: ${Math.floor(lv / 2)}d${d8 ? 8 : 6} (about ${Math.round(heal)}) HP to every creature within 15 feet of you, about ${Math.round(healed)} to your side${foeHeal ? ` and ${Math.round(foeHeal)} to the foes in it` : ""}` }],
-            notes: [`Waters of Creation ${raise()}.${d8 ? "" : " At cursebound 3 it rolls d8s."} It heals foes in the ring too; step away from them first if you can.`] });
+            notes: [`Waters of Creation ${raise()}.${d8 ? "" : " Used at cursebound 3 it rolls d8s."} It heals foes in the ring too; step away from them first if you can.`] });
     }
 
     // --- Cursebound feats the advisor reads itself, or that fire out of turn: a note with the stage ------------------
     if (has(actor, "foretell-harm") && !atMax) {
         const best = spells.filter((s) => isSlot(s) && s.avg > 0).sort((a, b) => b.rank - a.rank)[0];
-        out.notes.push(`Foretell Harm (free, once a round, right after a slot spell that dealt damage): the target takes twice the rank more at the start of its next turn${best ? ` (${2 * best.rank} after ${best.name})` : ""}; it ${raise()}. Not worth a stage on a foe about to drop.`);
+        out.notes.push(`Foretell Harm (free, once a round, right after a non-cantrip spell that dealt damage, a revelation spell included): the target takes twice the rank more at the start of its next turn${best ? ` (${2 * best.rank} after ${best.name})` : ""}; it ${raise()}. Not worth a stage on a foe about to drop.`);
     }
     if (has(actor, "trance-of-celerity") && !atMax) out.notes.push(`Trance of Celerity (1 action, a minute): +5 feet to your Speeds, +10 at cursebound 2, +15 at 3, +20 at 4; it ${raise()}. Only when the fight is about reaching something.`);
-    if (has(actor, "meddling-futures") && !atMax) out.notes.push(`Meddling Futures (free): a d4 picks your next action and sweetens it (a Strike at +1 and +2 damage, a spell at +rank damage or healing, a skill check at +1, a Stride at +10 feet; ${cb + 1 >= 3 ? "cursebound 3 makes those +6, +rank+3, +2 and +20" : "more at cursebound 3"}); a different action needs a DC 6 flat check; it ${raise()}. Use it before a spell you'd cast anyway.`);
+    if (has(actor, "meddling-futures") && !atMax) out.notes.push(`Meddling Futures (free): a d4 picks your next action and sweetens it (a Strike at +1 and +2 damage, a spell at +rank damage or healing, a skill check at +1, a Stride at +10 feet; ${cb >= 3 ? "at cursebound 3 the Strike's damage is +6, the spell's +rank+3 and the check's +2" : "more when you use it at cursebound 3"}); a different action needs a DC 6 flat check; it ${raise()}. Use it before a spell you'd cast anyway.`);
     if (has(actor, "thousand-visions") && !atMax && board.enemies.some((e) => e.state !== "observed" || e.conditions?.has?.("concealed"))) out.notes.push(`Thousand Visions (free, a minute): within 30 feet no flat check against concealment, hidden foes don't make you off-guard and a hidden one needs only DC 5; beyond 30 feet everything is imprecise. It ${raise()}; worth it with ${board.enemies.filter((e) => e.state !== "observed").map(nameOf).join(", ") || "a concealed foe"} to pin down.`);
     if (has(actor, "knowledge-of-shapes") && !atMax) out.notes.push(`Knowledge of Shapes (free): Reach Spell or Widen Spell for no action before a spell; it ${raise()}. A stage for +30 feet of range or a wider area pays only when it adds a foe to the area or a target you couldn't reach.`);
     if (has(actor, "roll-the-bones-of-fate") && !atMax) {
         const left = usesLeft(actor, "roll-the-bones-of-fate");
         out.notes.push(`Roll the Bones of Fate (1 action, once in 10 minutes${left === 0 ? ", used" : ""}): a d4; 1 gives you or an ally the better of two rolls on the next attack or check, 2 makes a foe (Will) take the worse of two, 3 both, 4 everyone within 30 feet rolls twice and the die decides which they take. It ${raise()}; a gamble, best on a turn with an action to spare.`);
     }
-    if (has(actor, "oracular-warning")) out.notes.push(`Oracular Warning (free, as initiative is rolled): allies within 20 feet get +2 to initiative (+3 at cursebound 2, +4 at 3) and ${Math.floor(lv / 2)} temporary HP; it raises your curse before the fight starts.`);
+    if (has(actor, "oracular-warning") && !globalThis.game?.combat?.started) out.notes.push(`Oracular Warning (free, as initiative is rolled): allies within 20 feet get +2 to initiative (+3 at cursebound 2, +4 at 3) and ${Math.floor(lv / 2)} temporary HP; it raises your curse before the fight starts.`);
     if (has(actor, "conduit-of-void-and-vitality") && !atMax) {
         const hh = spells.filter((s) => /^(heal|harm)$/i.test(s.name) && isSlot(s));
-        if (hh.length) out.notes.push(`Conduit of Void and Vitality (2 actions, a slot): a 3-action ${hh.map((s) => s.name).join(" or ")} that gives one creature ${cb + 1}d8 more (1d8 per cursebound value after the raise); it ${raise()}. It needs the spell as a signature spell.`);
+        if (hh.length) out.notes.push(`Conduit of Void and Vitality (2 actions, a slot): a 3-action ${hh.map((s) => s.name).join(" or ")} that gives one creature ${cb > 0 ? `${cb}d8 more (1d8 per cursebound value you have as you use it)` : "nothing more yet (1d8 per cursebound value, and you aren't cursebound)"}; it ${raise()}. It needs the spell as a signature spell.`);
     }
     if (has(actor, "mystery-conduit") && !atMax) out.notes.push(`Mystery Conduit (free): the next spell of 5th rank or lower with no duration costs no slot; it ${raise()}. Spend the stage on a 5th-rank signature spell rather than a cantrip's worth.`);
 
@@ -322,7 +329,7 @@ function oracle(board, ctx, out) {
     const fmax = Number(actor?.system?.resources?.focus?.max) || 0;
     const focus = spells.filter((s) => isFocus(s) && !s.cantrip);
     if (fp !== null) {
-        if (fp <= 0) out.notes.push(`No Focus Points left: your revelation spells are out until you Refocus (10 minutes${has(actor, "revelation-s-focus") || has(actor, "revelations-focus") ? ", and Revelation's Focus refills the whole pool" : ""}, and a Refocus also lowers your curse by 1).`);
+        if (fp <= 0) out.notes.push(`No Focus Points left: your revelation spells are out until you Refocus (10 minutes${has(actor, "revelations-focus") ? ", and Revelation's Focus refills the whole pool" : ""}, and a Refocus also lowers your curse by 1).`);
         else {
             // The best revelation spell this turn: by expected damage where there's a number, else the first one with a moment
             let pick = null;
@@ -345,14 +352,14 @@ function oracle(board, ctx, out) {
             const names = focus.map((s) => s.name);
             const cbNote = (sp) => (sp.traits?.includes("cursebound") ? ` It ${atMax ? "can't be cast at your limit" : raise()}.` : " No curse cost.");
             if (pick && !pick.heal) out.notes.push(`Revelation this turn: ${pick.sp.name} (${pick.sp.cost} action${pick.sp.cost > 1 ? "s" : ""}, 1 of ${fp} Focus Point${fp > 1 ? "s" : ""}) at ${nameOf(pick.f)} does about ${Math.round(pick.e.expected)}${pick.n > 1 ? ` to each of ${pick.n} foes` : ""}${WHEN[pick.sp.name] ? `; ${WHEN[pick.sp.name].replace(/^[^:]+: /, "")}` : ""}.${cbNote(pick.sp)}`);
-            else if (pick) out.notes.push(`Revelation this turn: ${pick.sp.name} (1 of ${fp} Focus Point${fp > 1 ? "s" : ""}) on ${pick.who === me ? "yourself" : nameOf(pick.who)}, about ${Math.round(Math.min(pick.sp.avg, hurtOf(pick.who)))} HP${mSlug === "life" && pick.who === me ? `, less your curse's ${Math.max(1, lv) * Math.max(1, cb)}` : ""}.${cbNote(pick.sp)}`);
+            else if (pick) out.notes.push(`Revelation this turn: ${pick.sp.name} (1 of ${fp} Focus Point${fp > 1 ? "s" : ""}) on ${pick.who === me ? "yourself" : nameOf(pick.who)}, about ${Math.round(Math.min(pick.sp.avg, hurtOf(pick.who)))} HP${mSlug === "life" && pick.who === me && cb > 0 ? `, less your curse's ${Math.max(1, lv) * cb}` : ""}.${cbNote(pick.sp)}`);
             else if (names.length) out.notes.push(`Focus Points: ${fp} of ${fmax} for ${names.join(", ")}; no damage number this turn. ${names.filter((n) => WHEN[n]).map((n) => `${n}: ${WHEN[n]}`).join(". ")}${names.some((n) => WHEN[n]) ? "." : ""}`);
             else out.notes.push(`Focus Points: ${fp} of ${fmax}.`);
             const others = focus.filter((s) => s !== pick?.sp && WHEN[s.name]);
             if (pick && others.length) out.notes.push(`Also in the pool: ${others.map((s) => `${s.name} (${WHEN[s.name]})`).join("; ")}.`);
             const domain = focus.filter((s) => m && !m.spells.includes(s.name) && !s.traits?.includes("cursebound"));
             if (domain.length && hasAny(actor, "domain-acumen", "domain-fluency", "paradoxical-mystery")) out.notes.push(`${domain.map((s) => s.name).join(", ")} ${domain.length > 1 ? "are domain spells" : "is a domain spell"} cast as a revelation: same pool, no curse.`);
-            if (hasAny(actor, "revelation-s-focus", "revelations-focus") && fp < fmax) out.notes.push("Revelation's Focus: a Refocus refills the whole pool, so spend the points.");
+            if (has(actor, "revelations-focus") && fp < fmax) out.notes.push("Revelation's Focus: a Refocus refills the whole pool, so spend the points.");
         }
     }
     if (has(actor, "blaze-of-revelation")) {
@@ -370,35 +377,6 @@ function oracle(board, ctx, out) {
         out.notes.push(`Slots left: ${txt}.${empty.length && has(actor, "divine-effusion") && effusion !== 0 ? ` Divine Effusion (twice a day, two different ranks${effusion ? `, ${effusion} left` : ""}) still casts from an empty rank (${empty.join(", ")}).` : ""}${has(actor, "gifted-power") ? ` Gifted Power: one more ${ordinal(topRank || 1)} slot for a mystery spell only.` : ""}`);
     }
 
-    // Cantrip or slot: against the foe where a slot pays most, say what it buys over the best cantrip
-    if (live.length) {
-        let pick = null;
-        for (const f of live) {
-            let cantrip = null, slot = null;
-            for (const sp of spells) {
-                if (!(sp.avg > 0) || sp.heals || !sp.cost || sp.cost > ctx.actions) continue;
-                const e = spellExpected(sp, f, sp.avg, ctx.made);
-                if (!e) continue;
-                const x = { sp, e };
-                if (sp.cantrip) { if (!cantrip || e.expected > cantrip.e.expected) cantrip = x; }
-                else if (isSlot(sp)) { if (!slot || e.expected > slot.e.expected) slot = x; }
-            }
-            if (!slot) continue;
-            const gain = slot.e.expected - (cantrip?.e.expected ?? 0);
-            if (!pick || gain > pick.gain) pick = { f, cantrip, slot, gain };
-        }
-        if (pick) {
-            const { f, cantrip, slot, gain } = pick;
-            const finishes = f.hp > 0 && f.hp <= slot.e.expected && (!cantrip || f.hp > cantrip.e.expected);
-            const bar = 3 + slot.sp.rank;
-            const spend = finishes || gain >= bar;
-            const cText = cantrip ? `${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}` : "you have no damaging cantrip for it";
-            out.notes.push(spend
-                ? `Spend a slot on ${nameOf(f)}: ${slot.sp.name} (rank ${slot.sp.rank}) does about ${Math.round(slot.e.expected)}${finishes ? `, enough to finish it at ${f.hp} HP` : ` against ${cantrip ? `${cantrip.sp.name}'s about ${Math.round(cantrip.e.expected)}` : "no damaging cantrip"}`}.${has(actor, "foretell-harm") && !atMax ? ` Foretell Harm after it adds ${2 * slot.sp.rank} next turn for a curse stage.` : ""}`
-                : `Keep the slot against ${nameOf(f)}: ${cText}; ${slot.sp.name} (rank ${slot.sp.rank}) adds only about ${Math.round(Math.max(0, gain))}. A slot earns its place when it adds ${bar} or more, or finishes the foe.`);
-        }
-    }
-
     // Signature spells: heighten freely, so a lower slot often does the job. Say so when a visible foe is low enough.
     const sigs = spells.filter((sp) => isSlot(sp) && isSignature(sp));
     if (sigs.length) {
@@ -412,7 +390,7 @@ function oracle(board, ctx, out) {
                 for (const r of lowRanks.filter((r) => r >= base && r < sp.rank)) {
                     const e = spellExpected(sp, f, avgAtRank(sp, r), ctx.made);
                     if (e && e.expected >= f.hp) {
-                        out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.hp} HP) and keep the ${ordinal(sp.rank)}.`);
+                        out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.estimated ? `about ${f.hp} HP by the party's guess` : `${f.hp} HP`}) and keep the ${ordinal(sp.rank)}.`);
                         said = true; break;
                     }
                 }
@@ -431,12 +409,13 @@ function oracle(board, ctx, out) {
 
     // --- Spellshapes and the rest that fires on a condition ---------------------------------------------------------
     if (has(actor, "surging-might")) {
-        const resists = live.filter((f) => (f.iwr?.resist ?? []).some((r) => ["spirit", "vitality", "void"].includes(r.type)));
-        const have = spells.some((s) => s.avg > 0 && (s.damageTypes ?? []).some((d) => ["spirit", "vitality", "void"].includes(d)));
-        if (have && resists.length) out.notes.push(`Surging Might (1 action) before a spirit, vitality or void spell: it ignores ${lv} of ${resists.map(nameOf).join(", ")}'s resistance to it.`);
+        // The party learns a resistance by watching it work; the sheet's isn't read, so this is a when note
+        const have = spells.some((s) => s.avg > 0 && ((s.damageTypes ?? []).some((d) => ["spirit", "vitality", "void"].includes(d)) || (s.traits ?? []).some((t) => ["spirit", "vitality", "void"].includes(t))));
+        if (have) out.notes.push(`Surging Might (1 action) before a spirit, vitality or void spell: it ignores ${lv} of the target's resistance to it; for a foe you've seen shrug off that damage.`);
     }
     if (has(actor, "portentous-spell")) out.notes.push("Portentous Spell (1 action) before a spell: a reaction against the casting (a Reactive Strike, a counter) rolls at -2, and foes you hit or that fail are fascinated with you until your next turn; when you're casting in reach of a foe.");
     if (has(actor, "divine-aegis")) out.notes.push("Divine Aegis (reaction) fires before you roll a save against a magical effect: +1 against anything but divine magic, -1 against divine; skip it against a cleric or a celestial.");
+    if (lv >= 10 && has(actor, "quickened-casting")) out.notes.push(`Quickened Casting (free, once a day): a cantrip or a spell of rank ${Math.max(1, topRank - 2)} or lower costs one action less; with three actions that's two spells this turn.`);
     if (has(actor, "forestall-curse")) out.notes.push(`Forestall Curse (1 action, once a day${forestall ? "" : ", used"}): the next cursebound ability doesn't raise your curse. ${forestall ? `Best spent on the ability that would reach ${Math.min(cbMax, cb + 1)}${m && !atMax ? ` (${stageText(m, cb + 1, lv)})` : ""}, or on the one you'd otherwise be too close to the limit for.` : ""}`.trim());
     if (has(actor, "scapegoat-parallel-self")) out.notes.push(`Scapegoat Parallel Self (reaction, once a day${(usesLeft(actor, "scapegoat-parallel-self") ?? 1) > 0 ? "" : ", used"}) fires as your turn starts or your curse would advance: set your curse to any stage. Let a cursebound ability push you to the limit, then drop back to 1.`);
     if (has(actor, "epiphany-at-the-crossroads") && me.conditions?.has?.("dying")) out.notes.push(`Epiphany at the Crossroads (free, once a day) fires as your turn begins while you're dying: you stop dying, regain ${2 * lv} HP and can Stand, with an Augury's worth of vision.`);
@@ -444,7 +423,7 @@ function oracle(board, ctx, out) {
     else if (has(actor, "water-walker") && cb >= 1) out.notes.push(`Water Walker: while cursebound you ${cb >= 2 ? "walk on water" : "can Stride across water, ending on something solid"}.`);
     if (mSlug === "flames" && cb >= 1) out.notes.push(`Your curse burns you for ${cb} fire a round; a Refocus puts it out. A foe's fire spell finds no resistance on you.`);
     if (mSlug === "life" && cb >= 1) out.notes.push(`Healing on you is ${Math.max(1, lv) * cb} short while cursebound ${cb}: let the healer spend on someone else, or take the heal before the next cursebound ability.`);
-    if (mSlug === "time" && cb >= 1 && board.enemies.some((e) => e.reactions?.some?.((r) => r.trigger?.onMove))) out.notes.push(`A Reactive Strike on you hits at +${cb} while cursebound ${cb}: don't provoke this turn if you can help it.`);
+    if (mSlug === "time" && cb >= 1 && foes.some((e) => e.reactions?.some?.((r) => r.trigger?.onMove))) out.notes.push(`A Reactive Strike on you hits at +${cb} while cursebound ${cb}: don't provoke this turn if you can help it.`);
     if (mSlug === "lore" && cb >= 1) out.notes.push(`Will saves at ${signed(-cb)} while cursebound ${cb}; a mental or fear effect on you is the thing to fear this round.`);
 }
 

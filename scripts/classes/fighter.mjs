@@ -7,7 +7,7 @@
  * slot by slot after a first Strike, Desperate Finisher as a fourth press, Agile Grace's -3/-6, Fearsome Brute's bonus,
  * Weapon Supremacy's extra Strike; and when-notes for stances, parries, ripostes and the rest.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 /* ---- weapon facts the board doesn't spell out (the item when the board carries it, else a fair guess) ---- */
 const unarmed = (s) => !!s.traits?.includes("unarmed");
@@ -39,9 +39,13 @@ function fighter(board, ctx, out) {
     const melee = board.strikes.filter((s) => !s.ranged);
     const reach = myReach(board);
     const stance = (re) => !!effect(actor, re);
-    // Weapon Supremacy (20): quickened for Strikes. Counted here when the condition isn't already on the sheet.
-    const supremacy = has(actor, "weapon-supremacy") && !me.conditions?.has?.("quickened") && ctx.actions > 0 ? 1 : 0;
+    // Weapon Supremacy (20): permanently quickened, the extra action only for a Strike. A real sheet carries the quickened
+    // condition (its GrantItem), so ctx.actions already counts it; a sheet without it gets the action added here. Either way
+    // at most acts - 1 actions may be anything but a plain Strike (a move, a press, a 2-action feat).
+    const hasSupremacy = has(actor, "weapon-supremacy") && ctx.actions > 0;
+    const supremacy = hasSupremacy && !me.conditions?.has?.("quickened") ? 1 : 0;
     const acts = ctx.actions + supremacy;
+    const freeActs = hasSupremacy ? acts - 1 : acts; // actions that aren't limited to a Strike
     // Agile Grace (10): -3/-6 with agile weapons. Every plan here uses this penalty.
     const agileGrace = has(actor, "agile-grace");
     const mapOf = (n, agile) => (agile && agileGrace ? (n <= 0 ? 0 : n === 1 ? -3 : -6) : mapFor(n, agile));
@@ -70,8 +74,9 @@ function fighter(board, ctx, out) {
         return { used, ev, text: used.length ? `Strike ${nameOf(f)} with ${used[0].s.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})` : "" };
     };
     const push = (title, f, ev, sq, steps, notes = [], bias = 0.3) => out.plans.push({ kind: "class", title, target: f, ev, score: ev + bias, dest: sq?.route?.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
-    const approach = (f, cost) => { if (acts < cost) return null; const sq = squareToReach(board, f, reach, acts - cost); return sq ? { sq, moveActs: sq.route.actions, left: acts - cost - sq.route.actions } : null; };
-    const supremacyNote = supremacy ? "Weapon Supremacy: your fourth action is the extra Strike (it can only be a Strike)." : null;
+    /** A square to reach f from, moving only with actions that aren't the Strike-only one; left: the actions after the move and the feat. */
+    const approach = (f, cost) => { if (freeActs < cost) return null; const sq = squareToReach(board, f, reach, freeActs - cost); return sq ? { sq, moveActs: sq.route.actions, left: acts - cost - sq.route.actions } : null; };
+    const supremacyNote = hasSupremacy ? "Weapon Supremacy: your extra action can only be a Strike, not a move, a press or a feat's action." : null;
 
     /* ---- Vicious Swing (1; 2 actions, flourish): one Strike, an extra die (two at 10, three at 18), counts as two attacks ---- */
     if ((has(actor, "vicious-swing") || has(actor, "power-attack")) && melee.length) {
@@ -203,13 +208,13 @@ function fighter(board, ctx, out) {
             const shown = [];
             for (const f of around) { const b = best(f, ctx.made); if (!b) continue; ev += b.e.expected; shown.push(`${nameOf(f)} (${b.s.label} ${signed(b.bonus)})`); }
             const steps = [{ cost: 3, text: `Whirlwind Strike: one Strike on each of ${shown.join(", ")}, every one at your current penalty` }];
-            if (supremacy) { const t = around.slice().sort((x, y) => x.ac - y.ac)[0]; const b = best(t, ctx.made + around.length); if (b) { steps.push({ cost: 1, text: `Weapon Supremacy: Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)})` }); ev += b.e.expected; } }
+            if (hasSupremacy && acts >= 4) { const t = around.slice().sort((x, y) => x.ac - y.ac)[0]; const b = best(t, ctx.made + around.length); if (b) { steps.push({ cost: 1, text: `Weapon Supremacy: Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)})` }); ev += b.e.expected; } }
             push(`Whirlwind Strike: ${around.length} foes`, around[0], ev, null, steps, ["Every Whirlwind Strike counts toward your penalty, but it doesn't climb until they're all made."]);
         }
     }
 
     /* ---- Sudden Charge (1; 2 actions): Stride twice, then Strike: for a foe two moves away ---- */
-    if (has(actor, "sudden-charge") && melee.length && acts >= 2 && canMove(me)) {
+    if (has(actor, "sudden-charge") && melee.length && freeActs >= 2 && canMove(me)) {
         for (const f of foes) {
             const sq = squareToReach(board, f, reach, 2);
             if (!sq || sq.route.actions !== 2) continue;
@@ -226,14 +231,14 @@ function fighter(board, ctx, out) {
     if (has(actor, "lunge") && weapons.length && acts >= 1) {
         for (const f of foes) {
             if (inReach(me.rect, f.rect, reach) || !inReach(me.rect, f.rect, reach + 5)) continue;
-            const r = run(f, acts, ctx.made, { pick: (s) => !unarmed(s) });
+            const r = run(f, freeActs, ctx.made, { pick: (s) => !unarmed(s) }); // Lunge is its own action, not a Strike
             if (!r.used.length) continue;
             push(`Lunge at ${nameOf(f)}`, f, r.ev, null, [{ cost: r.used.length, text: `Lunge${times(r.used.length)}: ${r.text} from where you stand, reach +5 feet each` }], ["You stay where you are: it has to come to you, or spend its turn otherwise.", supremacyNote].filter(Boolean));
         }
     }
 
     /* ---- Sever Space (20; 2 actions, flourish): a slashing Strike at 80 feet, then you're adjacent ---- */
-    if (has(actor, "sever-space") && acts >= 2) {
+    if (has(actor, "sever-space") && freeActs >= 2) {
         for (const f of foes) {
             const d = feetBetween(me.rect, f.rect);
             if (d <= reach || d > 80) continue;
@@ -256,7 +261,8 @@ function fighter(board, ctx, out) {
             if (!b) continue;
             const plain = best(f, 0);
             const cost = 0.35 * (plain?.e.expected ?? 0) + worth(board, "off-guard") * 0.5;
-            const ev = b.e.hit * (2 * b.s.avg + extraVs(f) * 2) + b.e.crit * 6.5 - cost;
+            const dd = diceOf(b.s, lv) >= 4 ? 3 : diceOf(b.s, lv) >= 3 ? 2 : 1; // deadly d12: one die, two with greater striking, three with major
+            const ev = b.e.hit * (2 * b.s.avg + extraVs(f) * 2) + b.e.crit * 6.5 * dd - cost;
             push(`Overwhelming Blow on ${nameOf(f)}`, f, ev, null, [{ cost: 3, text: `Overwhelming Blow ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit is a critical hit (a natural one adds deadly d12)` }], ["Afterwards you're stunned 1 and off-guard until your next turn: for a foe this blow finishes, or when little can reach you."], 0.2);
         }
     }
@@ -291,13 +297,15 @@ function fighter(board, ctx, out) {
     /* ---- The press plan: a first Strike, then the best press each action (Exacting, Certain, Brutish Shove, Combat Grab,
             Advantageous Assault, Shatter Defenses, Disarming Twist, Brutal Finish, Two-Weapon Flurry), Desperate Finisher after ---- */
     const presses = ["exacting-strike", "certain-strike", "brutish-shove", "dragging-strike", "combat-grab", "advantageous-assault", "shatter-defenses", "disarming-twist", "brutal-finish", "two-weapon-flurry", "snagging-strike"].filter((s) => has(actor, s));
-    if (melee.length && acts >= 1 && (presses.length || agileGrace || supremacy)) {
+    if (melee.length && acts >= 1 && (presses.length || agileGrace || hasSupremacy)) {
         const finisher = has(actor, "desperate-finisher");
         for (const f of foes) {
             const a = approach(f, 1); if (!a) continue;
             const slots = a.left + 1;
-            let made = ctx.made, acAdj = 0, ev = 0, ended = false;
+            let made = ctx.made, acAdj = 0, ev = 0, ended = false, flourished = false, special = a.moveActs;
             const steps = [];
+            /** acAdj once a further chance p of off-guard is added to what's already there (never more than -2). */
+            const og = (p) => (offGuardTo(f) ? 0 : -2 * (1 - (1 + acAdj / 2) * (1 - p)));
             const notes = [];
             if (a.moveActs) steps.push({ cost: a.moveActs, text: moveText(a.sq, f) });
             const next = (m, adj) => best(f, m, { acAdj: adj })?.e.expected ?? 0;
@@ -314,9 +322,10 @@ function fighter(board, ctx, out) {
                 const plainB = best(f, made, { acAdj });
                 if (!plainB) break;
                 opts.push({ name: "Strike", cost: 1, b: plainB, immediate: plainB.e.expected, st: { made: made + 1, acAdj }, text: `Strike ${nameOf(f)} with ${plainB.s.label} (${signed(plainB.bonus)})` });
-                const pressOk = made >= 1; // press: only once you're at a multiple attack penalty
-                if (slot === 0 && has(actor, "snagging-strike") && freeHand(board) && !offGuardTo(f)) opts.push(option("Snagging Strike", 1, {
-                    after: (b) => ({ made: made + 1, acAdj: -2 * b.e.hit }), bonus: (b) => b.e.hit * worth(board, "off-guard") * 0.3,
+                // press: only once you're at a multiple attack penalty, and not with the Strike-only action
+                const pressOk = made >= 1 && special < freeActs;
+                if (slot === 0 && special < freeActs && has(actor, "snagging-strike") && freeHand(board) && !offGuardTo(f)) opts.push(option("Snagging Strike", 1, {
+                    after: (b) => ({ made: made + 1, acAdj: og(b.e.hit) }), bonus: (b) => b.e.hit * worth(board, "off-guard") * 0.3,
                     text: (b) => `Snagging Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}), a hand free: a hit leaves it off-guard until your next turn` }));
                 if (pressOk && has(actor, "exacting-strike")) opts.push(option("Exacting Strike", 1, {
                     bonus: (b) => (last ? 0 : (1 - b.e.hit) * (next(made, acAdj) - next(made + 1, acAdj))),
@@ -325,27 +334,27 @@ function fighter(board, ctx, out) {
                     bonus: (b) => degreeChances(b.bonus, f.ac + acAdj).f * flatOf(b.s, lv),
                     text: (b) => `Certain Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a miss still deals ${Math.round(flatOf(b.s, lv))}` }));
                 if (pressOk && has(actor, "brutish-shove") && weapons.some(twoHanded)) opts.push(option("Brutish Shove", 1, {
-                    pick: twoHanded, after: (b) => ({ made: made + 1, acAdj: offGuardTo(f) ? acAdj : -2 * (1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
+                    pick: twoHanded, after: (b) => ({ made: made + 1, acAdj: og(1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
                     bonus: (b) => b.e.hit * 0.5, text: (b) => `Brutish Shove ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): hit or miss it's off-guard until your turn ends; a hit also Shoves it${has(actor, "flinging-shove") ? " (Flinging Shove: 5 feet even on a miss)" : ""}` }));
                 else if (pressOk && has(actor, "dragging-strike")) opts.push(option("Dragging Strike", 1, {
-                    after: (b) => ({ made: made + 1, acAdj: offGuardTo(f) ? acAdj : -2 * (1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
+                    after: (b) => ({ made: made + 1, acAdj: og(1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
                     text: (b) => `Dragging Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit pulls it 5 feet, a miss leaves it off-guard until your turn ends` }));
                 if (pressOk && has(actor, "combat-grab") && freeHand(board) && !f.conditions?.has?.("grabbed")) opts.push(option("Combat Grab", 1, {
-                    after: (b) => ({ made: made + 1, acAdj: offGuardTo(f) ? acAdj : -2 * b.e.hit }), bonus: (b) => b.e.hit * worth(board, "grabbed") * 0.6,
+                    after: (b) => ({ made: made + 1, acAdj: og(b.e.hit) }), bonus: (b) => b.e.hit * worth(board, "grabbed") * 0.6,
                     text: (b) => `Combat Grab ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit grabs it until the end of your next turn` }));
                 if (pressOk && has(actor, "advantageous-assault") && ["grabbed", "prone", "restrained"].some((c) => f.conditions?.has?.(c))) opts.push(option("Advantageous Assault", 1, {
                     extra: (s) => diceOf(s, lv) + (twoHanded(s) ? 2 : 0), bonus: (b) => degreeChances(b.bonus, f.ac + acAdj).f * (diceOf(b.s, lv) + (twoHanded(b.s) ? 2 : 0)),
                     text: (b) => `Advantageous Assault ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): +${diceOf(b.s, lv) + (twoHanded(b.s) ? 2 : 0)} damage, the same on a miss` }));
                 if (pressOk && has(actor, "shatter-defenses") && f.conditions?.has?.("frightened") && !offGuardTo(f)) opts.push(option("Shatter Defenses", 1, {
-                    after: (b) => ({ made: made + 1, acAdj: -2 * b.e.hit }), bonus: (b) => b.e.hit * worth(board, "off-guard") * 0.5,
+                    after: (b) => ({ made: made + 1, acAdj: og(b.e.hit) }), bonus: (b) => b.e.hit * worth(board, "off-guard") * 0.5,
                     text: (b) => `Shatter Defenses ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit makes it off-guard until its fear ends` }));
                 if (pressOk && has(actor, "disarming-twist") && duelist(board)) opts.push(option("Disarming Twist", 1, {
-                    pick: oneHanded, after: (b) => ({ made: made + 1, acAdj: offGuardTo(f) ? acAdj : -2 * degreeChances(b.bonus, f.ac + acAdj).f }), bonus: (b) => b.e.hit * 1,
+                    pick: oneHanded, after: (b) => ({ made: made + 1, acAdj: og(degreeChances(b.bonus, f.ac + acAdj).f) }), bonus: (b) => b.e.hit * 1,
                     text: (b) => `Disarming Twist ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit also Disarms (a miss leaves it off-guard until your turn ends)` }));
-                if (pressOk && has(actor, "two-weapon-flurry") && weapons.length >= 2) {
+                if (pressOk && !flourished && has(actor, "two-weapon-flurry") && weapons.length >= 2) {
                     const [x, y] = weapons.slice().sort((p, q) => q.avg - p.avg);
                     const e1 = strikeExpected(x.bonus + mapOf(made, x.agile), f.ac + acAdj, x.avg + extraVs(f), { deadly: x.deadly }), e2 = strikeExpected(y.bonus + mapOf(made + 1, y.agile), f.ac + acAdj, y.avg + extraVs(f), { deadly: y.deadly });
-                    opts.push({ name: "Two-Weapon Flurry", cost: 1, b: { s: x }, immediate: e1.expected + e2.expected, st: { made: made + 2, acAdj }, text: `Two-Weapon Flurry ${nameOf(f)}: ${x.label} (${signed(x.bonus + mapOf(made, x.agile))}) and ${y.label} (${signed(y.bonus + mapOf(made + 1, y.agile))}) for one action` });
+                    opts.push({ name: "Two-Weapon Flurry", cost: 1, b: { s: x }, immediate: e1.expected + e2.expected, st: { made: made + 2, acAdj, flourish: true }, text: `Two-Weapon Flurry ${nameOf(f)}: ${x.label} (${signed(x.bonus + mapOf(made, x.agile))}) and ${y.label} (${signed(y.bonus + mapOf(made + 1, y.agile))}) for one action` });
                 }
                 if (pressOk && last && has(actor, "brutal-finish") && weapons.some(twoHanded)) {
                     const dice = lv >= 18 ? 2 : 1;
@@ -355,13 +364,15 @@ function fighter(board, ctx, out) {
                 const pick = opts.filter(Boolean).sort((p, q) => q.immediate - p.immediate)[0];
                 steps.push({ cost: pick.cost, text: pick.text });
                 ev += pick.immediate; made = pick.st.made; acAdj = pick.st.acAdj; ended = !!pick.st.end;
+                if (pick.st.flourish) flourished = true; // a flourish: one a turn
+                if (pick.name !== "Strike") special += 1;
             }
             // Desperate Finisher (14): one more press as a reaction, your reactions gone until your next turn
             if (finisher && !ended && made >= 1 && steps.length) {
                 const fin = [];
                 if (has(actor, "certain-strike")) { const b = best(f, made, { acAdj }); if (b) fin.push({ ev: b.e.expected + degreeChances(b.bonus, f.ac + acAdj).f * flatOf(b.s, lv), text: `Desperate Finisher (reaction): Certain Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)})` }); }
                 if (has(actor, "brutal-finish") && weapons.some(twoHanded)) { const dice = lv >= 18 ? 2 : 1; const b = best(f, made, { acAdj, pick: twoHanded, extra: (s) => dice * dieAvg(s) }); if (b) fin.push({ ev: b.e.expected + degreeChances(b.bonus, f.ac + acAdj).f * dice * dieAvg(b.s), text: `Desperate Finisher (reaction): Brutal Finish ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)})` }); }
-                if (has(actor, "two-weapon-flurry") && weapons.length >= 2) { const [x, y] = weapons.slice().sort((p, q) => q.avg - p.avg); const e1 = strikeExpected(x.bonus + mapOf(made, x.agile), f.ac + acAdj, x.avg, { deadly: x.deadly }), e2 = strikeExpected(y.bonus + mapOf(made + 1, y.agile), f.ac + acAdj, y.avg, { deadly: y.deadly }); fin.push({ ev: e1.expected + e2.expected, text: `Desperate Finisher (reaction): Two-Weapon Flurry ${nameOf(f)} (${signed(x.bonus + mapOf(made, x.agile))}, ${signed(y.bonus + mapOf(made + 1, y.agile))})` }); }
+                if (has(actor, "two-weapon-flurry") && weapons.length >= 2 && !flourished) { const [x, y] = weapons.slice().sort((p, q) => q.avg - p.avg); const e1 = strikeExpected(x.bonus + mapOf(made, x.agile), f.ac + acAdj, x.avg, { deadly: x.deadly }), e2 = strikeExpected(y.bonus + mapOf(made + 1, y.agile), f.ac + acAdj, y.avg, { deadly: y.deadly }); fin.push({ ev: e1.expected + e2.expected, text: `Desperate Finisher (reaction): Two-Weapon Flurry ${nameOf(f)} (${signed(x.bonus + mapOf(made, x.agile))}, ${signed(y.bonus + mapOf(made + 1, y.agile))})` }); }
                 for (const s of ["exacting-strike", "advantageous-assault", "dragging-strike", "brutish-shove"]) if (has(actor, s) && !fin.length) { const b = best(f, made, { acAdj, pick: s === "brutish-shove" ? twoHanded : undefined }); if (b) fin.push({ ev: b.e.expected, text: `Desperate Finisher (reaction): ${b.s.label} ${s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} on ${nameOf(f)} (${signed(b.bonus)})` }); }
                 const bestFin = fin.sort((p, q) => q.ev - p.ev)[0];
                 if (bestFin) { steps.push({ cost: 0, text: `${bestFin.text}; you give up your reactions until your next turn` }); ev += bestFin.ev * 0.8; notes.push("Desperate Finisher spends your reactions: no Reactive Strike until your next turn. Skip it when a foe is about to move past you."); }
@@ -380,7 +391,7 @@ function fighter(board, ctx, out) {
         const agile = board.strikes.filter((s) => s.agile);
         if (agile.length) n(`Agile Grace: -3 and -6 with ${agile.map((s) => s.label).join(", ")} instead of -4 and -8. The generic Strike plans count the usual penalty; the fighter plans here count yours.`);
     }
-    if (supremacy) n("Weapon Supremacy: you're quickened every turn, the extra action for a Strike only. The plans count four actions.");
+    if (hasSupremacy) n("Weapon Supremacy: you're quickened every turn, the extra action for a Strike only. The plans count four actions and spend the fourth only on a Strike.");
     if (has(actor, "combat-flexibility")) n(`Combat Flexibility: the fighter feat${has(actor, "ultimate-flexibility") ? "s (three, Ultimate Flexibility; an hour's training swaps them)" : has(actor, "improved-flexibility") ? "s (two, Improved Flexibility)" : ""} you prepared this morning ${has(actor, "improved-flexibility") ? "are" : "is"} on your sheet until tomorrow and read like any other.`);
     // Parry and riposte
     const duel = duelist(board);
@@ -416,6 +427,7 @@ function fighter(board, ctx, out) {
     if (has(actor, "quick-reversal") && foes.filter((f) => adjacent(me, f)).length >= 2) n("Quick Reversal (1 action, flourish, press) when two foes flank you: Strike one, then the other at the same penalty, the second not counting.");
     if (has(actor, "dazing-blow") && foes.some((f) => f.conditions?.has?.("grabbed") && inReach(me.rect, f.rect, reach))) n("Dazing Blow (1 action, press) on a foe you have grabbed: bludgeoning, and on a hit a Fortitude save or stunned 1 to 3 (incapacitation).");
     if (has(actor, "dashing-strike") && foes.some((f) => adjacent(me, f)) && foes.length >= 2) n("Dashing Strike (1 action, press): Stride from the foe next to you to another and Strike it.");
+    if (has(actor, "disarming-stance") && duel) n(stance(/disarming-stance/) ? `Disarming Stance: +1 to Disarm${has(actor, "disarming-twist") ? " (Disarming Twist's too; the press plan doesn't count it)" : ""}, and you can Disarm foes two sizes larger.` : "Disarming Stance (1 action, stance): +1 to Disarm and +2 to your Reflex DC against being disarmed, with one one-handed weapon and nothing else in hand.");
     if (has(actor, "dual-handed-assault") && duel) n("Dual-Handed Assault (1 action, flourish): your one-handed weapon's die one step bigger for one Strike, your free hand still free after.");
     if (has(actor, "positioning-assault") && weapons.some(twoHanded)) n("Positioning Assault (2 actions, flourish): a two-handed Strike that moves the foe 5 feet on a hit.");
     if (has(actor, "guiding-finish") && duel) n("Guiding Finish (1 action, press): a hit moves the foe up to 10 feet, even through your space; a miss still 5.");

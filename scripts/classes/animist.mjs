@@ -9,12 +9,9 @@
  * apparition's Lore, and "when" notes for the feats that ride on a spell. The vessel spells are taken off the board so
  * the advisor doesn't plan them a second time.
  */
-import { bestStrike, castable, effect, focusLeft, has, level, pct, squareToReach, strikeRun, targets, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, moveText, myReach } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, squareToReach, strikeRun, targets, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, moveText, myReach, reachableSquares } from "./_common.mjs";
 
 const itemsOf = (actor) => actor?.items?.contents ?? (Array.isArray(actor?.items) ? actor.items : []);
-const slugOf = (i) => i?.slug ?? i?.system?.slug ?? String(i?.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-/** Foundry's sluggify drops apostrophes (channelers-stance); the catalog keeps a dash for them (channeler-s-stance). */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
 const hurt = (c) => Math.max(0, (c?.maxHp ?? 0) - (c?.hp ?? 0));
 const list = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "");
@@ -22,7 +19,11 @@ const list = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} an
 /**
  * The apparitions the system ships (class features tagged animist-apparition), by slug: the Lore skills they grant
  * (the wandering feats' requirements), their cantrip and their vessel spell. Attuned today means the feature is on the
- * sheet; primary means its vessel spell is a focus spell on the sheet.
+ * sheet. PF2e 8.6.1 records no primary apparition (no roll option, effect or ChoiceSet: Apparition Attunement and Circle
+ * of Spirits carry no rules), and players keep every attuned apparition's vessel spell in the focus entry. So the read
+ * allows one primary (two for a medium from 9th, Dual Invocation): the pf2e-tactics flag primaryApparition when set,
+ * else a vessel spell that is up, else the first vessel spell on the sheet. The other vessel spells are planned behind
+ * Circle of Spirits (1 action), or not at all without it.
  */
 const APPARITIONS = {
     "crafter-in-the-vault": { name: "Crafter in the Vault", lores: ["architecture", "engineering"], cantrip: "Sigil", vessel: "Traveling Workshop" },
@@ -136,15 +137,24 @@ function animist(board, ctx, out) {
     const apparitionEntry = entries.find((e) => e.apparition) ?? null;
     const spellNamed = (re) => (board.spells ?? []).find((sp) => re.test(sp.name ?? ""));
 
-    // --- The vessel spells on the sheet: the primary apparition(s). They come off the board: this read plans them -----
+    // --- The vessel spells on the sheet. They come off the board: this read plans them ---------------------------------
     const vessels = (board.spells ?? []).filter((sp) => !sp.consumable && vesselOf(sp.name));
     board.spells = (board.spells ?? []).filter((sp) => !vessels.includes(sp));
-    const primaries = vessels.map((sp) => vesselOf(sp.name));
     const vesselUp = (name) => {
-        const re = new RegExp(name.toLowerCase().replace(/[^a-z0-9]+/g, "-?"));
+        const re = new RegExp(name.toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-?"));
         if (effect(actor, re)) return true;
-        return !!board.sustain && re.test(String(board.sustain.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+        return !!board.sustain && re.test(String(board.sustain.name ?? "").toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-"));
     };
+    // The primary apparition(s): one, or two for a medium from 9th (Dual Invocation). The sheet doesn't say which, so: the
+    // flag, else what is up, else the sheet's order. The rest of the vessel spells need Circle of Spirits first.
+    const maxPrimaries = practice === "medium" && lv >= 9 ? 2 : 1;
+    const named = String(actor?.flags?.["pf2e-tactics"]?.primaryApparition ?? "").toLowerCase();
+    const flagged = named ? vessels.filter((sp) => named.includes(sp.name.toLowerCase()) || named.includes(vesselOf(sp.name).name.toLowerCase())) : [];
+    const upNow = vessels.filter((sp) => vesselUp(sp.name) && !flagged.includes(sp));
+    const primaryVessels = [...new Set([...flagged, ...upNow, ...vessels])].slice(0, maxPrimaries);
+    const guessed = vessels.length > maxPrimaries ? (flagged.length ? "your pf2e-tactics primaryApparition flag" : upNow.length ? "the vessel spell you have up" : "the first vessel spell on your sheet") : null;
+    const primaries = primaryVessels.map((sp) => vesselOf(sp.name));
+    const circle = hasAny(actor, "circle-of-spirits");
 
     // --- Relinquish Control (Medium): only Strikes, Steps and apparition or vessel spells this turn ---------------------
     const fromApparition = (sp) => sp.focus || sp.isFocus || (sp.traits ?? []).includes("focus") || (apparitionEntry ? (sp.entry ?? "") === apparitionEntry.name : true);
@@ -152,23 +162,25 @@ function animist(board, ctx, out) {
         const before = board.spells.length;
         board.spells = board.spells.filter(fromApparition);
         board.profiles = (board.profiles ?? []).filter((p) => (p.traits ?? []).includes("apparition"));
-        out.notes.push(`You've Relinquished Control: until your next turn only Strikes, Steps, Recall Knowledge, apparition and vessel spells and apparition actions are yours${hasAny(actor, "instinctive-maneuvers") ? ", plus Grapple, Reposition, Shove and Trip at +2" : ""}${before > board.spells.length ? "; your other spells are off the plans" : apparitionEntry ? "" : "; the read can't tell your apparition spells from the rest, so mind the list"}. +4 to saves against being controlled${lv >= 17 && practice === "medium" ? "; your Strikes deal +2 spirit and you resist physical damage " + Math.floor(lv / 2) + " but have weakness " + lv + " to spirit" : ""}.`);
+        out.notes.push(`You've Relinquished Control: until your next turn only Strikes, Steps, Recall Knowledge, apparition and vessel spells and apparition actions are yours${hasAny(actor, "instinctive-maneuvers") ? ", plus Grapple, Reposition, Shove and Trip at +2" : ""}${before > board.spells.length ? "; your other spells are off the plans" : apparitionEntry ? "" : "; the read can't tell your apparition spells from the rest, so mind the list"}. You move only by Step: the class plans here keep to that, the general plans below may still Stride, so skip those. +4 to saves against being controlled${lv >= 17 && practice === "medium" ? "; your Strikes deal +2 spirit and you resist physical damage " + Math.floor(lv / 2) + " but have weakness " + lv + " to spirit" : ""}.`);
     }
 
     // --- What's attuned, what's primary, what's left in the pool ---------------------------------------------------
     if (attuned.length || vessels.length) {
         const names = attuned.map((a) => a.name);
         const prim = primaries.map((p) => p.name);
-        const others = attuned.filter((a) => !primaries.includes(APPARITIONS[a.slug]) && !prim.includes(a.name));
-        let text = attuned.length ? `Attuned today: ${list(names)}` : `No apparition feature on your sheet; the vessel spell says your primary is ${list(prim)}`;
-        if (prim.length) text += `${attuned.length ? ";" : "."} ${prim.length > 1 ? "primaries" : "primary"} ${list(prim)} (vessel spell${prim.length > 1 ? "s" : ""} ${list(vessels.map((v) => v.name))})`;
+        // the attuned apparitions that aren't primary: their features, and the vessel spells on the sheet beyond the primaries
+        const others = [...attuned.filter((a) => !prim.includes(a.name)), ...vessels.filter((sp) => !primaryVessels.includes(sp)).map((sp) => vesselOf(sp.name)).filter((p) => !attuned.some((a) => a.name === p.name))];
+        let text = attuned.length ? `Attuned today: ${list(names)}` : `No apparition feature on your sheet; the vessel spell${vessels.length > 1 ? "s say" : " says"} you're attuned to ${list(vessels.map((sp) => vesselOf(sp.name).name))}`;
+        if (prim.length) text += `${attuned.length ? "; p" : ". P"}${prim.length > 1 ? "rimaries" : "rimary"} ${list(prim)} (vessel spell${prim.length > 1 ? "s" : ""} ${list(primaryVessels.map((v) => v.name))})`;
         else if (attuned.length) text += "; no vessel spell on your sheet, so the read can't tell which is primary (add the primary's vessel spell to your focus spells)";
+        if (guessed) text += `. Your sheet doesn't record which apparition is primary and you hold ${maxPrimaries > 1 ? "two primaries" : "one primary"}, so the read takes ${list(prim)} (${guessed}) and puts Circle of Spirits in front of ${list(vessels.filter((sp) => !primaryVessels.includes(sp)).map((sp) => sp.name))}; if another is primary, set the pf2e-tactics primaryApparition flag or keep only the primary's vessel spell on the sheet`;
         if (focus !== null) text += `. ${focus} of ${fmax} Focus Point${fmax === 1 ? "" : "s"} left${focus === 0 ? ": no vessel spell until you Refocus" : ""}`;
         out.notes.push(`${text}.`);
-        if (others.length && hasAny(actor, "circle-of-spirits") && focus > 0 && ctx.actions >= 2 && !relinquished) {
+        if (others.length && circle && ctx.actions >= 2) {
             const lines = others.filter((a) => a.vessel).map((a) => `${a.name} for ${a.vessel} (${VESSEL_LINE[a.vessel] ?? "its vessel spell"})`);
-            if (lines.length) out.notes.push(`Circle of Spirits (1 action, once a round): make ${lines.join("; or ")} your primary instead. It pays only when that vessel suits this fight better than ${list(vessels.map((v) => v.name))}${lv >= 9 && practice === "medium" ? "; as a medium you hold two primaries, so it swaps one" : ""}.`);
-        }
+            if (lines.length) out.notes.push(`Circle of Spirits (1 action, once a round, no Focus Point): make ${lines.join("; or ")} your primary instead. It pays only when that vessel suits this fight better than ${list(primaryVessels.map((v) => v.name)) || "what you hold"}${focus === 0 ? "; with no Focus Point left the new vessel spell waits for a Refocus" : ""}${maxPrimaries > 1 ? "; as a medium you hold two primaries, so it swaps one" : ""}.`);
+        } else if (others.length && !circle && guessed) out.notes.push(`Without Circle of Spirits you change your primary only when you Refocus, so ${list(vessels.filter((sp) => !primaryVessels.includes(sp)).map((sp) => sp.name))} ${vessels.length - primaryVessels.length > 1 ? "are" : "is"} off the plans this fight.`);
     }
     if (apparitionEntry && Object.keys(apparitionEntry.ranks).length) {
         const divine = entries.find((e) => e.prepared && e !== apparitionEntry);
@@ -200,12 +212,28 @@ function animist(board, ctx, out) {
     const costNote = (name) => `${name} costs 1 Focus Point (${focus} left) and an action each round to Sustain, up to a minute${lv >= 9 && practice === "liturgist" ? "; as a liturgist a Step, Leap or Tumble Through Sustains it for you" : ""}.`;
     const push = (title, target, ev, steps, notes, dest = null, bias = 0.3) => out.plans.push({ kind: "class", title, target, ev, score: ev + bias, dest, steps, notes });
     const nearestFoe = foes.slice().sort((a, b) => feetBetween(me.rect, a.rect) - feetBetween(me.rect, b.rect))[0] ?? null;
+    /** A square from which you reach f: under Relinquish Control only a Step (one 5-foot move) or none, else up to maxActions of movement. */
+    const reachSq = (f, reach, maxActions) => {
+        if (!relinquished) return squareToReach(board, f, reach, maxActions);
+        if (inReach(me.rect, f.rect, reach)) return { x: me.rect.x, y: me.rect.y, route: { actions: 0, provokes: [], via: null } };
+        if (maxActions < 1) return null;
+        return reachableSquares(board, 1).find((sq) => sq.route.actions === 1 && sq.route.step && inReach({ ...me.rect, x: sq.x, y: sq.y, z: sq.z ?? me.rect.z }, f.rect, reach)) ?? null;
+    };
 
     for (const sp of vessels) {
         const name = sp.name;
         const rank = sp.rank ?? rankTop;
         const up = vesselUp(name);
-        const canCast = focus > 0 && ctx.actions >= 1 && !up;
+        // A vessel spell that isn't the primary's: Circle of Spirits (1 action, once a round) first, or nothing
+        const swap = !primaryVessels.includes(sp);
+        if (swap && (!circle || ctx.actions < 2)) continue;
+        const A = swap ? ctx.actions - 1 : ctx.actions;
+        const canCast = focus > 0 && A >= 1 && !up;
+        const say = (t) => { if (!swap) out.notes.push(t); }; // the Circle of Spirits note covers the others
+        const swapTo = vesselOf(name).name;
+        const pushV = (title, target, ev, steps, notes, dest, bias) => (swap
+            ? push(`Circle of Spirits to ${swapTo}, then ${title}`, target, ev, [{ cost: 1, text: `Circle of Spirits: ${swapTo} becomes your primary apparition${primaries.length ? ` in place of ${list(primaries.map((p) => p.name))}` : ""}` }, ...steps], [...notes, `${list(primaries.map((p) => p.name)) || "Your old primary"}'s vessel spell is off until you swap back.`], dest, bias)
+            : push(title, target, ev, steps, notes, dest, bias));
         const stanceNow = inStance ? 1 : 0;
         switch (vesselOf(name).vessel) {
             case "Earth's Bile": {
@@ -215,7 +243,7 @@ function animist(board, ctx, out) {
                 if (up) {
                     const f = nearestFoe;
                     if (board.sustain && /earth/i.test(board.sustain.name ?? "")) board.sustain.value = Math.max(board.sustain.value ?? 0, f ? saveExpected(f.saves?.reflex ?? lv + 8, dc, avg, { basic: true }).expected + persist : avg * 0.5);
-                    out.notes.push(`Earth's Bile is up: Sustain it (1 action) for another 10-foot burst within 30 feet, about ${Math.round(avg)} fire and bludgeoning (basic Reflex) plus ${persist} persistent fire on a failure.`);
+                    say(`Earth's Bile is up: Sustain it (1 action) for another 10-foot burst within 30 feet, about ${Math.round(avg)} fire and bludgeoning (basic Reflex) plus ${persist} persistent fire on a failure.`);
                     break;
                 }
                 if (!canCast) break;
@@ -228,11 +256,11 @@ function animist(board, ctx, out) {
                     for (const a of burned) ev -= Math.min(avg, a.hp ?? avg) * (a === me ? 1 : 0.9);
                     if (!best || ev > best.ev) best = { c, caught, burned, ev };
                 }
-                if (!best || best.ev <= 0) { if (foes.some((f) => near(f, 30))) out.notes.push(`Earth's Bile (1 action, 1 Focus Point): a 10-foot burst within 30 feet for about ${Math.round(avg)} fire and bludgeoning (basic Reflex) and ${persist} persistent fire, again each Sustain; right now every spot that catches a foe catches you or an ally too, so hold it until the lines part.`); break; }
-                const rest = restAt(best.c, ctx.actions - 1);
+                if (!best || best.ev <= 0) { if (foes.some((f) => near(f, 30))) say(`Earth's Bile (1 action, 1 Focus Point): a 10-foot burst within 30 feet for about ${Math.round(avg)} fire and bludgeoning (basic Reflex) and ${persist} persistent fire, again each Sustain; right now every spot that catches a foe catches you or an ally too, so hold it until the lines part.`); break; }
+                const rest = restAt(best.c, A - 1);
                 const steps = [{ cost: 1, text: `Earth's Bile: a 10-foot burst on ${nameOf(best.c)}, catching ${list(best.caught.map(nameOf))}, about ${Math.round(avg)} fire and bludgeoning each (basic Reflex) and ${persist} persistent fire on a failure${best.burned.length ? `; ${list(best.burned.map((a) => (a === me ? "you" : nameOf(a))))} ${best.burned.length > 1 ? "are" : "is"} in it too` : ""}` }, ...rest.steps];
                 const notes = [costNote(name), `Each later turn, the Sustain is the same burst again for one action${stanceFeat && !inStance ? `; in Channeler's Stance it deals +${rank} each time` : ""}.`];
-                push(`Earth's Bile on ${nameOf(best.c)}`, best.c, best.ev + rest.ev, steps, notes);
+                pushV(`Earth's Bile on ${nameOf(best.c)}`, best.c, best.ev + rest.ev, steps, notes);
                 break;
             }
             case "Garden of Healing": {
@@ -241,29 +269,30 @@ function animist(board, ctx, out) {
                 const foesIn = foes.filter((f) => near(f, 10));
                 if (up) {
                     if (board.sustain && /garden/i.test(board.sustain.name ?? "")) board.sustain.value = Math.max(board.sustain.value ?? 0, healed.reduce((t, a) => t + 0.8 * Math.min(avg, hurt(a)), 0));
-                    out.notes.push(`Garden of Healing is up: Sustain it (1 action) for another ${Math.round(avg)} HP to everyone within 10 feet${healed.length ? ` (${list(healed.map((a) => (a === me ? "you" : nameOf(a))))} right now)` : ""}${foesIn.length ? `, ${list(foesIn.map(nameOf))} included` : ""}.`);
+                    say(`Garden of Healing is up: Sustain it (1 action) for another ${Math.round(avg)} HP to everyone within 10 feet${healed.length ? ` (${list(healed.map((a) => (a === me ? "you" : nameOf(a))))} right now)` : ""}${foesIn.length ? `, ${list(foesIn.map(nameOf))} included` : ""}.`);
                     break;
                 }
                 if (!canCast) break;
                 const gain = healed.reduce((t, a) => t + 0.8 * Math.min(avg, hurt(a)) * (a === me ? 1 : 0.9), 0) - foesIn.reduce((t, f) => t + 0.8 * Math.min(avg, hurt(f)), 0);
                 if (healed.length < 2 || gain < 3) {
-                    if (healed.length < 2 && hurt(me) + allies.reduce((t, a) => t + hurt(a), 0) > 0) out.notes.push(`Garden of Healing (1 action, 1 Focus Point): ${Math.round(avg)} HP a round to everyone within 10 feet of you while you Sustain it; it pays when two or more hurt allies stand close${foesIn.length ? ", and the foes in it heal too" : ""}.`);
+                    if (healed.length < 2 && hurt(me) + allies.reduce((t, a) => t + hurt(a), 0) > 0) say(`Garden of Healing (1 action, 1 Focus Point): ${Math.round(avg)} HP a round to everyone within 10 feet of you while you Sustain it; it pays when two or more hurt allies stand close${foesIn.length ? ", and the foes in it heal too" : ""}.`);
                     break;
                 }
                 const f = nearestFoe;
-                const rest = restAt(f, ctx.actions - 1);
+                const rest = restAt(f, A - 1);
                 const steps = [{ cost: 1, text: `Garden of Healing: about ${Math.round(avg)} HP now to ${list(healed.map((a) => (a === me ? "you" : nameOf(a))))}, and again each turn you Sustain it${foesIn.length ? `; ${list(foesIn.map(nameOf))} heal${foesIn.length > 1 ? "" : "s"} too` : ""}` }, ...rest.steps];
-                push("Garden of Healing", null, gain + rest.ev, steps, [costNote(name), "The healing lands once a round, so it's a slow heal for a long fight, not a rescue; a creature it has healed gets nothing from a second casting for 10 minutes."]);
+                pushV("Garden of Healing", null, gain + rest.ev, steps, [costNote(name), "The healing lands once a round, so it's a slow heal for a long fight, not a rescue; a creature it has healed gets nothing from a second casting for 10 minutes."]);
                 break;
             }
             case "Embodiment of Battle": {
                 const bonus = rank >= 7 ? 3 : rank >= 4 ? 2 : 1;
-                if (up) { out.notes.push(`Embodiment of Battle is up: +${bonus} to your attacks and damage and Reactive Strike while you Sustain it; your spell DC and attacks are 2 lower.`); break; }
+                if (up) { say(`Embodiment of Battle is up: +${bonus} to your attacks and damage and Reactive Strike while you Sustain it; your spell DC and attacks are 2 lower.`); break; }
                 if (!canCast || !board.strikes.some((s) => !s.ranged)) break;
+                const drafts = [];
                 for (const f of foes) {
-                    const sq = squareToReach(board, f, myReach(board), ctx.actions - 2);
+                    const sq = reachSq(f, myReach(board), A - 2);
                     if (!sq) continue;
-                    const left = ctx.actions - 1 - sq.route.actions;
+                    const left = A - 1 - sq.route.actions;
                     if (left < 1) continue;
                     const run = strikeRun(board, f, left, { made: ctx.made, extra: bonus + (enhancement ? 3.5 : 0), acAdj: -bonus });
                     if (!run.used.length) continue;
@@ -273,93 +302,94 @@ function animist(board, ctx, out) {
                     const steps = [{ cost: 1, text: `Embodiment of Battle: +${bonus} to attacks and damage, martial weapons at your simple proficiency, and Reactive Strike for a minute while you Sustain it` }];
                     if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
                     steps.push({ cost: run.used.length, text: `${run.text}${enhancement ? ", +1d6 spirit (Apparition's Enhancement)" : ""}` });
-                    push(`Embodiment of Battle, then Strike ${nameOf(f)}`, f, ev, steps, [costNote(name), `Worth about ${Math.round(run.ev - plain.ev)} over plain Strikes this turn plus a Reactive Strike; your spell attacks and DC are 2 lower while it runs, so it's for a turn or two of hitting, not casting.`], sq.route.actions ? { x: sq.x, y: sq.y } : null, 0.2);
+                    drafts.push([`Embodiment of Battle, then Strike ${nameOf(f)}`, f, ev, steps, [costNote(name), `Worth about ${Math.round(run.ev - plain.ev)} over plain Strikes this turn plus a Reactive Strike; your spell attacks and DC are 2 lower while it runs, so it's for a turn or two of hitting, not casting.`], sq.route.actions ? { x: sq.x, y: sq.y } : null, 0.2]);
                 }
+                for (const d of drafts.sort((a, b) => b[2] - a[2]).slice(0, 2)) pushV(...d);
                 break;
             }
             case "Nymph's Grace": {
                 const inAura = foes.filter((f) => near(f, 10));
-                if (up) { out.notes.push(`Nymph's Grace is up: Sustain it (1 action) and ${inAura.length ? list(inAura.map(nameOf)) + " must" : "a foe that enters or starts in the aura must"} save against Will or be confused for a round; a foe it confuses never harms you.`); break; }
+                if (up) { say(`Nymph's Grace is up: Sustain it (1 action) and ${inAura.length ? list(inAura.map(nameOf)) + " must" : "a foe that enters or starts in the aura must"} save against Will or be confused for a round; a foe it confuses never harms you.`); break; }
                 if (!canCast || !inAura.length) break;
                 let ev = 0;
                 for (const f of inAura) { const sv = saveExpected(f.saves?.will ?? lv + 8, dc, 1, { basic: false, shift: (f.level ?? lv) > rank * 2 ? 1 : 0 }); ev += sv.fail * worth(board, "confused") * 0.7; }
                 if (ev < 2) break;
-                const rest = restAt(nearestFoe, ctx.actions - 1);
-                push("Nymph's Grace", null, ev + rest.ev, [{ cost: 1, text: `Nymph's Grace: a 10-foot aura; ${list(inAura.map(nameOf))} save against Will (DC ${dc}) at the start of each turn or ${inAura.length > 1 ? "are" : "is"} confused for a round and can't harm you while confused` }, ...rest.steps], [costNote(name), "Incapacitation: a foe of higher level than twice the rank saves one degree better. Sustain it each turn to keep the aura."]);
+                const rest = restAt(nearestFoe, A - 1);
+                pushV("Nymph's Grace", null, ev + rest.ev, [{ cost: 1, text: `Nymph's Grace: a 10-foot aura; ${list(inAura.map(nameOf))} save against Will (DC ${dc}) at the start of each turn or ${inAura.length > 1 ? "are" : "is"} confused for a round and can't harm you while confused` }, ...rest.steps], [costNote(name), "Incapacitation: a foe of higher level than twice the rank saves one degree better. Sustain it each turn to keep the aura."]);
                 break;
             }
             case "Discomfiting Whispers": {
                 const adj = foes.filter((f) => near(f, 5));
                 const dmg = 3.5 * (1 + Math.floor((rank - 1) / 2)) + stanceNow * rank;
-                if (up) { out.notes.push(`Discomfiting Whispers is up: Sustain it (1 action) and ${adj.length ? list(adj.map(nameOf)) + " roll" : "a foe starting its turn next to you rolls"} the first attack twice and take${adj.length === 1 ? "s" : ""} the lower on a failed Will save, ${Math.round(dmg)} void when that attack misses.`); break; }
+                if (up) { say(`Discomfiting Whispers is up: Sustain it (1 action) and ${adj.length ? list(adj.map(nameOf)) + " roll" : "a foe starting its turn next to you rolls"} the first attack twice and take${adj.length === 1 ? "s" : ""} the lower on a failed Will save, ${Math.round(dmg)} void when that attack misses.`); break; }
                 if (!canCast || !adj.length) break;
                 let ev = 0;
                 for (const f of adj) { const sv = saveExpected(f.saves?.will ?? lv + 8, dc, 1, { basic: false }); ev += sv.fail * (0.3 * hitWorth(lv) + 0.4 * dmg); }
                 if (ev < 2) break;
-                const rest = restAt(nearestFoe, ctx.actions - 1);
-                push("Discomfiting Whispers", null, ev + rest.ev, [{ cost: 1, text: `Discomfiting Whispers: a 5-foot aura; ${list(adj.map(nameOf))} save${adj.length > 1 ? "" : "s"} against Will (DC ${dc}) at the start of each turn or roll${adj.length > 1 ? "" : "s"} the first attack twice and take${adj.length > 1 ? "" : "s"} the lower, ${Math.round(dmg)} void if it misses` }, ...rest.steps], [costNote(name), "It only touches foes that start their turn adjacent to you, so it's for when melee is on you and you mean to stay."]);
+                const rest = restAt(nearestFoe, A - 1);
+                pushV("Discomfiting Whispers", null, ev + rest.ev, [{ cost: 1, text: `Discomfiting Whispers: a 5-foot aura; ${list(adj.map(nameOf))} save${adj.length > 1 ? "" : "s"} against Will (DC ${dc}) at the start of each turn or roll${adj.length > 1 ? "" : "s"} the first attack twice and take${adj.length > 1 ? "" : "s"} the lower, ${Math.round(dmg)} void if it misses` }, ...rest.steps], [costNote(name), "It only touches foes that start their turn adjacent to you, so it's for when melee is on you and you mean to stay."]);
                 break;
             }
             case "Devouring Dark Form": {
                 const str = Number(actor?.system?.abilities?.str?.mod) || 0;
                 const tent = { label: "tentacle", bonus: unarmedBonus(board), avg: 4.5 + str, reach: 10 };
-                if (up) { out.notes.push(`Devouring Dark Form is up: the first Sustain each round (1 action) is also a free Grapple with the tentacle (reach 10 feet); the tentacle Strikes at ${signed(tent.bonus)} for about ${Math.round(tent.avg)}.`); break; }
+                if (up) { say(`Devouring Dark Form is up: the first Sustain each round (1 action) is also a free Grapple with the tentacle (reach 10 feet); the tentacle Strikes at ${signed(tent.bonus)} for about ${Math.round(tent.avg)}.`); break; }
                 if (!canCast) break;
                 const f = foes.filter((g) => inReach(me.rect, g.rect, 10)).sort((a, b) => a.ac - b.ac)[0];
                 if (!f) break;
                 let ev = 0, made = ctx.made;
                 const shown = [];
-                for (let i = 0; i < ctx.actions - 1; i++) { const b = tent.bonus + mapFor(made, false); ev += strikeExpected(b, f.ac, tent.avg + (enhancement ? 3.5 : 0)).expected; shown.push(signed(b)); made += 1; }
-                const own = inReach(me.rect, f.rect, myReach(board)) ? strikeRun(board, f, ctx.actions - 1, { made: ctx.made }).ev : 0;
-                if (ev <= own + 1 && ctx.actions - 1 > 0) break;
-                push(`Devouring Dark Form, then Strike ${nameOf(f)}`, f, ev, [{ cost: 1, text: `Devouring Dark Form: a tentacle, 1d8${str ? signed(str) : ""} bludgeoning, reach 10 feet, grapple${rank >= 2 ? `; or a shark battle form (animal form rank ${rank})` : ""}` }, ...(ctx.actions - 1 > 0 ? [{ cost: ctx.actions - 1, text: `Strike ${nameOf(f)} with the tentacle${ctx.actions - 1 > 1 ? ` ${ctx.actions - 1 === 2 ? "twice" : "three times"}` : ""} (${shown.join(", ")})${enhancement ? ", +1d6 spirit (Apparition's Enhancement)" : ""}` }] : [])], [costNote(name), "Each later turn the first Sustain is also a free Grapple with the tentacle."], null, 0.2);
+                for (let i = 0; i < A - 1; i++) { const b = tent.bonus + mapFor(made, false); ev += strikeExpected(b, f.ac, tent.avg + (enhancement ? 3.5 : 0)).expected; shown.push(signed(b)); made += 1; }
+                const own = inReach(me.rect, f.rect, myReach(board)) ? strikeRun(board, f, A - 1, { made: ctx.made }).ev : 0;
+                if (ev <= own + 1 && A - 1 > 0) break;
+                pushV(`Devouring Dark Form, then Strike ${nameOf(f)}`, f, ev, [{ cost: 1, text: `Devouring Dark Form: a tentacle, 1d8${str ? signed(str) : ""} bludgeoning, reach 10 feet, grapple${rank >= 2 ? `; or a shark battle form (animal form rank ${rank})` : ""}` }, ...(A - 1 > 0 ? [{ cost: A - 1, text: `Strike ${nameOf(f)} with the tentacle${A - 1 > 1 ? ` ${A - 1 === 2 ? "twice" : "three times"}` : ""} (${shown.join(", ")})${enhancement ? ", +1d6 spirit (Apparition's Enhancement)" : ""}` }] : [])], [costNote(name), "Each later turn the first Sustain is also a free Grapple with the tentacle."], null, 0.2);
                 break;
             }
             case "Crown of Prophets": {
                 const poison = 2.5 * (rank + 1);
                 const close = foes.filter((f) => near(f, 15));
-                if (up) { out.notes.push(`Crown of Prophets is up: the first Sustain each round (1 action) is also Toxic Prophecy, about ${Math.round(poison)} poison (basic Fortitude) on a foe within 15 feet that damaged you since your last turn${close.length ? ` (${list(close.map(nameOf))} ${close.length > 1 ? "are" : "is"} close enough)` : ""}, or a free Recall Knowledge.`); break; }
+                if (up) { say(`Crown of Prophets is up: the first Sustain each round (1 action) is also Toxic Prophecy, about ${Math.round(poison)} poison (basic Fortitude) on a foe within 15 feet that damaged you since your last turn${close.length ? ` (${list(close.map(nameOf))} ${close.length > 1 ? "are" : "is"} close enough)` : ""}, or a free Recall Knowledge.`); break; }
                 if (!canCast) break;
                 const ab = actor?.system?.abilities ?? {};
                 const fangs = { bonus: unarmedBonus(board), avg: 3.5 + (Number(ab.str?.mod) || 0) };
-                out.notes.push(`Crown of Prophets (1 action, 1 Focus Point, ${focus} left): fangs (${signed(fangs.bonus)}, agile, finesse, about ${Math.round(fangs.avg)}), and on each cast or Sustain a free Toxic Prophecy, about ${Math.round(poison)} poison (basic Fortitude, DC ${dc}) on a foe within 15 feet that damaged you since your last turn${hurt(me) > 0 && close.length ? `; ${list(close.map(nameOf))} ${close.length > 1 ? "are" : "is"} within 15 feet now` : ""}. Cast it on a turn you've been hit and mean to stay in the thick of it.`);
+                say(`Crown of Prophets (1 action, 1 Focus Point, ${focus} left): fangs (${signed(fangs.bonus)}, agile, finesse, about ${Math.round(fangs.avg)}), and on each cast or Sustain a free Toxic Prophecy, about ${Math.round(poison)} poison (basic Fortitude, DC ${dc}) on a foe within 15 feet that damaged you since your last turn${hurt(me) > 0 && close.length ? `; ${list(close.map(nameOf))} ${close.length > 1 ? "are" : "is"} within 15 feet now` : ""}. Cast it on a turn you've been hit and mean to stay in the thick of it.`);
                 break;
             }
             case "Trickster's Mirrors": {
                 const onMe = foes.filter((f) => inReach(f.rect, me.rect, f.reach ?? 5));
-                if (up) { out.notes.push(`Trickster's Mirrors is up: Sustain it (1 action) for another mirror, up to three (then 1 in 4 attacks find you); a mirror an adjacent attacker breaks deals ${Math.round(2.5 * rank)} mental (basic Will).`); break; }
+                if (up) { say(`Trickster's Mirrors is up: Sustain it (1 action) for another mirror, up to three (then 1 in 4 attacks find you); a mirror an adjacent attacker breaks deals ${Math.round(2.5 * rank)} mental (basic Will).`); break; }
                 if (!canCast) break;
-                out.notes.push(`Trickster's Mirrors (1 action, 1 Focus Point, ${focus} left): one mirror now, so half the attacks on you hit glass instead, a mirror more each Sustain up to three${onMe.length ? `; ${list(onMe.map(nameOf))} ${onMe.length > 1 ? "have" : "has"} you in reach, so it's the turn for it` : "; cast it when melee reaches you"}. An attacker within 5 feet that breaks one takes ${Math.round(2.5 * rank)} mental (basic Will).`);
+                say(`Trickster's Mirrors (1 action, 1 Focus Point, ${focus} left): one mirror now, so half the attacks on you hit glass instead, a mirror more each Sustain up to three${onMe.length ? `; ${list(onMe.map(nameOf))} ${onMe.length > 1 ? "have" : "has"} you in reach, so it's the turn for it` : "; cast it when melee reaches you"}. An attacker within 5 feet that breaks one takes ${Math.round(2.5 * rank)} mental (basic Will).`);
                 break;
             }
             case "River Carving Mountains": {
-                if (up) { out.notes.push("River Carving Mountains is up: the Sustain (1 action) is also a free Stride that leaves difficult terrain behind you; +10 Speed and lesser cover from ranged attacks while it runs."); break; }
+                if (up) { say("River Carving Mountains is up: the Sustain (1 action) is also a free Stride that leaves difficult terrain behind you; +10 Speed and lesser cover from ranged attacks while it runs."); break; }
                 if (!canCast) break;
-                out.notes.push(`River Carving Mountains (1 action, 1 Focus Point, ${focus} left): +10 feet to your Speeds, lesser cover against ranged attacks, and a free Stride on the cast and each Sustain that turns the squares you cross into difficult terrain until your next turn. It's for getting away from melee or laying a line the foes must wade through, not for standing still.`);
+                say(`River Carving Mountains (1 action, 1 Focus Point, ${focus} left): +10 feet to your Speeds, lesser cover against ranged attacks, and a free Stride on the cast and each Sustain that turns the squares you cross into difficult terrain until your next turn. It's for getting away from melee or laying a line the foes must wade through, not for standing still.`);
                 break;
             }
             case "Gift of the Anemos": {
                 const inAura = foes.filter((f) => near(f, 10));
-                if (up) { out.notes.push(`Gift of the Anemos is up: the Sustain (1 action) is also a free Step, a Shove with your spell attack modifier${inAura.length ? ` (${list(inAura.map(nameOf))} in the aura)` : ""}, or a 10-foot jump; a foe that critically misses you with a Strike saves against Reflex or is off-guard until your next turn.`); break; }
+                if (up) { say(`Gift of the Anemos is up: the Sustain (1 action) is also a free Step, a Shove with your spell attack modifier${inAura.length ? ` (${list(inAura.map(nameOf))} in the aura)` : ""}, or a 10-foot jump; a foe that critically misses you with a Strike saves against Reflex or is off-guard until the end of your next turn.`); break; }
                 if (!canCast) break;
-                out.notes.push(`Gift of the Anemos (1 action, 1 Focus Point, ${focus} left): a 10-foot aura; the cast and each Sustain give a free Step, a Shove with your spell attack modifier on a foe in the aura, or a 10-foot jump, and a foe that critically misses you with a Strike is off-guard until your next turn on a failed Reflex save${inAura.length ? `; ${list(inAura.map(nameOf))} ${inAura.length > 1 ? "are" : "is"} in it now` : ""}.`);
+                say(`Gift of the Anemos (1 action, 1 Focus Point, ${focus} left): a 10-foot aura; the cast and each Sustain give a free Step, a Shove with your spell attack modifier on a foe in the aura, or a 10-foot jump, and a foe that critically misses you with a Strike is off-guard until the end of your next turn on a failed Reflex save${inAura.length ? `; ${list(inAura.map(nameOf))} ${inAura.length > 1 ? "are" : "is"} in it now` : ""}.`);
                 break;
             }
             case "Darkened Forest Form": {
-                if (up) { out.notes.push("Darkened Forest Form is up: each Sustain (1 action) can change your form to another on its lists; the form's Strikes are on your sheet while it lasts."); break; }
+                if (up) { say("Darkened Forest Form is up: each Sustain (1 action) can change your form to another on its lists; the form's Strikes are on your sheet while it lasts."); break; }
                 if (!canCast) break;
-                out.notes.push(`Darkened Forest Form (1 action, 1 Focus Point, ${focus} left): a pest form${rank >= 2 ? `, or an animal battle form at rank ${rank} (its own attack bonus and damage, your spells off while you hold it)` : ""}${rank >= 5 ? ", or an elemental form" : ""}; it lasts while you Sustain it${hasAny(actor, "walk-the-wilds") ? ", up to 5 minutes in an animal form (Walk the Wilds)" : ""}. A battle form is a turn of setup; pick it when the fight will run long and your spells are spent.`);
+                say(`Darkened Forest Form (1 action, 1 Focus Point, ${focus} left): a pest form${rank >= 2 ? `, or an animal battle form at rank ${rank} (its own attack bonus and damage, your spells off while you hold it)` : ""}${rank >= 5 ? ", or an elemental form" : ""}; it lasts while you Sustain it${hasAny(actor, "walk-the-wilds") ? ", up to 5 minutes in an animal form (Walk the Wilds)" : ""}. A battle form is a turn of setup; pick it when the fight will run long and your spells are spent.`);
                 break;
             }
             case "Store Time": {
-                const reactions = ["whispers-of-warning", "blazing-spirit", "apparition-cloud", "shadows-within-shadows"].filter((s) => hasAny(actor, s));
-                if (up) { out.notes.push(`Store Time is up: the first Sustain each round (1 action) gives you a spare reaction for ${reactions.length ? list(reactions.map((s) => s.replace(/-/g, " "))) : "your animist and apparition reactions"}.`); break; }
+                const reactions = [["whispers-of-warning", "Whispers of Warning"], ["blazing-spirit", "Blazing Spirit"], ["apparition-cloud", "Apparition Cloud"], ["shadows-within-shadows", "Shadows Within Shadows"]].filter(([s]) => hasAny(actor, s)).map(([, n]) => n);
+                if (up) { say(`Store Time is up: the first Sustain each round (1 action) gives you a spare reaction for ${reactions.length ? list(reactions) : "your animist and apparition reactions"}.`); break; }
                 if (!canCast) break;
-                out.notes.push(`Store Time (1 action, 1 Focus Point, ${focus} left): a spare reaction each round, for animist and apparition reactions only${reactions.length ? ` (${list(reactions.map((s) => s.replace(/-/g, " ")))})` : ", and you have none on the sheet, so it does little here"}.`);
+                say(`Store Time (1 action, 1 Focus Point, ${focus} left): a spare reaction each round, for animist and apparition reactions only${reactions.length ? ` (${list(reactions)})` : ", and you have none on the sheet, so it does little here"}.`);
                 break;
             }
-            case "Traveling Workshop": out.notes.push("Traveling Workshop is your vessel spell: tools and Crafting, nothing for a fight. Circle of Spirits to another apparition if you have one."); break;
-            case "Wish Market": if (!up && canCast) out.notes.push(`Wish Market (2 actions, 1 Focus Point, ${focus} left): +${rank >= 7 ? 3 : rank >= 4 ? 2 : 1} to Perception and one of Acrobatics, Athletics, Nature, Occultism or Religion, a free Recall Knowledge or Seek on the cast and each Sustain, at a random -2 to a pair of skills. For a fight with something to identify or find, not for damage.`); break;
+            case "Traveling Workshop": say("Traveling Workshop is your vessel spell: tools and Crafting, nothing for a fight. Circle of Spirits to another apparition if you have one."); break;
+            case "Wish Market": if (!up && canCast) say(`Wish Market (2 actions, 1 Focus Point, ${focus} left): +${rank >= 7 ? 3 : rank >= 4 ? 2 : 1} to Perception and one of Acrobatics, Athletics, Nature, Occultism or Religion, a free Recall Knowledge or Seek on the cast and each Sustain, at a random -2 to a pair of skills. For a fight with something to identify or find, not for damage.`); break;
             default: break;
         }
     }
@@ -397,7 +427,7 @@ function animist(board, ctx, out) {
     const lore = (...ls) => ls.some((l) => lores.has(l));
     if (hasAny(actor, "grudge-strike") && ctx.actions >= 2 && lore("heraldry", "underworld") && board.strikes.some((s) => !s.ranged)) {
         for (const f of foes) {
-            const sq = squareToReach(board, f, myReach(board), ctx.actions - 2);
+            const sq = reachSq(f, myReach(board), ctx.actions - 2);
             if (!sq) continue;
             const b = bestStrike(board, f, { made: ctx.made, acAdj: -2, extra: 7 });
             if (!b) continue;
@@ -440,8 +470,8 @@ function animist(board, ctx, out) {
     if (hasAny(actor, "cycle-of-souls") && !inStance && ctx.actions === 3 && hasAny(actor, "channelers-stance", "channeler-s-stance", "forests-heart", "forest-s-heart", "jesters-gambol", "jester-s-gambol", "spiritual-spellshape-stance")) out.notes.push("Cycle of Souls (free at the start of your turn): Step, then enter one of your animist stances, both for nothing.");
 
     // --- The practice -------------------------------------------------------------------------------------------------
-    const spiritFoes = foes.filter((f) => (f.traits ?? []).some((t) => ["spirit", "incorporeal", "undead"].includes(t)));
-    if (practice === "seer" && spiritFoes.length) out.notes.push(`Seer: +${lv >= 17 ? 3 : lv >= 9 ? 2 : 1} to AC and saves against spirits and incorporeal undead${lv >= 9 ? `, and resistance ${Math.floor(lv / 2)} to spirit and void` : ""}; ${list(spiritFoes.map(nameOf))} ${spiritFoes.length > 1 ? "are" : "is"} that kind.`);
+    const spiritFoes = foes.filter((f) => { const t = f.traits ?? []; return t.includes("spirit") || t.includes("haunt") || (t.includes("undead") && t.includes("incorporeal")); });
+    if (practice === "seer" && spiritFoes.length) out.notes.push(`Seer: +${lv >= 17 ? 3 : lv >= 9 ? 2 : 1} to AC and saves against haunts, spirits and incorporeal undead${lv >= 9 ? `, and resistance ${Math.floor(lv / 2)} to spirit and void` : ""}; ${list(spiritFoes.map(nameOf))} ${spiritFoes.length > 1 ? "are" : "is"} that kind.`);
     if (practice === "shaman" || hasAny(actor, "spirit-familiar-animist", "spirit-familiar")) {
         const familiar = board.allies?.find((a) => a.type === "familiar" || /familiar/i.test(a.actor?.type ?? "")) ?? null;
         out.notes.push(`Spirit familiar: it is one of your apparitions made flesh; if it's destroyed you lose that apparition's spells, Lore and vessel until tomorrow${familiar ? `, so keep ${nameOf(familiar)} out of the line` : ""}${lv >= 17 && practice === "shaman" ? "; it can turn incorporeal for a minute (1 action, within 60 feet of you)" : ""}.`);

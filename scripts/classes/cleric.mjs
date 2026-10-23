@@ -6,7 +6,7 @@
  * compose (the 30-foot heal around you, Channel Smite, Restorative Strike, Cast Down, Sanctify Armament), the doctrine,
  * the domain pool, and "when" notes for the feats that ride on a heal or a harm.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 const isUndead = (c) => (c?.traits ?? []).includes("undead");
 const itemsOf = (actor) => actor?.items?.contents ?? (Array.isArray(actor?.items) ? actor.items : []);
@@ -16,12 +16,16 @@ const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
 /**
  * The divine font as the sheet shows it: which spells it holds, how many are still prepared and unexpended, at what
  * rank, and the die each rolls. Counts every prepared Heal and Harm (font slots and ordinary ones alike), since the
- * sheet doesn't tell them apart; with no spellcasting data it falls back to the spells on the board.
+ * sheet doesn't tell them apart; a sheet that prepares spells but no Heal or Harm has none. With no prepared slots to
+ * read it falls back to the spells on the board.
+ * kinds is the font (the Divine Font's own choice, else the deity's, both with Versatile Font); heal/harm.usable is
+ * whether one is prepared and unexpended, whatever slot it sits in (Channel Smite and Cast Down take either).
  */
 function fontOf(actor, board) {
     const lv = actor?.level ?? 1;
     const deity = itemsOf(actor).find((i) => i.type === "deity");
-    const deityFont = (deity?.system?.font ?? []).map((f) => String(f).toLowerCase());
+    const chosen = choiceOf(actor, "divine-font", "divineFont");
+    const deityFont = (chosen ? [chosen] : deity?.system?.font ?? []).map((f) => String(f).toLowerCase());
     const versatile = has(actor, "versatile-font");
     let heal = 0, harm = 0, rank = 0, read = false;
     const entries = actor?.spellcasting?.regular ?? [];
@@ -31,11 +35,12 @@ function fontOf(actor, board) {
             const r = Number(/slot(\d+)/.exec(key)?.[1]);
             if (!r || r > 9 || !Array.isArray(slot?.prepared)) continue;
             for (const p of slot.prepared) {
+                if (p?.id) read = true;
                 if (!p?.id || p.expended) continue;
-                const sp = itemById(actor, p.id);
+                const sp = entry.spells?.get?.(p.id) ?? (Array.isArray(entry.spells) ? entry.spells.find((x) => x.id === p.id) : null) ?? itemById(actor, p.id);
                 const name = (sp?.name ?? "").toLowerCase();
-                if (name === "heal") { heal += 1; read = true; rank = Math.max(rank, r); }
-                else if (name === "harm") { harm += 1; read = true; rank = Math.max(rank, r); }
+                if (name === "heal") { heal += 1; rank = Math.max(rank, r); }
+                else if (name === "harm") { harm += 1; rank = Math.max(rank, r); }
             }
         }
     }
@@ -47,8 +52,8 @@ function fontOf(actor, board) {
     const max = lv >= 15 ? 6 : lv >= 5 ? 5 : 4;
     return {
         kinds, rank, max, versatile,
-        heal: { left: heal, die: has(actor, "healing-hands") ? 5.5 : 4.5, sp: healSp, usable: kinds.includes("heal") && heal !== 0 && (healSp || read) },
-        harm: { left: harm, die: has(actor, "harming-hands") ? 5.5 : 4.5, sp: harmSp, usable: kinds.includes("harm") && harm !== 0 && (harmSp || read) },
+        heal: { left: heal, die: has(actor, "healing-hands") ? 5.5 : 4.5, sp: healSp, usable: heal !== 0 && !!(healSp || read) },
+        harm: { left: harm, die: has(actor, "harming-hands") ? 5.5 : 4.5, sp: harmSp, usable: harm !== 0 && !!(harmSp || read) },
         dc: healSp?.dc ?? harmSp?.dc ?? (board.spells ?? []).find((sp) => sp.dc)?.dc ?? 10 + lv + 4 + (lv >= 19 ? 4 : lv >= 15 ? 3 : lv >= 7 ? 2 : 1),
     };
 }
@@ -66,7 +71,7 @@ function cleric(board, ctx, out) {
     const actor = board.me.actor;
     const me = board.me;
     const lv = level(board);
-    if (!(has(actor, "divine-font") || has(actor, "cleric-spellcasting") || actor?.class?.slug === "cleric")) return;
+    if (!(has(actor, "divine-font") || has(actor, "cleric-spellcasting") || has(actor, "cleric-dedication") || actor?.class?.slug === "cleric")) return;
     const warpriest = has(actor, "warpriest") || has(actor, "first-doctrine-warpriest");
     const cloistered = has(actor, "cloistered-cleric") || has(actor, "first-doctrine-cloistered-cleric");
     const creed = has(actor, "battle-creed") || has(actor, "initial-creed");
@@ -154,7 +159,7 @@ function cleric(board, ctx, out) {
             const notes = [`It spends one of your ${leftText(font[kind])} ${kind} spells, hit or miss${has(actor, "rebounding-smite") ? "; on a miss, Rebounding Smite (reaction) throws the 1-action spell at another creature instead" : ""}.`];
             let total = ev;
             if (left >= 1) { const r = strikeRun(board, f, left, { made: ctx.made + 1 }); if (r.used.length) { steps.push({ cost: r.used.length, text: r.text }); total += r.ev; } }
-            out.plans.push({ kind: "class", title: `Channel Smite ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
+            out.plans.push(spendsSlot({ kind: "class", title: `Channel Smite ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes }, font[kind].sp ?? (kind === "heal" ? "Heal" : "Harm"), R));
         }
     }
 
@@ -212,8 +217,8 @@ function cleric(board, ctx, out) {
             const notes = [`It spends one of your ${leftText(font[kind])} ${kind} spells. On a critical failure it's also 10 feet slower for a minute.`];
             const left = ctx.actions - cost;
             let total = value;
-            if (left >= 1 && dist <= 5) { const r = strikeRun(board, f, left, { made: ctx.made, acAdj: -2 }); if (r.used.length) { steps.push({ cost: r.used.length, text: `${r.text}, prone so off-guard if the spell landed` }); total += r.ev * (1 - sv.chances.cs); } }
-            out.plans.push({ kind: "class", title: `Cast Down ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest, steps, notes });
+            if (left >= 1 && dist <= 5) { const r = strikeRun(board, f, left, { made: ctx.made, acAdj: -2 }); if (r.used.length) { steps.push({ cost: r.used.length, text: `${r.text}, prone so off-guard if the spell landed` }); total += r.ev * (1 - sv.chances.cs) + strikeRun(board, f, left, { made: ctx.made }).ev * sv.chances.cs; } }
+            out.plans.push(spendsSlot({ kind: "class", title: `Cast Down ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest, steps, notes }, font[kind].sp ?? (kind === "heal" ? "Heal" : "Harm"), R));
         }
     }
 
@@ -254,7 +259,7 @@ function cleric(board, ctx, out) {
     if (focus !== null && (has(actor, "domain-initiate") || has(actor, "expanded-domain-initiate") || has(actor, "advanced-domain"))) {
         const riders = [];
         if (has(actor, "shield-of-faith")) riders.push("+1 AC until your next turn after a domain spell (Shield of Faith)");
-        if (has(actor, "deity-s-protection")) riders.push(`resistance ${Math.min(9, Math.ceil(lv / 2))} to all damage until your next turn after a domain spell (Deity's Protection)`);
+        if (has(actor, "deitys-protection")) riders.push(`resistance ${Math.min(9, Math.ceil(lv / 2))} to all damage until your next turn after a domain spell (Deity's Protection)`);
         out.notes.push(focus > 0 ? `Domain spells: ${focus} of ${fmax} Focus Point${fmax === 1 ? "" : "s"} left; they're among your spell options${riders.length ? `, and each casting gives ${riders.join(" and ")}` : ""}.`
             : `No Focus Points left for your domain spells${has(actor, "surging-focus") ? " (Surging Focus: once a day, one comes back when an ally you can see drops)" : ""}; Refocus after the fight${has(actor, "domain-focus") ? " refills the whole pool (Domain Focus)" : ""}.`);
     }
@@ -297,7 +302,7 @@ function cleric(board, ctx, out) {
     if (has(actor, "zealous-rush")) out.notes.push("Zealous Rush (reaction): after a spell that affects only you, Stride 10 feet, or your full Speed after a 2-action one.");
     if (has(actor, "premonition-of-clarity")) out.notes.push(`Premonition of Clarity (reaction, once an hour): reroll a failed save against a mental effect at +2${has(actor, "shared-clarity") ? ", and allies within 15 feet who failed the same save can spend theirs to reroll too" : ""}.`);
     if (has(actor, "swift-banishment") && castable(board, (sp) => /^banishment$/i.test(sp.name)).length) out.notes.push("Swift Banishment (reaction): a critical hit on a creature away from its home plane expends your banishment on it, no casting needed.");
-    if (has(actor, "avatar-s-protection") && castable(board, (sp) => /^avatar$/i.test(sp.name)).length) out.notes.push("Avatar's Protection (reaction): when an enemy critically hits you, cast avatar from your slots; the hit becomes a normal one, taken after the avatar's temporary HP.");
+    if (has(actor, "avatars-protection") && castable(board, (sp) => /^avatar$/i.test(sp.name)).length) out.notes.push("Avatar's Protection (reaction): when an enemy critically hits you, cast avatar from your slots; the hit becomes a normal one, taken after the avatar's temporary HP.");
     if (has(actor, "denier-of-destruction") && font.heal.usable) out.notes.push(`Denier of Destruction (reaction): when an ally within 30 feet is about to take damage from something you can see, a heal reduces it by about ${Math.round(touchAvg("heal"))}.`);
     if (has(actor, "replenishment-of-war") && favored.length) out.notes.push(`Replenishment of War: a hit with your deity's weapon gives you ${Math.floor(lv / 2)} temporary HP (${lv} on a critical hit) until your next turn${has(actor, "shared-replenishment") ? ", or an ally within 10 feet instead (Shared Replenishment)" : ""}.`);
 

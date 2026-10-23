@@ -8,14 +8,13 @@
  * Plans: "Shift Immanence to X, then Strike", "Transcend X (then Strikes, or Shift back)". The hourly 2- and 3-action feats
  * (Battle Hymn, Raise Island, the storms) stay with the advisor's own text reading; they get when-notes here.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, half, level, markOffGuard, moveText, myReach, allySpeed, pct, slugKey, slugOf, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("barrows-edge"); the catalog's keep a dash for them ("barrow-s-edge"). Both are read. */
-const norm = (s) => String(s ?? "").replace(/-s-/g, "s-").replace(/-s$/, "s");
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s) || has(actor, norm(s)));
+/** Slugs compared the way Foundry folds them ("barrow-s-edge" and "barrows-edge" are one). */
+const norm = slugKey;
 const itemOf = (actor, slug) => actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && norm(slugOf(i)) === norm(slug)) ?? null;
-/** Uses left today/this hour of a feat with a frequency; a feat without one on the sheet counts as available. */
-const usesLeft = (actor, slug) => { const it = itemOf(actor, slug); if (!it) return 0; const v = it.system?.frequency?.value; return v == null ? 1 : Number(v) || 0; };
+/** Uses left of a feat: 0 when it isn't on the sheet, 1 when it has no frequency. */
+const usesNow = (actor, slug) => (itemOf(actor, slug) ? usesLeft(actor, slug) ?? 1 : 0);
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
 const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "d8").replace("d", "")) || 8;
@@ -139,13 +138,19 @@ function exemplar(board, ctx, out) {
     const away = !!effect(actor, /fish-from-the-falls|falls-edge/);
     const archetype = (actor?.class?.slug ?? "") !== "exemplar";
     const secondIkon = has(actor, "second-ikon");
-    const rapid = has(actor, "rapid-spark") && usesLeft(actor, "rapid-spark") > 0 && ctx.actions === 3 && ctx.made === 0;
+    const rapid = has(actor, "rapid-spark") && usesNow(actor, "rapid-spark") > 0 && ctx.actions === 3 && ctx.made === 0;
     const shiftCost = rapid ? 0 : 1;
     const stride = board.move?.stride?.feet ?? 25;
     const missing = Math.max(0, me.maxHp - me.hp);
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.ev + (plan.bias ?? 0.3) });
     const strikeText = (f, used) => `Strike ${nameOf(f)} with ${used[0].s.label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})`;
-    const sheetCounts = (s) => !!s.formula; // the live sheet's damage formula carries the empowered ikon's immanence; the estimate doesn't
+    // A character's Strike avg is PF2e's own damage formula (reader.mjs: strike.damage({ getFormula: true }), s.formula set).
+    // It carries every damage modifier whose predicate holds without a target: Spirit Striking (weapon-damage, expert or
+    // better), weapon specialization, and the ikon's immanence (strike-damage, predicate divine-spark:<ikon> and the
+    // weapon's tag physical-ikon:<ikon>), but not Barrow's Edge's extra against a foe below half. Without a formula the
+    // avg is only dice, runes and Strength: the read then marks the immanence on the ikon's Strike itself (s.sparkIn).
+    const ikonTagged = (k, s) => tags(s).some((t) => norm(t) === `physical-ikon:${k.slug}`);
+    const immIn = (k, s) => spark?.slug === k.slug && !away && (s.sparkIn === k.slug || (!!s.formula && ikonTagged(k, s)));
 
     // ---- what each ikon can transcend with: its own action plus the ikon feats imbued into it
     const trOf = (k) => {
@@ -159,11 +164,13 @@ function exemplar(board, ctx, out) {
         if (k.slug === "barrows-edge") return dice * (f && f.hp != null && f.maxHp && f.hp < f.maxHp / 2 ? 3 : 1);
         return dice * (k.imm ?? 0);
     };
-    /** The ikon's Strike with and without its immanence on the damage. */
-    const empowered = (k, s, f) => s.avg + (sheetCounts(s) && spark?.slug === k.slug ? 0 : immOf(k, s, f));
-    const plain = (k, s) => s.avg - (sheetCounts(s) && spark?.slug === k.slug ? immOf(k, s, null) : 0);
-    const stripped = (k) => board.strikes.map((s) => ({ ...s, avg: plain(k, s) })); // every Strike without the spark's damage
-    const withSpark = (k, s0, f) => board.strikes.map((s) => s === s0 ? { ...s, avg: empowered(k, s, f) } : { ...s, avg: plain(k, s) });
+    /** The ikon's Strike with and without its immanence on the damage (counted once, whether the sheet or the mark has it). */
+    const empowered = (k, s, f) => s.avg + (immIn(k, s) ? immOf(k, s, f) - immOf(k, s, null) : immOf(k, s, f));
+    const plain = (k, s) => s.avg - (immIn(k, s) ? immOf(k, s, null) : 0);
+    /** A Strike without the current spark's immanence: what's left once the spark moves (a Shift) or leaves (a transcendence). */
+    const stripAll = (s) => (spark ? plain(spark, s) : s.avg);
+    const stripped = () => board.strikes.map((s) => ({ ...s, avg: stripAll(s) })); // every Strike without the spark's damage
+    const withSpark = (k, s0, f) => board.strikes.map((s) => s === s0 ? { ...s, avg: empowered(k, s, f) } : { ...s, avg: stripAll(s) });
     /** A run of Strikes at f from these strikes, the penalty climbing. */
     const run = (strikes, f, n, made, at = me.rect, { acAdj = 0, extra = 0 } = {}) => {
         const used = [];
@@ -211,7 +218,7 @@ function exemplar(board, ctx, out) {
                 case "born-of-the-bones-of-the-earth": opts.push({ e, ev: 0.5, text: "Born of the Bones of the Earth: on earth or stone, the ground within 10 feet becomes difficult terrain for everyone but you" }); break;
                 case "healer-of-the-world": { const n = board.allies.filter((a) => feetBetween(me.rect, a.rect) <= 30).length; const d = (board.downAllies ?? []).filter((a) => feetBetween(me.rect, a.rect) <= 30).length; opts.push({ e, ev: 3 * n + 6 * d, text: `Healer of the World: allies within 30 feet get 10 temporary HP until your next turn${d ? `, and ${d} dying one${d > 1 ? "s" : ""} stop dying` : ""}` }); break; }
                 case "teacher-of-heroes": if (near30) opts.push({ e, ev: 1, text: `Teacher of Heroes: a free Recall Knowledge on ${nameOf(near30)}; the first thing you learn is its immunities, and every ally within 60 feet hears it` }); break;
-                case "the-last-ruler": opts.push({ e, ev: 1, text: "The Last Ruler: until your next turn, a foe that misses you is Demoralized for free" }); break;
+                case "the-last-ruler": opts.push({ e, ev: 1, text: "The Last Ruler: until your next turn, a foe that fails an attack roll against you can be Demoralized as a free action (your Intimidation check)" }); break;
                 case "thief-of-moonlight": if (near30) opts.push({ e, ev: 0.5, text: `Thief of Moonlight: a free Steal from ${nameOf(near30)} at 30 feet` }); break;
             }
         }
@@ -222,9 +229,24 @@ function exemplar(board, ctx, out) {
     /** The immanence on one hit, in words. */
     const immLabel = (k, s, f) => { const d = diceOf(s, lv); return k.slug === "mortal-harvest" ? `${d} persistent spirit` : k.slug === "barrows-edge" ? `+${immOf(k, s, f)} spirit${f && f.hp != null && f.maxHp && f.hp < f.maxHp / 2 ? " (it's below half)" : ` (+${3 * d} once it's below half)`}` : `+${immOf(k, s, f)} spirit`; };
 
-    // ---- the spark now
+    // ---- Spirit Striking (7th): +2/+3/+4 by proficiency (expert from 5th, master from 13th, legendary from 17th), doubled by
+    // Greater Spirit Striking (15th); in PF2e's formula already, else marked on the Strikes here, before any plan
+    let spiritStriking = null;
+    if (has(actor, "spirit-striking") || has(actor, "greater-spirit-striking")) {
+        const ss = (lv >= 17 ? 4 : lv >= 13 ? 3 : 2) * (has(actor, "greater-spirit-striking") ? 2 : 1);
+        const added = [];
+        for (const s of board.strikes) { if (s.formula || s.spiritStruck) continue; s.avg += ss; s.spiritStruck = true; added.push(s.label); }
+        spiritStriking = { ss, added };
+    }
+    // ---- the spark now; a weapon ikon's immanence marked on its Strike when the sheet's formula doesn't carry it
+    let sparkLine = "";
+    if (spark && !away && spark.kind === "weapon") {
+        const found = strikeOfIkon(board, spark);
+        if (found && !immIn(spark, found.s)) { found.s.avg += immOf(spark, found.s, null); found.s.sparkIn = spark.slug; sparkLine = ` It's added to your ${found.s.label} Strikes for every plan${found.guessed ? `; the sheet tags no weapon as ${spark.name}, so the read takes ${found.s.label}` : ""}.`; }
+        else if (found) sparkLine = ` Your ${found.s.label} damage from the sheet already includes it.`;
+    }
     if (away) out.notes.push("Your spark is with the ally Fish from the Falls' Edge saved: no immanence until your next turn begins, when it returns to an ikon you choose.");
-    else if (spark) out.notes.push(`Your spark is in ${spark.name}: ${spark.immText}.${spark.kind === "weapon" ? " The sheet's Strike damage carries it; so do the plans." : ""}`);
+    else if (spark) out.notes.push(`Your spark is in ${spark.name}: ${spark.immText}.${sparkLine}`);
     else out.notes.push(`Your spark is dormant: no immanence. Shift Immanence (1 action${rapid ? ", free this turn with Rapid Spark" : ""}) puts it in an ikon; you also get a free Shift when you roll initiative.`);
     if (archetype && !secondIkon) out.notes.push("With one ikon, a transcendence sends your spark back into your soul; only Shift Immanence brings it back.");
 
@@ -265,12 +287,12 @@ function exemplar(board, ctx, out) {
             const base = `${t.name} (${t.cost} action${t.cost > 1 ? "s" : ""}, transcendence)`;
             const trPlan = (f, title, steps, ev, extra = {}) => push({ title, target: f, ev, bias: 0.4, dest: extra.dest ?? null, steps, notes: [guessNote, sparkNote(k), ...(extra.notes ?? [])].filter(Boolean) });
             /** Strikes after the transcendence resolved: the spark is gone, so the plain damage, at this penalty. */
-            const tail = (steps, f, left, made, at) => { if (left < 1) return 0; const r = run(stripped(k), f, left, made, at); if (!r.used.length) return 0; steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)} (no spirit damage: the spark has left)` }); return r.ev; };
+            const tail = (steps, f, left, made, at) => { if (left < 1) return 0; const r = run(stripped(), f, left, made, at); if (!r.used.length) return 0; steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)} (no spirit damage: the spark has left)` }); return r.ev; };
             /** Shift back instead of a last Strike, when the immanence is worth more than that Strike. */
             const shiftBack = (steps, ev, f, left, made, at) => {
                 if (left < 1 || p.cost > 0 || rapid) return; // Shift Immanence is once a round: not after a Shift this turn
                 const back = immOf(k, s, f) * 1.2;
-                const r = run(stripped(k), f, 1, made, at);
+                const r = run(stripped(), f, 1, made, at);
                 if (back > (r.used[0]?.e.expected ?? 0) + 0.5) steps.push({ cost: 1, text: `Shift Immanence back to ${k.name}: its spirit damage is up again before the foes act` });
                 else return false;
                 return back;
@@ -348,11 +370,11 @@ function exemplar(board, ctx, out) {
                         if (cone.length < 2 || cone[0] !== f) break;
                         let ev = 0;
                         const shown = [];
-                        for (const g of cone) { const c = degreeChances(g.saves?.reflex ?? 0, dc); ev += (c.f + c.cf) * emp; shown.push(`${nameOf(g)} (${pct(c.f + c.cf)})`); }
-                        const steps = [...p.steps, ...move, { cost: 2, text: `${base}: a 15-foot cone; ${shown.join(", ")} save (Reflex DC ${dc}) or take your full Strike damage as spirit (about ${Math.round(emp)}); no attack roll, no penalty` }];
+                        for (const g of cone) { const e = saveExpected(g.saves?.reflex ?? 0, dc, emp, { basic: true }); ev += e.expected; shown.push(`${nameOf(g)} (${pct(e.fail)} to fail)`); }
+                        const steps = [...p.steps, ...move, { cost: 2, text: `${base}: a 15-foot cone; ${shown.join(", ")} take your Strike damage as spirit (about ${Math.round(emp)}), basic Reflex DC ${dc}; no attack roll, no penalty` }];
                         ev += after(steps, f, { adjacent, at });
                         ev += tail(steps, f, left0 - 2, ctx.made, at);
-                        trPlan(f, `Feral Swing at ${cone.length} foes`, steps, ev, { dest, notes: ["Swing with abandon for -2 on their saves; you're off-guard until your next turn."] });
+                        trPlan(f, `Feral Swing at ${cone.length} foes`, steps, ev, { dest, notes: ["Swing with abandon for a -2 circumstance penalty on their saves; you're off-guard until the start of your next turn."] });
                         break;
                     }
                     case "giant-felling-comet": {
@@ -361,8 +383,8 @@ function exemplar(board, ctx, out) {
                         if (burst.length < 2 || burst[0] !== f) break;
                         let ev = 0;
                         const shown = [];
-                        for (const g of burst) { const big = (g.sizeRank ?? 2) > (me.sizeRank ?? 2) ? -2 : 0; const c = degreeChances((g.saves?.reflex ?? 0) + big, dc); ev += (c.f + c.cf) * emp; shown.push(`${nameOf(g)} (${pct(c.f + c.cf)})`); }
-                        const steps = [...p.steps, { cost: 2, text: `${base}: a 5-foot burst on ${nameOf(f)}; ${shown.join(", ")} save (Reflex DC ${dc}, larger foes at -2) or take your full Strike damage as spirit (about ${Math.round(emp)}); it uses ammunition, no attack roll` }];
+                        for (const g of burst) { const big = (g.sizeRank ?? 2) > (me.sizeRank ?? 2) ? -2 : 0; const e = saveExpected((g.saves?.reflex ?? 0) + big, dc, emp, { basic: true }); ev += e.expected; shown.push(`${nameOf(g)} (${pct(e.fail)} to fail)`); }
+                        const steps = [...p.steps, { cost: 2, text: `${base}: a 5-foot burst on ${nameOf(f)}; ${shown.join(", ")} take your Strike damage as spirit (about ${Math.round(emp)}), basic Reflex DC ${dc}, larger foes at -2; it uses ammunition, no attack roll` }];
                         ev += after(steps, f);
                         ev += tail(steps, f, left0 - 2, ctx.made, at);
                         trPlan(f, `Giant-Felling Comet on ${burst.length} foes`, steps, ev);
@@ -525,7 +547,8 @@ function exemplar(board, ctx, out) {
         const avail = ctx.actions - p.cost;
         const trs = trOf(k);
         const trPlan = (f, title, steps, ev, extra = {}) => push({ title, target: f, ev, bias: extra.bias ?? 0.3, dest: extra.dest ?? null, steps, notes: [sparkNote(k), ...(extra.notes ?? [])].filter(Boolean) });
-        const tail = (steps, f, left, made, at = me.rect) => { if (left < 1 || !f) return 0; const r = run(board.strikes, f, left, made, at); if (!r.used.length) return 0; steps.push({ cost: r.used.length, text: strikeText(f, r.used) }); return r.ev; };
+        const bare = stripped(); // the spark is here, or moves here: no weapon ikon's immanence on these Strikes
+        const tail = (steps, f, left, made, at = me.rect) => { if (left < 1 || !f) return 0; const r = run(bare, f, left, made, at); if (!r.used.length) return 0; steps.push({ cost: r.used.length, text: strikeText(f, r.used) }); return r.ev; };
         const nearest = foes.filter((f) => inReach(me.rect, f.rect, myReach(board)))[0] ?? null;
         const adjacent = foes.filter((o) => inReach(me.rect, o.rect, 5)).length;
         for (const t of trs) {
@@ -553,7 +576,7 @@ function exemplar(board, ctx, out) {
                         const sqs = reachableSquares(board, 2).filter((sq) => inReach({ ...me.rect, x: sq.x, y: sq.y }, f.rect, myReach(board)));
                         const at = sqs[0] ? { ...me.rect, x: sqs[0].x, y: sqs[0].y } : inReach(me.rect, f.rect, myReach(board)) ? me.rect : null;
                         if (!at) continue;
-                        const r = run(board.strikes, f, 1, ctx.made, at);
+                        const r = run(bare, f, 1, ctx.made, at);
                         if (!r.used.length) continue;
                         const steps = [...p.steps, { cost: 2, text: `${base}: ${held ? "Escape at +2, then " : ""}Stride up to ${2 * stride} feet in a straight line to ${nameOf(f)} and ${strikeText(f, r.used)}` }];
                         let ev = r.ev + (held ? 0.7 * worth(board, me.conditions.has("restrained") ? "restrained" : "grabbed") : 0) + after(steps, f, { adjacent: 1 });
@@ -569,7 +592,7 @@ function exemplar(board, ctx, out) {
                         const c = degreeChances(f.saves?.will ?? 0, dc);
                         const pull = c.f + c.cf;
                         const beside = { ...f.rect, x: me.rect.x + 1, y: me.rect.y }; // it lands adjacent: the Strikes reach
-                        const r2 = run(board.strikes, { ...f, rect: beside }, avail - 1, ctx.made);
+                        const r2 = run(bare, { ...f, rect: beside }, avail - 1, ctx.made);
                         if (!r2.used.length) continue;
                         const steps = [...p.steps, { cost: 1, text: `${base}: ${nameOf(f)} saves (Will DC ${dc}, ${pct(pull)} to fail) or is pulled next to you` }, { cost: r2.used.length, text: `if it comes, ${strikeText(f, r2.used)}` }];
                         const ev = pull * r2.ev + after(steps, f, { adjacent });
@@ -583,7 +606,7 @@ function exemplar(board, ctx, out) {
                         const sq = squareToReach(board, f, myReach(board), 1);
                         if (!sq || !sq.route.actions) continue;
                         const at = { ...me.rect, x: sq.x, y: sq.y };
-                        const r = run(board.strikes, f, avail - 1, ctx.made, at);
+                        const r = run(bare, f, avail - 1, ctx.made, at);
                         if (!r.used.length) continue;
                         const friends = board.allies.filter((a) => feetBetween(me.rect, a.rect) <= 10 && a.canAct !== false);
                         const steps = [...p.steps, { cost: 1, text: `${base}: Stride into reach of ${nameOf(f)}${friends.length ? `; ${friends.map(nameOf).join(", ")} within 10 feet may Stride as a reaction` : ""}` }, { cost: r.used.length, text: strikeText(f, r.used) }];
@@ -618,7 +641,7 @@ function exemplar(board, ctx, out) {
                         const left = avail - 1 - sq.route.actions;
                         if (left < 1) continue;
                         const at = sq.route.actions ? { ...me.rect, x: sq.x, y: sq.y } : me.rect;
-                        const r = run(board.strikes, f, left, ctx.made, at);
+                        const r = run(bare, f, left, ctx.made, at);
                         if (!r.used.length) continue;
                         const pAny = 1 - r.used.reduce((t, u) => t * (1 - u.e.hit), 1);
                         const steps = [...p.steps, { cost: 1, text: `${base}: your next hit before the end of your next turn deals ${lv >= 18 ? 3 : lv >= 10 ? 2 : 1}d6 precision more` }];
@@ -658,7 +681,7 @@ function exemplar(board, ctx, out) {
                     const steps = [...p.steps, { cost: 1, text: `${base}: a 15-foot cone marks ${cone.map(nameOf).join(", ")} for a minute; the next Strike that damages each deals ${d6}d6 precision or vitality more` }];
                     let ev = cone.length * 0.85 * d6 * 3.5 + after(steps, nearest, { adjacent });
                     const left = avail - 1;
-                    if (left >= 1 && nearest) { const r = run(board.strikes, nearest, left, ctx.made); if (r.used.length) { steps.push({ cost: r.used.length, text: `${strikeText(nearest, r.used)}; the first hit springs its mark` }); ev += r.ev; } }
+                    if (left >= 1 && nearest) { const r = run(bare, nearest, left, ctx.made); if (r.used.length) { steps.push({ cost: r.used.length, text: `${strikeText(nearest, r.used)}; the first hit springs its mark` }); ev += r.ev; } }
                     trPlan(nearest, `Mark the Center: ${cone.length} foe${cone.length > 1 ? "s" : ""}`, steps, ev, { bias: 0.4 });
                     break;
                 }
@@ -711,7 +734,7 @@ function exemplar(board, ctx, out) {
             if (t.slug === "crash-against-me") out.notes.push(`Crash Against Me (${cost}): resistance ${lv} to your attuned physical type until your next turn; a foe whose weapon of that type bounces off is off-guard and at -2 with it. For a turn you'll stand in front of a hitter.`);
             if (t.slug === "brandish-the-gorgons-gaze") out.notes.push(`Brandish the Gorgon's Gaze (${cost}): Raise the aegis; a melee attack you Shield Block before your next turn leaves its owner slowed 1 for a minute on a failed Fortitude save (DC ${dc}).`);
             if (t.slug === "race-the-skies") out.notes.push(`Race the Skies (${cost}): a fly Speed of ${Math.max(stride, 20)} feet for a minute; for a foe above you or across a gap.`);
-            if (t.slug === "spasm-of-the-berserker") out.notes.push(`Spasm of the Berserker (${cost}): a 4th-rank enlarge (+2 damage, reach, clumsy 1) and a 6th-rank moon frenzy (jaws and claws, temporary HP, +10 Speed) until the end of your next turn; re-empower the ikon and it's a free action to extend.`);
+            if (t.slug === "spasm-of-the-berserker") out.notes.push(`Spasm of the Berserker (${cost}): a 4th-rank enlarge (Huge, +4 status damage on melee Strikes, +10 feet of reach, clumsy 1) and a 6th-rank moon frenzy (jaws and claws, temporary HP, +10 Speed) until the end of your next turn; re-empower the ikon and it's a free action to extend.`);
             if (t.slug === "only-you-and-i") { if (nearest) out.notes.push(`Only You and I (${cost}): ${nameOf(nearest)} gets +2 to hit you, but moving away, hitting anyone else or casting past you costs it a Will save (DC ${dc}) or the action is lost, and each miss on you heals you 1d8+5.`); }
             if (t.slug === "shed-the-mortal-skin") out.notes.push(`Shed the Mortal Skin (${cost}): ends persistent fire or acid on you; the next hit you take grows an herb next to you that heals whoever eats it for half that damage.`);
             if (t.slug === "a-challenge-for-heroes") { if (nearest) out.notes.push(`A Challenge for Heroes (${cost}): ${nameOf(nearest)} deals 10 spirit more to you per hit for a minute, and every time it does, each ally with it in reach gets a Reactive Strike on it.`); }
@@ -720,7 +743,7 @@ function exemplar(board, ctx, out) {
         }
         if (hasAny(actor, "leap-the-falls") && imbuedInto(actor, "leap-the-falls", ikons)?.slug === k.slug && spark?.slug === k.slug) out.notes.push(`Leap the Falls: Quick Jump and Powerful Leap while the spark is in ${k.name}; a Leap is one action and goes 5 feet further.`);
         if (hasAny(actor, "destined-victory") && imbuedInto(actor, "destined-victory", ikons)?.slug === k.slug && spark?.slug === k.slug) out.notes.push("Destined Victory: a foe that hits you in melee gives you +2 AC against its next attack before your turn.");
-        if (hasAny(actor, "warped-by-rage") && imbuedInto(actor, "warped-by-rage", ikons)?.slug === k.slug && spark?.slug === k.slug) out.notes.push("Warped by Rage: a 4th-rank enlarge while the spark is in the ikon (+2 damage, reach +5, clumsy 1); the sheet's Strikes carry it when you took it.");
+        if (hasAny(actor, "warped-by-rage") && imbuedInto(actor, "warped-by-rage", ikons)?.slug === k.slug && spark?.slug === k.slug) out.notes.push("Warped by Rage: a 4th-rank enlarge while the spark is in the ikon (Huge, +4 status damage on melee Strikes, +10 feet of reach, clumsy 1); your Strike numbers carry it once the enlarge effect is on your sheet.");
         if (hasAny(actor, "journey-of-the-sky-chariot") && imbuedInto(actor, "journey-of-the-sky-chariot", ikons)?.slug === k.slug && spark?.slug === k.slug) out.notes.push("Journey of the Sky Chariot: you stay aloft at the end of your turn without a Fly action.");
         if (hasAny(actor, "gift-of-the-immortal-herb") && imbuedInto(actor, "gift-of-the-immortal-herb", ikons)?.slug === k.slug) out.notes.push("Gift of the Immortal Herb: ten minutes of the spark in the ikon regrows a lost limb or organ.");
     }
@@ -740,12 +763,12 @@ function exemplar(board, ctx, out) {
     }
     if (has(actor, "sanctified-soul")) out.notes.push("Sanctified Soul: your spirit damage is sanctified; it bites harder on a foe of the opposite sanctity.");
     if (has(actor, "vow-of-mortal-defiance") && !effect(actor, /vow-of-mortal-defiance/)) out.notes.push("Vow of Mortal Defiance (1 action): swear against one holy or unholy foe within 60 feet; your first damage to it each round deals 1d6 spirit more until one of you is down. Only for a foe that is holy or unholy.");
-    if (has(actor, "humble-strikes") && board.strikes.some((s) => s.item?.system?.category === "simple")) out.notes.push("Humble Strikes: your simple weapons' dice are one step larger; the sheet carries it.");
+    if (has(actor, "humble-strikes") && board.strikes.some((s) => s.item?.system?.category === "simple")) out.notes.push(`Humble Strikes: your simple weapons' dice are one step larger${board.strikes.every((s) => s.formula) ? "; your Strike damage from the sheet includes it" : "; the read's estimate of a Strike without PF2e's formula may miss it"}.`);
     if (has(actor, "twin-stars")) out.notes.push("Twin Stars: an Interact splits your one-handed weapon ikon into two twins (and back); the spark empowers both.");
     if (has(actor, "only-the-worthy")) out.notes.push("Only the Worthy: Release an ikon over an adjacent foe and spend an action to fix it there; the foe needs Athletics against your class DC to Stand or move, and you can't use the ikon meanwhile.");
     if (has(actor, "topple-the-titans") && me.athletics != null && foes.some((f) => (f.sizeRank ?? 2) > (me.sizeRank ?? 2))) out.notes.push(`Topple the Titans (1 action, once a minute): right after you Trip a larger foe, the same Athletics result Trips every foe within 10 feet of it.`);
-    if (has(actor, "flow-of-war")) { const n = usesLeft(actor, "flow-of-war"); out.notes.push(n > 0 ? "Flow of War (free as your turn begins, once an hour): quickened this turn for a Strike or a Stride; the plans don't count the fourth action, so add one." : "Flow of War: used this hour."); }
-    if (has(actor, "spirit-striking") || has(actor, "greater-spirit-striking")) out.notes.push(`Spirit Striking: ${has(actor, "greater-spirit-striking") ? "4 to 8" : "2 to 4"} spirit on every weapon or unarmed hit by your proficiency; the sheet carries it, spark or no spark.`);
+    if (has(actor, "flow-of-war")) { const n = usesNow(actor, "flow-of-war"); out.notes.push(n > 0 ? "Flow of War (free as your turn begins, once an hour): quickened this turn for a Strike or a Stride; the plans don't count the fourth action, so add one." : "Flow of War: used this hour."); }
+    if (spiritStriking) out.notes.push(`Spirit Striking: ${has(actor, "greater-spirit-striking") ? "4 to 8" : "2 to 4"} spirit on every weapon or unarmed hit by your proficiency (${spiritStriking.ss} now), spark or no spark; ${spiritStriking.added.length ? `the read adds it to ${spiritStriking.added.join(", ")}, whose damage came without PF2e's formula` : "your Strike damage from the sheet already includes it"}.`);
     for (const e of DOMINION.filter((x) => hasAny(actor, x))) {
         const crit = {
             "born-of-the-bones-of-the-earth": "a critical hit on earth or stone mires the foe: immobilized until it Escapes",
@@ -761,21 +784,21 @@ function exemplar(board, ctx, out) {
     }
     if (epithets.length) out.notes.push(`After a transcendence you get one epithet ability: ${epithets.map((e) => EPITHET_NAMES[e] ?? e).join(", ")}; the plans pick the one worth most.`);
     if (has(actor, "additional-ikon")) out.notes.push(`Additional Ikon: ${ikons.length} ikons; the spark still sits in one at a time.`);
-    if (has(actor, "exult-in-violence")) { const n = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30).length; out.notes.push(`Exult in Violence (1 action, after a critical hit this turn): a pillar of light for ${lv >= 17 ? "10d6" : lv >= 12 ? "7d6" : "5d6"} spirit, basic save DC ${dc}, on a random other foe within 30 feet of the one you hit${n >= 2 ? "" : "; needs a second foe near"}.`); }
-    if (has(actor, "fish-from-the-falls-edge") || hasAny(actor, "fish-from-the-falls-edge")) out.notes.push(`Fish from the Falls' Edge (reaction, once a day${usesLeft(actor, "fish-from-the-falls-edge") ? "" : ", used"}): when a living creature within 30 feet would die, it lives and regains ${Math.floor(lv / 2)}d8 HP; your spark goes with it until your next turn. It needs the spark in an ikon now.`);
-    if (has(actor, "rapid-spark")) out.notes.push(rapid ? "Rapid Spark: your first Shift this turn is free (once a day); the plans count it." : usesLeft(actor, "rapid-spark") > 0 ? "Rapid Spark (free as your turn begins, once a day): a free Shift Immanence." : "Rapid Spark: used today.");
+    if (has(actor, "exult-in-violence")) { const n = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30).length; out.notes.push(`Exult in Violence (1 action, after a critical hit this turn): a pillar of light for ${lv >= 17 ? "10d6" : lv >= 12 ? "7d6" : "4d6"} spirit, basic Reflex DC ${dc}, on a random other foe within 30 feet of the one you hit${n >= 2 ? "" : "; needs a second foe near"}.`); }
+    if (has(actor, "fish-from-the-falls-edge") || hasAny(actor, "fish-from-the-falls-edge")) out.notes.push(`Fish from the Falls' Edge (reaction, once a day${usesNow(actor, "fish-from-the-falls-edge") ? "" : ", used"}): when a living creature within 30 feet would die, it lives, regains 5d8 HP and gets +1 status to saves and AC for a round; your spark goes with it until your next turn. It needs the spark in an ikon now.`);
+    if (has(actor, "rapid-spark")) out.notes.push(rapid ? "Rapid Spark: your first Shift this turn is free (once a day); the plans count it." : usesNow(actor, "rapid-spark") > 0 ? "Rapid Spark (free as your turn begins, once a day): a free Shift Immanence." : "Rapid Spark: used today.");
     if (has(actor, "extract-vow-of-nonviolence")) out.notes.push(`Extract Vow of Nonviolence (2 actions): Diplomacy or Intimidation against a weapon's wielder's Will DC; a success gives you resistance ${Math.floor(lv / 2)} to that weapon for a while. For the one big hitter.`);
     if (hasAny(actor, "complete-the-heros-journey")) out.notes.push(`Complete the Hero's Journey (1 action, once per 10 minutes): after transcending two different ikons in the last 10 minutes, with the spark in a third, transcend it as a 3-action heal or harm at rank ${Math.ceil(lv / 2)} instead.`);
-    for (const [slug, name, what] of [["battle-hymn-to-the-lost", "Battle Hymn to the Lost", "a Strike plus spirits in a 15-foot cone (or a burst at range) for 4d10 (more at 12) with a basic save, and allies there who are dying regain that much"], ["forward-gaze-into-life", "Forward Gaze into Life", "two 15-foot cones, one ahead with vitality and one behind with void, basic save; stand between two groups"], ["raise-island", "Raise Island", "foes in a 20-foot burst save or are swept 15 feet and knocked prone, then a 10-foot pillar rises under you and you Strike one in reach"], ["rejoice-in-solstice-storm", "Rejoice in Solstice Storm", `${5 + Math.max(0, Math.floor((lv - 8) / 2))}d8 in a 30-foot emanation around you, four seasons with their own critical failures, basic save; your allies are in it too`], ["as-a-thousand-soldiers", "As a Thousand Soldiers", "fly twice your Speed as bees through any gap, no reactions, stinging every foe you pass for 3d4 piercing and poison (more at 10)"]]) {
+    for (const [slug, name, what] of [["battle-hymn-to-the-lost", "Battle Hymn to the Lost", `a Strike plus spirits in a 30-foot cone (melee) or a 10-foot emanation around the target (ranged) for ${Math.floor(lv / 4)}d10 bludgeoning, piercing or slashing, basic Reflex, and allies there who are dying regain that much`], ["forward-gaze-into-life", "Forward Gaze into Life", "two 15-foot cones, one ahead with vitality and one behind with void, basic save; stand between two groups"], ["raise-island", "Raise Island", "foes in a 30-foot emanation save (Fortitude) or are swept up to 15 feet within it and are off-guard until your next turn begins, then a 10-foot pillar rises under you and you Strike one in reach"], ["rejoice-in-solstice-storm", "Rejoice in Solstice Storm", `${5 + Math.max(0, Math.floor((lv - 8) / 2))}d8 in a 30-foot emanation around you, four seasons with their own critical failures, basic save; your allies are in it too`], ["as-a-thousand-soldiers", "As a Thousand Soldiers", "fly twice your Speed as bees through any gap, no reactions, stinging every foe you pass for 3d4 piercing and poison (more at 10)"]]) {
         if (!has(actor, slug)) continue;
-        const n = usesLeft(actor, slug);
+        const n = usesNow(actor, slug);
         const near = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30).length;
         out.notes.push(`${name} (once an hour${n ? "" : ", used"}): ${what}. Worth it when it catches two or more${near >= 2 ? ` (${near} foes within 30 feet now)` : ""}.`);
     }
     if (has(actor, "strike-rivers-seize-winds")) out.notes.push("Strike Rivers, Seize Winds (once an hour, each once a day): wall of stone, control water, the like, on your class DC, by strength alone; they can't be counteracted.");
     if (has(actor, "cutting-without-blade")) out.notes.push("Cutting Without Blade: every ikon feat applies to every ikon it could, and any object in hand becomes the ikon as a free action before or after you use it.");
-    if (has(actor, "reach-for-immortality")) out.notes.push(`Reach for Immortality (once a day${usesLeft(actor, "reach-for-immortality") ? "" : ", used"}): when you would die, a free transcendence keeps you at 0 HP, clears your conditions, heals half your HP, Stands you and puts the spark where you like.`);
-    if (has(actor, "remake-the-world")) out.notes.push(`Remake the World (once a day${usesLeft(actor, "remake-the-world") ? "" : ", used"}): any common divine spell of 8th rank or lower on your class DC, uncounterable.`);
+    if (has(actor, "reach-for-immortality")) out.notes.push(`Reach for Immortality (once a day${usesNow(actor, "reach-for-immortality") ? "" : ", used"}): when you would die, a free transcendence keeps you at 0 HP, clears your conditions, heals half your HP, Stands you and puts the spark where you like.`);
+    if (has(actor, "remake-the-world")) out.notes.push(`Remake the World (once a day${usesNow(actor, "remake-the-world") ? "" : ", used"}): any common divine spell of 8th rank or lower on your class DC, uncounterable.`);
     if (has(actor, "unassailable-soul") || has(actor, "greater-unassailable-soul")) out.notes.push("Unassailable Soul: a success on a Will save is a critical success for you.");
     if (has(actor, "mortality-reforged")) out.notes.push("Mortality Reforged: a success on a Fortitude save is a critical success for you.");
 }

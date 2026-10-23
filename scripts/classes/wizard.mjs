@@ -4,9 +4,10 @@
  * The wizard's layer over the advisor's spell plans: slots and the school's extra one, the thesis, Arcane Bond
  * (Drain Bonded Item as a plan to recast the best spent spell), the school focus spells the advisor can't score
  * (Force Bolt hits by itself, Protective Wards is a buff, Hand of the Apprentice throws a weapon), the spellshape feats
- * as "when" notes, Quickened Casting as a two-spell turn, and the cantrip-or-slot rule.
+ * as "when" notes, and Quickened Casting as a two-spell turn. A plan that casts a slot spell says so (spendsSlot) and spell
+ * thrift weighs the slot against the cantrip; the read doesn't keep a cantrip-or-slot rule of its own.
  */
-import { castable, effect, focusLeft, has, level, pct, targets, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, signed } from "./_common.mjs";
+import { castable, effect, focusLeft, has, level, pct, spendsSlot, targets, usesLeft, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, signed } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 
 /** Each school's curriculum (lower-cased names) and its initial and advanced school spells, from the class features. */
@@ -36,12 +37,6 @@ const THESES = ["spell-blending", "improved-familiar-attunement", "spell-substit
 
 const lc = (s) => String(s ?? "").toLowerCase().trim();
 const isFocus = (sp) => !!sp.traits?.includes("focus");
-const item = (actor, slug) => actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && (i.slug ?? i.system?.slug ?? lc(i.name).replace(/[^a-z0-9]+/g, "-")) === slug) ?? null;
-/** Uses left today of a feat or action with a frequency, or null when the sheet doesn't count them. */
-function usesLeft(actor, slug) {
-    const f = item(actor, slug)?.system?.frequency;
-    return f && typeof f.value === "number" ? f.value : null;
-}
 /** The prepared entries' slots: by rank { left, max }, the spells cast today (spent), and the highest rank the character casts. */
 function slotsOf(actor) {
     const byRank = {};
@@ -102,8 +97,11 @@ function primary(board) {
 }
 const rankText = (sp) => (sp.cantrip ? "" : isFocus(sp) ? " (focus)" : ` (rank ${sp.rank})`);
 const cap = (s) => String(s ?? "").charAt(0).toUpperCase() + String(s ?? "").slice(1);
-/** The cantrip-or-slot rule (the magus read's): the best cantrip and the best slot spell at t, and whether the slot is worth it. */
-function cantripOrSlot(board, t, actions, made) {
+/**
+ * The spells that could follow something else this turn at t: the best cantrip, and the best slot spell when it does more
+ * than the cantrip. Each becomes its own plan; the slot one says so (spendsSlot), and spell thrift weighs the two.
+ */
+function followUps(board, t, actions, made) {
     let cantrip = null, slot = null;
     for (const sp of hurters(board, t, actions)) {
         if (isFocus(sp)) continue;
@@ -111,16 +109,16 @@ function cantripOrSlot(board, t, actions, made) {
         if (sp.cantrip) { if (!cantrip || pick.e.expected > cantrip.e.expected) cantrip = pick; }
         else if (!slot || pick.e.expected > slot.e.expected) slot = pick;
     }
-    const gain = cantrip && slot ? slot.e.expected - cantrip.e.expected : 0;
-    const nearlyDown = !!slot && t.hp > 0 && t.hp <= slot.e.expected;
-    const clear = !!slot && gain >= 3 + (slot.sp.rank ?? 1);
-    return { cantrip, slot, gain, nearlyDown, clear, spend: !!slot && (!cantrip || clear || nearlyDown) };
+    return [cantrip, slot && (!cantrip || slot.e.expected > cantrip.e.expected) ? slot : null];
 }
-/** The spell to cast after something else this turn: the cantrip unless the rule says the slot. already: damage already on the way. */
-function spendOrNot(board, t, actions, made, already = 0) {
-    const r = cantripOrSlot(board, t, actions, made);
-    const nearly = r.slot && t.hp > 0 && t.hp <= r.slot.e.expected + already;
-    return r.slot && (!r.cantrip || r.clear || nearly) ? r.slot : r.cantrip;
+
+/** A plan casting one or two slot spells joins spell thrift on the higher-rank one; the other slot is named in a note. */
+function slotSpells(plan, spells) {
+    const slots = spells.filter((sp) => sp && !sp.cantrip && !isFocus(sp) && !sp.consumable).sort((a, b) => (b.rank ?? 1) - (a.rank ?? 1));
+    if (!slots.length) return plan;
+    spendsSlot(plan, slots[0]);
+    if (slots[1]) plan.notes.push(`It also spends a rank-${slots[1].rank ?? 1} slot on ${slots[1].name}.`);
+    return plan;
 }
 
 function wizard(board, ctx, out) {
@@ -144,17 +142,6 @@ function wizard(board, ctx, out) {
         out.notes.push(`Slots left: ${parts.join(", ")}.${school && !unified ? " One slot of each rank is your school's, a curriculum spell." : ""}`);
     }
 
-    // Cantrip or slot: the best of each against the foe in front of you, and the rule
-    if (t && ctx.actions >= 1) {
-        const { cantrip, slot, nearlyDown, clear } = cantripOrSlot(board, t, ctx.actions, ctx.made);
-        if (cantrip && slot) {
-            const verdict = nearlyDown ? `${nameOf(t)} is nearly down, so the slot is worth it`
-                : clear ? `the slot is worth it unless you're saving it`
-                : `keep the slot; the gain is small. Spend one only when the gain is clear, the foe is nearly down, or this is the day's last fight`;
-            out.notes.push(`Against ${nameOf(t)}: ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}, ${slot.sp.name} (rank ${slot.sp.rank}) about ${Math.round(slot.e.expected)}; ${verdict}.`);
-        } else if (cantrip && !slot) out.notes.push(`No damaging slot spell of yours reaches ${nameOf(t)} from here; ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}; your slots are for the save and utility spells.`);
-    }
-
     // Arcane school: which prepared spells are its curriculum, and the school spells
     if (school && info) {
         const curPrepared = (board.spells ?? []).filter((sp) => !sp.cantrip && !isFocus(sp) && !sp.consumable && curriculum(sp)).map((sp) => sp.name);
@@ -170,16 +157,20 @@ function wizard(board, ctx, out) {
     if (bolt && t && ctx.actions >= 1 && feetBetween(me.rect, t.rect) <= 30) {
         const dice = 1 + Math.floor((Math.max(1, Math.ceil(lv / 2)) - 1) / 2);
         const avg = bolt.avg > 0 ? bolt.avg : dice * 3.5;
-        const steps = [{ cost: 1, text: `Force Bolt at ${nameOf(t)}: ${dice}d4+${dice} force, no roll, it just hits (about ${Math.round(avg)})` }];
-        let ev = avg;
+        const first = { cost: 1, text: `Force Bolt at ${nameOf(t)}: ${dice}d4+${dice} force, no roll, it just hits (about ${Math.round(avg)})` };
         const rest = ctx.actions - 1;
-        if (rest >= 1) {
-            const next = spendOrNot(board, t, rest, ctx.made, avg);
+        // Force Bolt alone, then with the cantrip, and with the slot spell when it does more (thrift weighs the slot)
+        const nexts = rest >= 1 ? followUps(board, t, rest, ctx.made) : [];
+        for (const next of nexts.some(Boolean) ? nexts.filter(Boolean) : [null]) {
+            const steps = [first];
+            let ev = avg;
             if (next) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; }
+            const notes = [`Spends a Focus Point${focus !== null ? ` (${focus} left)` : ""}.`];
+            if (adjacentFoes.length) notes.push(`Casting next to ${adjacentFoes.map(nameOf).join(", ")} provokes a Reactive Strike if it has one.`);
+            const plan = { kind: "class", title: `Force Bolt ${nameOf(t)}${next ? `, then ${next.sp.name}` : ""}`, target: t, ev, score: ev + 0.3, dest: null, steps, notes };
+            if (next && !next.sp.cantrip) spendsSlot(plan, next.sp);
+            out.plans.push(plan);
         }
-        const notes = [`Spends a Focus Point${focus !== null ? ` (${focus} left)` : ""}.`];
-        if (adjacentFoes.length) notes.push(`Casting next to ${adjacentFoes.map(nameOf).join(", ")} provokes a Reactive Strike if it has one.`);
-        out.plans.push({ kind: "class", title: `Force Bolt ${nameOf(t)}`, target: t, ev, score: ev + 0.3, dest: null, steps, notes });
     }
     const hand = focusSpells.find((sp) => lc(sp.name) === "hand of the apprentice");
     if (hand && t && ctx.actions >= 1 && hand.attack !== null && hand.attack !== undefined) {
@@ -248,7 +239,7 @@ function wizard(board, ctx, out) {
     const drainSlug = has(actor, "drain-familiar") || has(actor, "improved-familiar-attunement") ? "drain-familiar" : "drain-bonded-item";
     const bond = has(actor, "arcane-bond") || has(actor, drainSlug);
     if (bond) {
-        const drainItem = item(actor, drainSlug);
+        const drainItem = has(actor, drainSlug);
         const left = usesLeft(actor, drainSlug);
         const usedEffect = !!effect(actor, /drain-bonded-item|drain-familiar|arcane-bond/);
         const used = left === 0 || usedEffect;
@@ -343,9 +334,11 @@ function wizard(board, ctx, out) {
                 const second = pool.filter((x) => x.sp !== q.sp).sort((a, b) => b.e.expected - a.e.expected)[0] ?? pool.find((x) => x.sp === q.sp && x.sp.cantrip) ?? null;
                 if (second) {
                     const ev = q.e.expected + second.e.expected;
-                    out.plans.push({ kind: "class", title: `Quickened Casting: ${q.sp.name}, then ${second.sp.name}`, target: t, ev, score: ev + 0.4, dest: null,
+                    const plan = { kind: "class", title: `Quickened Casting: ${q.sp.name}, then ${second.sp.name}`, target: t, ev, score: ev + 0.4, dest: null,
                         steps: [{ cost: 0, text: `Quickened Casting (free, once a day): ${q.sp.name}${rankText(q.sp)} takes 1 action` }, { cost: 1, text: `Cast ${q.sp.name} at ${nameOf(t)} (about ${Math.round(q.e.expected)})` }, { cost: 2, text: `Cast ${second.sp.name}${rankText(second.sp)} at ${nameOf(t)} (about ${Math.round(second.e.expected)})` }],
-                        notes: [`Only a cantrip or a spell of rank ${Math.max(1, slots.top - 2)} or lower can be quickened. Two spells next to ${adjacentFoes.length ? adjacentFoes.map(nameOf).join(", ") : "a foe"} means two chances to provoke.`] });
+                        notes: [`Only a cantrip or a spell of rank ${Math.max(1, slots.top - 2)} or lower can be quickened, and it spends your one Quickened Casting today. Two spells next to ${adjacentFoes.length ? adjacentFoes.map(nameOf).join(", ") : "a foe"} means two chances to provoke.`] };
+                    slotSpells(plan, [q.sp, second.sp]);
+                    out.plans.push(plan);
                 }
             }
         }
@@ -377,9 +370,9 @@ function wizard(board, ctx, out) {
     if (lv >= 18 && has(actor, "reprepare-spell")) out.notes.push("Reprepare Spell: 10 minutes after this fight brings back a spent spell of rank 4 or lower with no duration, so those are the slots to spend now.");
     if (lv >= 20 && has(actor, "spell-mastery")) out.notes.push("Spell Mastery: your four mastered spells are always prepared, each in its own extra slot; they're the slots to spend first.");
     if (lv >= 20 && has(actor, "spell-combination")) out.notes.push(`Spell Combination: a combination slot of each rank from 3 up casts two spells at one target in one casting, each 2 or more ranks below the slot; against ${t ? nameOf(t) : "a single foe"}, that's the slot to open with.`);
-    if (lv >= 19 && (has(actor, "archwizard-s-spellcraft") || has(actor, "archwizards-spellcraft"))) {
+    if (lv >= 19 && has(actor, "archwizards-spellcraft")) {
         const tenth = slots.byRank[10];
-        out.notes.push(`Archwizard's Spellcraft: ${tenth ? `${tenth.left} of ${tenth.max} 10th-rank slot${tenth.max > 1 ? "s" : ""} left` : "a 10th-rank slot"}${lv >= 20 && has(actor, "archwizard-s-might") ? " (two with Archwizard's Might)" : ""}; Drain Bonded Item can't bring a 10th-rank spell back, so it's a once-a-day cast; save it for the fight that decides something.`);
+        out.notes.push(`Archwizard's Spellcraft: ${tenth ? `${tenth.left} of ${tenth.max} 10th-rank slot${tenth.max > 1 ? "s" : ""} left` : "a 10th-rank slot"}${lv >= 20 && has(actor, "archwizards-might") ? " (two with Archwizard's Might)" : ""}; Drain Bonded Item can't bring a 10th-rank spell back, so it's a once-a-day cast; save it for the fight that decides something.`);
     }
     if (lv >= 20 && has(actor, "reclaim-spell")) out.notes.push("Reclaim Spell: Dismiss a spell of rank 4 or lower with half its duration left and reprepare it in 10 minutes.");
     if (lv >= 14 && has(actor, "bonded-focus") && focus !== null && focus < (actor.system?.resources?.focus?.max ?? 0)) out.notes.push("Bonded Focus: a Refocus with your bonded item refills the whole pool, so spend the Focus Points.");

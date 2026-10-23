@@ -9,10 +9,8 @@
  * Perfected Form on the first Strike. Qi spells are the advisor's where they're a spell (Qi Blast, Harmonize Self, Shadow's
  * Web...); the focus pool and the ones that compose with a Strike are read here. The rest are when-notes.
  */
-import { effect, focusLeft, has, level, moveText, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { effect, focusLeft, has, hasAny, level, moveText, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("hunters-aim"); the catalog's keep a dash for them ("hunter-s-aim"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const classDC = (actor, lv) => Number(actor?.classDC?.value ?? actor?.system?.attributes?.classDC?.value) || 10 + lv + 4 + (lv >= 17 ? 6 : lv >= 9 ? 4 : 2);
 const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
@@ -30,7 +28,7 @@ const STANCES = {
     "dragon-stance": { name: "Dragon Stance", label: "Dragon tail", die: 10, def: 0, benefit: "dragon tail 1d10 with backswing; ignore the first square of difficult terrain when you Stride" },
     "flood-stance": { name: "Flood Stance", label: "Flooded river", die: 8, only: true, def: 0, benefit: "flooded river 1d8 with trip, no penalty underwater; hold your breath while it lasts" },
     "gorilla-stance": { name: "Gorilla Stance", label: "Gorilla slam", die: 8, only: true, def: 0, benefit: "gorilla slam 1d8 with backswing, forceful and grapple; +2 to Climb" },
-    "mountain-stance": { name: "Mountain Stance", label: "Falling stone", die: 8, only: true, def: 4, ground: true, benefit: "+4 item bonus to AC (in place of your clothing's rune) and +2 against Shove, Trip and forced movement, but no Dexterity to AC and -5 Speed; falling stone 1d8 with forceful" },
+    "mountain-stance": { name: "Mountain Stance", label: "Falling stone", die: 8, only: true, def: 4, ground: true, benefit: "+4 item bonus to AC (it stacks with your clothing's potency rune) and +2 against Shove, Trip and forced movement, but no Dexterity to AC and -5 Speed; falling stone 1d8 with forceful" },
     "rain-of-embers-stance": { name: "Rain of Embers Stance", label: "Fire talon", die: 4, agile: true, finesse: true, only: true, def: 1.5, fire: true, benefit: "+1 status bonus to AC and fire resistance; fire talon 1d4 fire, agile, finesse" },
     "reflective-ripple-stance": { name: "Reflective Ripple Stance", label: "Flowing wave", die: 6, agile: true, finesse: true, def: 0.5, benefit: "flowing wave 1d6 with disarm and trip, agile, finesse; +1 to Trip and Disarm" },
     "rushing-goat-stance": { name: "Rushing Goat Stance", label: "Ramming horn", die: 8, only: true, def: 0, benefit: "ramming horn 1d8 with forceful and shove; after a Stride, Climb or Leap it adds its dice count to damage" },
@@ -94,8 +92,11 @@ function monk(board, ctx, out) {
     if (!own && !flurryKnown && !known.length && !otherKnown.length) return;
 
     // ---- the stance that's up, from the sheet's effect
-    const stanceFx = effect(actor, /^stance-/);
+    // A monk stance's effect; another stance (a fighter's, an archetype's) isn't one, but entering a monk stance ends it
+    const stanceFxs = (actor?.items ?? []).filter((i) => ["effect", "condition"].includes(i.type) && /^stance-/.test(slugOf(i)));
+    const stanceFx = stanceFxs.find((i) => { const k = slugOf(i).replace(/^stance-/, ""); return STANCES[k] || OTHER_STANCES.includes(k); }) ?? null;
     const stance = stanceFx ? slugOf(stanceFx).replace(/^stance-/, "") : null;
+    const foreignStance = !stanceFx && stanceFxs.length ? stanceFxs[0].name ?? slugOf(stanceFxs[0]) : null;
     const inStance = (k) => stance === k;
     // PF2e's wornArmor includes explorer's clothing (category "unarmored"), which stances allow
     const worn = actor?.wornArmor ?? actor?.items?.find?.((i) => i.type === "armor" && (i.isEquipped ?? i.system?.equipped?.inSlot)) ?? null;
@@ -140,7 +141,8 @@ function monk(board, ctx, out) {
         const t = STANCES[k];
         const bonus = t.finesse || t.range ? fistBonus : fistBonus - Math.max(0, dex - str);
         const avg = dice * (t.die + 1) / 2 + (t.range ? (t.propulsive ? Math.floor(Math.max(0, str) / 2) : 0) : flat);
-        const deadly = t.deadly ? deadlyDice * (t.deadly + 1) / 2 : t.fatal ? (t.fatal + 1) / 2 + dice * ((t.fatal + 1) / 2 - (t.die + 1) / 2) : 0;
+        // fatal: on a critical hit every die grows (doubled with the rest) and one more die of that size is added
+        const deadly = t.deadly ? deadlyDice * (t.deadly + 1) / 2 : t.fatal ? (t.fatal + 1) / 2 + 2 * dice * ((t.fatal + 1) / 2 - (t.die + 1) / 2) : 0;
         return { label: t.label, bonus, avg, agile: !!t.agile, ranged: !!t.range, range: t.range ?? null, reach: t.reach ?? 5, traits: ["unarmed", ...(t.agile ? ["agile"] : []), ...(t.finesse ? ["finesse"] : [])], deadly, synthetic: true, stance: k };
     };
     const poolIn = (k) => (STANCES[k].only ? [synth(k)] : [...pool, synth(k)]);
@@ -257,7 +259,7 @@ function monk(board, ctx, out) {
             if (t.ground && me.conditions?.has?.("flying")) continue;
             const from = poolIn(k);
             const def = t.def * (0.5 + lv / 10);
-            const entry = { cost: 1, text: `${t.spell ? `Cast ${t.name}${has(actor, "qi-center") ? " (free with Qi Center once a minute, no Focus Point)" : " (1 Focus Point)"}` : `Enter ${t.name}`}: ${t.benefit}` };
+            const entry = { cost: 1, text: `${t.spell ? `Cast ${t.name}${has(actor, "qi-center") ? " (free with Qi Center once a minute, no Focus Point)" : " (1 Focus Point)"}` : `Enter ${t.name}`}: ${t.benefit}${foreignStance ? `; it ends ${foreignStance}` : ""}` };
             if (flurry) flurryPlans(from, k, [entry], def, 1);
             else for (const f of foes) {
                 const a = approach(f, 2, { from });
@@ -298,7 +300,8 @@ function monk(board, ctx, out) {
         for (const f of foes) {
             const a = approach(f, 2); if (!a) continue;
             const jaw = pool.find((s) => /wolf jaw/i.test(s.label)); if (!jaw) continue;
-            const fatal = { ...jaw, avg: jaw.avg + dice * 2, deadly: 6.5 };
+            // fatal d12 on this Strike: on a critical hit only, each d8 becomes a d12 (doubled) and one more d12 is added
+            const fatal = { ...jaw, deadly: (jaw.deadly || 0) + dice * 2 * 2 + 6.5 };
             const r = run(f, 1, ctx.made, { at: a.at, from: [fatal] });
             if (!r.used.length) continue;
             const prone = f.conditions?.has?.("prone") ? 0 : r.used[0].e.hit * worth(board, "prone");
@@ -345,12 +348,14 @@ function monk(board, ctx, out) {
         for (const f of foes.filter((x) => inReach(me.rect, x.rect, reach) && feetBetween(me.rect, x.rect) <= 30)) {
             const c = degreeChances(me.intimidation, 10 + (f.saves?.will ?? 0));
             const p = c.s + c.cs;
-            const fr = (Number(f.conditionValues?.frightened) || 0) + 1;
-            const r = run(f, 1, ctx.made, { extra: 3 * fr * p + 3 * (fr - 1) * (1 - p), acAdj: -p, pick: (s) => /gorilla slam/i.test(s.label) });
+            // Demoralize sets frightened 1 (2 on a critical success); it doesn't add to a value the foe already has
+            const fr0 = f.conditions?.has?.("frightened") ? Number(f.conditionValues?.frightened) || 1 : 0;
+            const frAfter = c.s * Math.max(fr0, 1) + c.cs * Math.max(fr0, 2) + (1 - p) * fr0;
+            const r = run(f, 1, ctx.made, { extra: 3 * frAfter, acAdj: -(frAfter - fr0), pick: (s) => /gorilla slam/i.test(s.label) });
             if (!r.used.length) continue;
             let ev = r.ev + p * worth(board, "frightened") + c.cs * worth(board, "frightened");
             const steps = [{ cost: 1, text: `Gorilla Pound: Demoralize ${nameOf(f)} with Intimidation ${signed(me.intimidation)} (${pct(p)}), then Strike it with ${r.used[0].s.label} (${signed(r.used[0].bonus)}), +3 damage per frightened value` }];
-            const rest = run(f, strikeActs - 1, ctx.made + 1, { acAdj: -p });
+            const rest = run(f, strikeActs - 1, ctx.made + 1, { acAdj: -(frAfter - fr0) });
             if (rest.used.length) { steps.push({ cost: rest.used.length, text: strikeText(f, rest.used) }); ev += rest.ev; }
             push({ title: `Gorilla Pound ${nameOf(f)}`, target: f, ev, steps, notes: ["A flourish: no Flurry of Blows this turn. It's then immune to your Demoralize for 10 minutes."] });
         }
@@ -443,7 +448,7 @@ function monk(board, ctx, out) {
             const r = run(f, 1, ctx.made, { at, pick: (s) => !s.ranged });
             if (!r.used.length) continue;
             let ev = r.ev;
-            const steps = [{ cost: 2, text: `Flying Kick: Leap ${feetBetween(me.rect, f.rect)} feet to ${nameOf(f)} and ${strikeText(f, r.used)}` }];
+            const steps = [{ cost: 2, text: `Flying Kick: Leap (up to ${leap} feet) to ${nameOf(f)} and ${strikeText(f, r.used)}` }];
             const rest = run(f, strikeActs - 2, ctx.made + 1, { at });
             if (rest.used.length) { steps.push({ cost: rest.used.length, text: strikeText(f, rest.used) }); ev += rest.ev; }
             push({ title: `Flying Kick ${nameOf(f)}`, target: f, ev, bias: 0.2, dest: { x: sq.x, y: sq.y }, steps, notes: [`A Leap covers ${leap} feet; a Long Jump (Athletics) reaches further. The plans' Stride then Flurry usually beats it when a Stride gets you there.`] });
@@ -538,7 +543,7 @@ function monk(board, ctx, out) {
     if (knowsSpell(/^(shrink the span|abundant step)$/i)) qi.push(`Shrink the Span (1 action): teleport up to ${speed} feet in sight, no reactions`);
     if (knowsSpell(/^wind jump$/i)) qi.push("Wind Jump (1 action): fly at your Speed for a minute; end each turn on ground");
     if (knowsSpell(/^(ki cutting sight)$/i)) qi.push("Ki Cutting Sight (1 action): Perception against a foe's Fortitude DC; your next damaging Strike on it adds 4d10 slashing (more heightened)");
-    if (knowsSpell(/^(wronged monk's wrath|medusa's wrath)$/i)) qi.push("Wronged Monk's Wrath (1 to 3 actions): force and lightning around you, basic Reflex; the plans list it as an area spell");
+    if (knowsSpell(/^wronged monk's wrath$/i)) qi.push("Wronged Monk's Wrath (1 to 3 actions): force and lightning around you, basic Reflex; the plans list it as an area spell");
     if (knowsSpell(/^shadow's web$/i)) qi.push("Shadow's Web (2 actions): void damage in 30 feet with enfeebled on a failed Fortitude; the plans list it");
     if (knowsSpell(/^(qi form|ki form)$/i) && !effect(actor, /qi-form|ki-form/)) qi.push("Qi Form (1 action): a minute of flight, +1d6 on every Strike and a damaging aura; for the fight's big round");
     if (knowsSpell(/^medusa's wrath$/i)) qi.push("Medusa's Wrath (2 actions): an unarmed Strike; a hit leaves it slowed 1 (2 on a critical hit) and saving each turn against worse");

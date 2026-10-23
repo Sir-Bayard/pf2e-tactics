@@ -7,7 +7,7 @@
  * Skirmish Strike), Impossible Striker's full dice on everyone, and when-notes for the reactions, the debilitations and
  * the higher-level tricks.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, sneaky, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 const RACKETS = ["ruffian", "scoundrel", "thief", "mastermind", "eldritch-trickster", "avenger"];
 const unarmed = (s) => !!s.traits?.includes("unarmed");
@@ -15,20 +15,6 @@ const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "").r
 const categoryOf = (s) => String(s.category ?? s.item?.system?.category ?? "");
 const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
 const adjacent = (a, b) => inReach(a.rect, b.rect, 5);
-/** Does this Strike carry Sneak Attack? Agile or finesse melee, any ranged (a thrown melee weapon must be agile or finesse too);
- *  a ruffian adds simple weapons to d8 and martial or advanced ones to d6. Unknown weapons are given the benefit of the doubt. */
-function sneaky(s, ruffian) {
-    const t = s.traits ?? [];
-    if (t.includes("agile") || t.includes("finesse")) return true;
-    if (s.ranged && !s.thrown) return true;
-    if (ruffian) {
-        const die = dieOf(s), cat = categoryOf(s);
-        if (!die || !cat) return true;
-        return cat === "simple" ? die <= 8 : die <= 6;
-    }
-    return false;
-}
-
 function rogue(board, ctx, out) {
     const actor = board.me.actor;
     const me = board.me;
@@ -36,6 +22,7 @@ function rogue(board, ctx, out) {
     const combat = game.combat;
     const foes = targets(board);
     const racket = RACKETS.find((r) => has(actor, r)) ?? null;
+    const offGuardTo = (f) => !!f.conditions?.has?.("off-guard");
     const n = (t) => { if (t) out.notes.push(t); };
     // Sneak Attack dice: the sheet's flag when it has one, else the class table (1d6, +1 at 5, 11 and 17)
     const flag = actor.flags?.system?.sneakAttackDamage;
@@ -44,18 +31,26 @@ function rogue(board, ctx, out) {
     const sneakAvg = dice * (faces + 1) / 2;
     if (has(actor, "sneak-attack")) board.sneak = Math.max(board.sneak ?? 0, sneakAvg);
     const sneak = board.sneak ?? 0;
-    const offGuardTo = (f) => !!f.conditions?.has?.("off-guard");
+    for (const s of board.strikes) s.sneaky = sneaky(s, racket === "ruffian"); // the advisor adds the dice only to these
+    // Sly Striker (8): +1d6 precision (2d6 at 14th with 3d6 Sneak Attack) on a hit against a foe that isn't off-guard, with a
+    // Strike that carries Sneak Attack. On the Strike for everyone; the board's off-guard bonus is the rest of the dice.
+    const sly = has(actor, "sly-striker") && sneak > 0 && !has(actor, "impossible-striker") ? (lv >= 14 && dice >= 3 ? 7 : 3.5) : 0;
+    const net = sneak - sly; // what an off-guard foe adds on top of a Strike's avg
     const weapons = board.strikes.filter((s) => !s.ranged && !unarmed(s));
     const carry = board.strikes.filter((s) => sneaky(s, racket === "ruffian"));
     const dont = board.strikes.filter((s) => !sneaky(s, racket === "ruffian"));
     // Impossible Striker (20): the full dice against everyone. Every Strike gets them, and the off-guard bonus is folded in.
     if (has(actor, "impossible-striker") && sneak > 0) {
-        for (const s of board.strikes) if (sneaky(s, racket === "ruffian")) s.avg += sneak;
+        for (const s of board.strikes) if (sneaky(s, racket === "ruffian") && !s.impossibleCounted) { s.impossibleCounted = true; s.avg += sneak; }
         board.sneak = 0;
         n(`Impossible Striker: your full Sneak Attack (${dice}d${faces}) lands on every hit, off-guard or not. The plans count it on every Strike.`);
     } else if (sneak > 0) {
-        n(`Sneak Attack: +${dice}d${faces} precision against an off-guard foe (flanked, prone, grabbed, feinted${has(actor, "dread-striker") ? ", frightened" : ""}...)${racket === "ruffian" ? " with any simple weapon to a d8 or martial weapon to a d6" : " with an agile, finesse or ranged weapon"}. The plans count it${dont.length ? `, though ${dont.map((s) => s.label).join(", ")} ${dont.length === 1 ? "doesn't" : "don't"} carry it` : ""}.`);
-        if (has(actor, "sly-striker")) n(`Sly Striker: +${lv >= 14 && dice >= 3 ? 2 : 1}d6 precision on hits against foes that aren't off-guard; the plans don't count it.`);
+        n(`Sneak Attack: +${dice}d${faces} precision against an off-guard foe (flanked, prone, grabbed, feinted${has(actor, "dread-striker") ? ", frightened" : ""}...)${racket === "ruffian" ? " with any simple weapon to a d8 or martial weapon to a d6" : " with an agile, finesse or ranged weapon"}. The plans count it where it applies${dont.length ? `: ${dont.map((s) => s.label).join(", ")} ${dont.length === 1 ? "doesn't" : "don't"} carry it` : ""}.`);
+        if (sly) {
+            for (const s of board.strikes) if (s.sneaky && !s.slyCounted) { s.slyCounted = true; s.avg += sly; }
+            board.sneak = net;
+            n(`Sly Striker: +${sly === 7 ? 2 : 1}d6 precision on hits against foes that aren't off-guard, with the Strikes that carry Sneak Attack; the plans count it.`);
+        }
     }
     // Racket
     if (racket === "ruffian") n("Ruffian: a critical hit on an off-guard foe gets the weapon's critical specialization effect.");
@@ -72,37 +67,63 @@ function rogue(board, ctx, out) {
         }
         if (has(actor, "tactical-entry") && stat === "stealth" && combat.turn === 0) n("Tactical Entry (free action): a Stride that triggers nothing, before anyone has acted.");
     }
-    // Gang Up (6): a foe within reach of you and an ally counts as flanked
+    // Gang Up (6): a foe within reach of you and an ally is flanked: off-guard to your melee Strikes, not to a bow or a spell.
+    // The board's off-guard mark reaches every attack, so it's set only when melee Strikes are all you attack with; otherwise
+    // the read plans the melee Strikes itself (below) and the foe stays as it is for the rest.
+    const ganged = [];
     if (has(actor, "gang-up")) {
+        const otherAttacks = board.strikes.some((s) => s.ranged) || (board.spells ?? []).some((sp) => sp.attack);
         for (const f of foes) {
             const ally = board.allies.find((a) => a.hasMelee !== false && a.canAct !== false && inReach(a.rect, f.rect, a.reach ?? 5));
-            if (ally) markOffGuard(board, f, `Gang Up: ${nameOf(ally)} is on it`);
+            if (!ally || offGuardTo(f)) continue;
+            if (!otherAttacks) markOffGuard(board, f, `Gang Up: ${nameOf(ally)} is on it`);
+            else ganged.push({ f, ally });
         }
     }
     // Dread Striker (4): frightened foes are off-guard to you
     if (has(actor, "dread-striker")) for (const f of foes) if (f.conditions?.has?.("frightened")) markOffGuard(board, f, "Dread Striker: it's frightened");
     const marked = foes.filter((f) => f.offGuardWhy?.length);
     if (marked.length) n(`Off-guard to you now: ${marked.map((f) => `${nameOf(f)} (${f.offGuardWhy.join("; ")})`).join(", ")}.`);
+    if (ganged.length) n(`Gang Up: ${ganged.map((g) => `${nameOf(g.f)} (${nameOf(g.ally)} is on it)`).join(", ")} ${ganged.length > 1 ? "are" : "is"} off-guard to your melee Strikes once you're in reach, not to your ranged ones; the Gang Up plans count it.`);
     const bump = (f) => (offGuardTo(f) ? 0 : -2);
     const plan = (title, f, ev, sq, steps, notes = [], bias = 0.3) => out.plans.push({ kind: "class", title, target: f, ev, score: ev + bias, dest: sq?.route?.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
-    /** The best melee Strike at f with the dice only on a weapon that carries them. p: the chance it's off-guard. */
-    const bestVs = (f, made, p, extra = 0) => {
+    /**
+     * The best Strike at f with the dice only on a weapon that carries them. p: the chance it's off-guard. Melee by default;
+     * ranged: the ranged Strikes that reach f from where you stand (-2 in the second range increment).
+     */
+    const bestVs = (f, made, p, extra = 0, { ranged = false } = {}) => {
         let b = null;
         const q = offGuardTo(f) ? 1 : p;
-        for (const s of board.strikes.filter((s) => !s.ranged)) {
-            const bonus = s.bonus + mapFor(made, s.agile);
-            const e = strikeExpected(bonus, f.ac - (offGuardTo(f) ? 0 : 2 * p), s.avg + extra + (sneaky(s, racket === "ruffian") ? sneak * q : 0), { deadly: s.deadly });
+        const d = feetBetween(me.rect, f.rect);
+        for (const s of board.strikes.filter((s) => (ranged ? s.ranged && d <= (s.range ?? 30) * 2 : !s.ranged))) {
+            const bonus = s.bonus + mapFor(made, s.agile) - (ranged && d > (s.range ?? 30) ? 2 : 0);
+            // Sly Striker is already in avg; an off-guard foe adds the rest of the dice
+            const e = strikeExpected(bonus, f.ac - (offGuardTo(f) ? 0 : 2 * p), s.avg + extra + (sneaky(s, racket === "ruffian") ? net * q : 0), { deadly: s.deadly });
             if (!b || e.expected > b.e.expected) b = { s, bonus, e };
         }
         return b;
     };
     /** n Strikes at f, the target off-guard with probability p (its AC down by 2p, the dice with chance p). */
-    const sneakRun = (f, nStrikes, made, p, extra = 0) => {
+    const sneakRun = (f, nStrikes, made, p, extra = 0, opts = {}) => {
         const used = [];
         let ev = 0;
-        for (let i = 0; i < nStrikes; i++) { const b = bestVs(f, made + used.length, p, extra); if (!b) break; used.push(b); ev += b.e.expected; }
+        for (let i = 0; i < nStrikes; i++) { const b = bestVs(f, made + used.length, p, extra, opts); if (!b) break; used.push(b); ev += b.e.expected; }
         return { used, ev, text: used.length ? `Strike ${nameOf(f)} with ${used[0].s.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})` : "" };
     };
+
+    /* ---- Gang Up, when the board isn't marked: Stride into reach and Strike it in melee, flanked ---- */
+    for (const { f, ally } of ganged) {
+        if (ctx.actions < 1) break;
+        const sq = squareToReach(board, f, myReach(board), Math.max(0, ctx.actions - 1));
+        if (!sq) continue;
+        const left = ctx.actions - sq.route.actions;
+        if (left < 1) continue;
+        const r = sneakRun(f, left, ctx.made, 1);
+        if (!r.used.length) continue;
+        const steps = sq.route.actions ? [{ cost: sq.route.actions, text: moveText(sq, f) }] : [];
+        steps.push({ cost: r.used.length, text: `${r.text}, flanked with ${nameOf(ally)} (Gang Up), with Sneak Attack` });
+        plan(`Gang Up on ${nameOf(f)}`, f, r.ev, sq, steps, [`Off-guard only to your melee Strikes, and only while ${nameOf(ally)} has it in reach.`], 0.3);
+    }
 
     /* ---- Mastermind: Recall Knowledge, then Strike it off-guard; Analyze Weakness (6) on top when there's an action for it ---- */
     if (has(actor, "mastermind") && ctx.actions >= 2) {
@@ -115,7 +136,7 @@ function rogue(board, ctx, out) {
                 if (!sq) continue;
                 const left = ctx.actions - 1 - sq.route.actions;
                 if (left < 1) continue;
-                const dc = 15 + lv; // a standard DC for a creature of the party's level: the GM has the real one
+                const dc = standardDC(lv); // the level-based DC of a creature of the party's level: the GM has the real one
                 const c = degreeChances(best.mod ?? 0, dc);
                 const p = c.s + c.cs;
                 const steps = [{ cost: 1, text: `Recall Knowledge on ${nameOf(f)} (${best.label ?? best.slug} ${signed(best.mod ?? 0)}; about ${pct(p)} against a DC for its level): on a success it's off-guard to you until the start of your next turn, and you learn something true` }];
@@ -146,8 +167,8 @@ function rogue(board, ctx, out) {
             let best = null;
             for (const a of weapons) for (const b of weapons) {
                 if (a === b) continue;
-                const e1 = strikeExpected(a.bonus + mapFor(ctx.made, a.agile), f.ac, a.avg + (offGuardTo(f) && sneaky(a, racket === "ruffian") ? sneak : 0), { deadly: a.deadly });
-                const e2 = strikeExpected(b.bonus + mapFor(ctx.made + 1, b.agile), f.ac + bump(f), b.avg + (sneaky(b, racket === "ruffian") ? sneak : 0), { deadly: b.deadly });
+                const e1 = strikeExpected(a.bonus + mapFor(ctx.made, a.agile), f.ac, a.avg + (offGuardTo(f) && sneaky(a, racket === "ruffian") ? net : 0), { deadly: a.deadly });
+                const e2 = strikeExpected(b.bonus + mapFor(ctx.made + 1, b.agile), f.ac + bump(f), b.avg + (sneaky(b, racket === "ruffian") ? net : 0), { deadly: b.deadly });
                 const ev = e1.expected + e2.expected;
                 if (!best || ev > best.ev) best = { a, b, ev, e1, e2 };
             }
@@ -170,18 +191,18 @@ function rogue(board, ctx, out) {
     /* ---- Instant Opening (14; 1 action): a foe within 30 feet is off-guard to your attacks until the end of your next turn ---- */
     if (has(actor, "instant-opening") && ctx.actions >= 2) {
         for (const f of foes.filter((x) => !offGuardTo(x) && feetBetween(me.rect, x.rect) <= 30)) {
-            const ranged = board.strikes.some((s) => s.ranged && feetBetween(me.rect, f.rect) <= (s.range ?? 30) * 2);
+            // In melee from a square you can reach, or with a ranged Strike from where you stand: whichever is worth more
             const sq = squareToReach(board, f, myReach(board), ctx.actions - 2);
-            if (!sq && !ranged) continue;
-            const moveActs = sq ? sq.route.actions : 0;
-            const left = ctx.actions - 1 - moveActs;
-            if (left < 1) continue;
-            const r = sneakRun(f, left, ctx.made, 1);
-            if (!r.used.length) continue;
+            const melee = sq && ctx.actions - 1 - sq.route.actions >= 1 ? sneakRun(f, ctx.actions - 1 - sq.route.actions, ctx.made, 1) : null;
+            const shot = sneakRun(f, ctx.actions - 1, ctx.made, 1, 0, { ranged: true });
+            const useShot = shot.used.length && (!melee?.used.length || shot.ev > melee.ev);
+            const r = useShot ? shot : melee;
+            if (!r?.used.length) continue;
+            const moveActs = useShot ? 0 : sq.route.actions;
             const steps = [{ cost: 1, text: `Instant Opening on ${nameOf(f)}: it's off-guard to your attacks until the end of your next turn, no roll` }];
             if (moveActs) steps.push({ cost: moveActs, text: moveText(sq, f) });
             steps.push({ cost: r.used.length, text: `${r.text}, with Sneak Attack` });
-            plan(`Instant Opening on ${nameOf(f)}, then Strike`, f, r.ev, sq, steps, ["The opening lasts through your next turn too: don't spend another action on it then."], 0.4);
+            plan(`Instant Opening on ${nameOf(f)}, then Strike`, f, r.ev, useShot ? null : sq, steps, ["The opening lasts through your next turn too: don't spend another action on it then."], 0.4);
         }
     }
 
@@ -249,7 +270,7 @@ function rogue(board, ctx, out) {
     if (has(actor, "debilitating-strike")) {
         const picks = ["enfeebled 1, or -10 feet to its Speeds"];
         if (has(actor, "tactical-debilitations")) picks.push(`Tactical: no reactions (${foes.some((f) => f.reactions?.length) ? "it has one to lose" : "for a foe with Reactive Strike"}), or no flanking`);
-        if (has(actor, "precise-debilitations")) picks.push("Precise: off-guard (keeps your Sneak Attack coming next turn without a flank), or +2d6 precision on your next hits this turn");
+        if (has(actor, "precise-debilitations")) picks.push("Precise: off-guard (keeps your Sneak Attack coming next turn without a flank), or +2d6 precision on your attacks against it until the end of your next turn");
         if (has(actor, "vicious-debilitations")) picks.push("Vicious: weakness 5 to your weapon's damage type (best when allies hit it too), or clumsy 1");
         if (has(actor, "eldritch-debilitations")) picks.push("Eldritch: stupefied 1 (a caster), or no Step");
         if (has(actor, "heartless-debilitations")) picks.push(`Heartless: weakness 5 to bleed and poison, or frightened 1${has(actor, "dread-striker") ? " (off-guard to you with Dread Striker)" : ""}`);

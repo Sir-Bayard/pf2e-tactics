@@ -10,13 +10,10 @@
  * The loaded state of each weapon comes from the PF2e Ranged Combat module when it's active; otherwise every weapon is
  * assumed loaded at the start of the turn, and the read says so.
  */
-import { canMove, effect, focusLeft, has, level, markOffGuard, moveText, myReach, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { canMove, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("raconteurs-reload"); the catalog's keep a dash ("raconteur-s-reload"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const skill = (board, k) => { const sk = board.me.actor?.skills?.[k]; const mod = sk?.mod ?? board.me[k]; return mod == null ? null : { mod: Number(mod) || 0, rank: sk?.rank ?? (sk?.proficient ? 1 : 0), label: sk?.label ?? k[0].toUpperCase() + k.slice(1) }; };
-const usesLeft = (actor, slug) => { const it = actor?.items?.find?.((i) => slugOf(i) === slug); const f = it?.system?.frequency; return f && f.max != null ? Number(f.value ?? f.max) : null; };
 const usageOf = (s) => String(s.hands ?? s.item?.system?.usage?.value ?? "");
 const twoHanded = (s) => usageOf(s) === "2" || /two-hands/.test(usageOf(s));
 const dieOf = (s) => Number(String(s.die ?? s.item?.system?.damage?.die ?? "").replace("d", "")) || 0;
@@ -65,7 +62,7 @@ function gunslinger(board, ctx, out) {
     const lv = level(board);
     const way = wayOf(actor);
     const classed = actor?.class?.slug === "gunslinger";
-    if (!classed && !way && !hasAny(actor, "slingers-precision", "slinger-s-precision", "singular-expertise", "gunslingers-way", "gunslinger-s-way")) return;
+    if (!classed && !way && !hasAny(actor, "slingers-precision", "singular-expertise", "gunslingers-way", "gunslinger-dedication")) return;
     const foes = targets(board);
     const n = (t) => out.notes.push(t);
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.ev + (plan.bias ?? 0.4) });
@@ -110,8 +107,11 @@ function gunslinger(board, ctx, out) {
     /** Range penalty for a shot at dist feet with w: -2 an increment past the first, unless Unerring Shot or Shootist's Edge waives it. */
     const rangePen = (w, dist) => { const k = rangeSteps(dist, w.range); return unerring ? 0 : shootist && k <= 2 ? 0 : -2 * k; };
     const inRange = (w, at, f) => feetBetween(at, f.rect) <= w.range * 6;
-    /** A shot's expected damage, with Piercing Critical (a 19 that succeeds crits) and Flesh Wound (a miss still deals a die plus specialization). */
-    const expectedShot = (w, bonus, f, { extra = 0, acAdj = 0, flesh = true } = {}) => {
+    /**
+     * A shot's expected damage, with Piercing Critical (a 19 that succeeds crits) and, for a plain shot taken as a Flesh Wound
+     * (flesh: true, only from shootRun), its failure effect: a die plus specialization. Special shots aren't Flesh Wounds.
+     */
+    const expectedShot = (w, bonus, f, { extra = 0, acAdj = 0, flesh = false } = {}) => {
         const ac = f.ac + acAdj;
         const e = strikeExpected(bonus, ac, w.s.avg + extra, { deadly: w.deadly });
         if (piercing && 19 + bonus >= ac && 19 + bonus < ac + 10) { e.expected += 0.05 * (w.s.avg + extra + w.deadly); e.crit += 0.05; }
@@ -136,7 +136,7 @@ function gunslinger(board, ctx, out) {
      */
     const wayReload = (w, f, made, at, lastHit = 0) => {
         const plain = { text: `Interact to reload ${w.label}`, ev: 0, acAdj: 0, attacks: 0 };
-        if (!way || !has(actor, WAY_RELOAD[way]) && !hasAny(actor, WAY_RELOAD[way].replace(/s-reload$/, "-s-reload"))) return plain;
+        if (!way || !has(actor, WAY_RELOAD[way])) return plain;
         const name = WAY_RELOAD_NAME[way];
         if (way === "drifter") {
             if (w.two) return { ...plain, text: `Interact to reload ${w.label} (Reloading Strike needs the gun in one hand)` };
@@ -193,8 +193,8 @@ function gunslinger(board, ctx, out) {
         const dist = feetBetween(at, f.rect);
         const pen = rangePen(w, dist);
         const used = [];
-        const flush = () => { if (used.length) { steps.push({ cost: used.length, text: strikeText(f, used) + (pen ? ` (${-pen} off for range counted)` : "") }); used.length = 0; } };
-        const shot = () => { const b = w.s.bonus + mapFor(made, w.s.agile) + pen + bonusAdj; const e = expectedShot(w, b, f, { acAdj, extra: crack ? diceOf(w.s) : 0 }); used.push({ label: w.label + (acAdj ? " (off-guard counted)" : "") + (crack ? ` (Crack Shot +${diceOf(w.s)})` : ""), bonus: b }); ev += e.expected; made += 1; isLoaded = false; left -= 1; acAdj = 0; bonusAdj = 0; crack = false; lastHit = e.hit; return e; };
+        const flush = () => { if (used.length) { steps.push({ cost: used.length, text: (fleshWound ? "Flesh Wound: " : "") + strikeText(f, used) + (pen ? ` (${-pen} off for range counted)` : "") }); used.length = 0; } };
+        const shot = () => { const b = w.s.bonus + mapFor(made, w.s.agile) + pen + bonusAdj; const e = expectedShot(w, b, f, { acAdj, extra: crack ? diceOf(w.s) : 0, flesh: fleshWound }); used.push({ label: w.label + (acAdj ? " (off-guard counted)" : "") + (crack ? ` (Crack Shot +${diceOf(w.s)})` : ""), bonus: b }); ev += e.expected; made += 1; isLoaded = false; left -= 1; acAdj = 0; bonusAdj = 0; crack = false; lastHit = e.hit; return e; };
         while (left > 0) {
             if (isLoaded) { shot(); continue; }
             if (!usedRisky && w.group === "firearm" && w.reload === 1) {
@@ -229,7 +229,7 @@ function gunslinger(board, ctx, out) {
         const b = hasAny(actor, "risky-reload") && w.group === "firearm" && w.reload === 1 ? shootRun(w, f, actions, made0, { ...opts, risky: true }) : null;
         return b && b.ev > a.ev + 0.5 ? b : a;
     };
-    const wayName = way && (has(actor, WAY_RELOAD[way]) || hasAny(actor, WAY_RELOAD[way].replace(/s-reload$/, "-s-reload"))) ? WAY_RELOAD_NAME[way] : null;
+    const wayName = way && has(actor, WAY_RELOAD[way]) ? WAY_RELOAD_NAME[way] : null;
     const bestGunFor = (f, at = me.rect) => { let best = null; for (const w of guns) { if (!inRange(w, at, f)) continue; const e = expectedShot(w, w.s.bonus + rangePen(w, feetBetween(at, f.rect)), f).expected / (1 + w.reload * 0.5); if (!best || e > best.e) best = { w, e }; } return best?.w ?? null; };
     /** The three foes a shot does most to: the special shots are planned against these, the plain shots against every foe. */
     const rankFoe = (f) => { const w = bestGunFor(f); return w ? expectedShot(w, w.s.bonus + rangePen(w, feetBetween(me.rect, f.rect)), f).expected : -1; };
@@ -268,7 +268,7 @@ function gunslinger(board, ctx, out) {
         if (hasAny(actor, "twin-shot-knockdown")) {
             // the second Strike takes the penalty: Twin Shot Knockdown doesn't waive it
             const b2 = es[1].w.s.bonus + mapFor(ctx.made + 1, es[1].w.s.agile) + rangePen(es[1].w, feetBetween(me.rect, f.rect));
-            const e2 = expectedShot(es[1].w, b2, f, { extra: -es[1].w.precision });
+            const e2 = expectedShot(es[1].w, b2, f); // two ordinary Strikes: no "precision once" clause (that's Paired Shots)
             push({ title: `Twin Shot Knockdown on ${nameOf(f)}`, target: f, ev: es[0].e.expected + e2.expected + es[0].e.hit * e2.hit * worth(board, "prone"), bias: 0.3, steps: [{ cost: 2, text: `Twin Shot Knockdown: ${es[0].w.label} (${signed(es[0].b)}) and ${es[1].w.label} (${signed(b2)}) at ${nameOf(f)}; both hit (${pct(es[0].e.hit * e2.hit)}) and it falls prone` }, ...(ctx.actions >= 3 ? [{ cost: 1, text: `Interact to reload ${pair[0].label}${reloadNote}` }] : [])], notes: [`Paired Shots is the better pair when the knockdown is unlikely; prone is worth about ${Math.round(worth(board, "prone") * 10) / 10} here.`] });
         }
     }
@@ -420,7 +420,8 @@ function gunslinger(board, ctx, out) {
             const bonus = sk.rank >= 4 ? 4 : sk.rank >= 3 ? 3 : 2;
             const r = shootPlan(w, f, ctx.actions - 1, ctx.made);
             const shots = r.steps.reduce((t, s) => t + (/Strike|Risky Reload/.test(s.text) ? s.cost : 0), 0);
-            const ev = r.ev + (c.s + c.cs) * bonus * 0.6 * shots * 2 - c.cf * worth(board, "frightened");
+            // your hits this turn gain the bonus; the foe's against you is a cost (about one hit before your next turn)
+            const ev = r.ev + (c.s + c.cs) * bonus * 0.6 * (shots - 1) - c.cf * worth(board, "frightened");
             push({ title: `Challenge ${nameOf(f)}, then shoot`, target: f, ev, bias: 0.2, steps: [{ cost: 1, text: `Pistolero's Challenge: ${sk.label} ${signed(sk.mod)} vs Will DC ${10 + (f.saves?.will ?? 0)} (${pct(c.s + c.cs)}): +${bonus} status damage on your Strikes against each other until one of you is down` }, ...r.steps], notes: [has(actor, "come-at-me") ? "Come at Me: you can hold any number of challenges." : "One challenge at a time; a new one ends the old. A critical failure frightens you instead."] });
         }
     }

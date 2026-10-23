@@ -597,10 +597,13 @@ function onLearnMessage(message) {
         const nat = roll?.dice?.find((d) => d.faces === 20)?.results?.find((r) => r.active && !r.discarded)?.result ?? null;
         let bounds = null;
         if (Number.isFinite(total) && ctx.outcome) {
-            if (ctx.outcome === "criticalSuccess") bounds = { hi: nat === 20 ? total : total - 10 };
-            else if (ctx.outcome === "success") bounds = { hi: total, lo: nat === 20 ? -Infinity : total - 9 };
-            else if (ctx.outcome === "failure") bounds = { lo: total + 1, hi: nat === 1 ? Infinity : total + 10 };
-            else if (ctx.outcome === "criticalFailure") bounds = { lo: nat === 1 ? total + 1 : total + 11 };
+            // PF2e: total >= AC + 10 a critical success, >= AC a success, <= AC - 10 a critical failure; a natural 20 or 1
+            // then moves the degree one step, so the bounds come from the degree before it moved
+            const o = ctx.outcome;
+            if (o === "criticalSuccess") bounds = { hi: nat === 20 ? total : total - 10 };
+            else if (o === "success") bounds = nat === 20 ? { lo: total + 1, hi: total + 9 } : nat === 1 ? { hi: total - 10 } : { lo: total - 9, hi: total };
+            else if (o === "failure") bounds = nat === 20 ? { lo: total + 10 } : nat === 1 ? { lo: total - 9, hi: total } : { lo: total + 1, hi: total + 9 };
+            else if (o === "criticalFailure") bounds = { lo: nat === 1 ? total + 1 : total + 10 };
         }
         // A player's attack on an NPC: what the party has learned of that NPC's AC (the Turn Helper shows it)
         if (npc.hasPlayerOwner) { if (!foe.hasPlayerOwner) learn(combat, tdoc.id, "ac", message.id, bounds, "party"); return; }

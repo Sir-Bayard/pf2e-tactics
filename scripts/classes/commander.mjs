@@ -4,12 +4,11 @@
  * The advisor drops every profile with the tactic trait (player.mjs adviceBoard), so this read plans all of them: each
  * tactic becomes a plan when its trigger can be read from the board (who stands next to whom, who carries a weapon that
  * reloads, who has a shield down, who is hurt) and a "when" note otherwise. The banner feats, the Strike riders
- * (Set-Up Strike, Guiding Shot, Unsteadying Strike) and the reactions follow. Slugs are checked in both spellings
- * ("commanders-banner" / "commander-s-banner").
+ * (Set-Up Strike, Guiding Shot, Unsteadying Strike) and the reactions follow. A tactic or banner with a frequency (once
+ * per 10 minutes, once a day) is planned only while its uses left (system.frequency.value) aren't 0.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, usesLeft, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s) || has(actor, s.includes("-s-") ? s.replace(/-s-/g, "s-") : s.replace(/([a-z])s-/, "$1-s-")));
 const BANNER_FEET = 30;
 const list = (cs) => cs.map(nameOf).join(", ");
 const are = (cs) => (cs.length > 1 ? "are" : "is");
@@ -36,10 +35,20 @@ function commander(board, ctx, out) {
     const squad = board.allies.filter((a) => a.actor?.hasPlayerOwner || a.type === "character");
     const up = squad.filter((a) => a.canAct !== false && a.hp > 0);
     const glorious = has(actor, "glorious-banner");
-    const auraFeet = glorious ? 60 : BANNER_FEET;
+    // a planted banner's aura is a burst 10 feet larger
+    const planted = !!effect(actor, /plant(ed)?-banner|banner-planted/);
+    const auraFeet = (glorious ? 60 : BANNER_FEET) + (planted ? 10 : 0);
     const inAura = (c) => feetBetween(me.rect, c.rect) <= auraFeet;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
-    const int = Number(actor.system?.abilities?.int?.mod ?? me.int ?? 3) || 3;
+    const int = Number(actor.system?.abilities?.int?.mod ?? me.int ?? 3) || 0;
+    /** A tactic or banner feat whose frequency is spent (0 uses left); null (no frequency, or the sheet doesn't say) is usable. */
+    const spent = (slug) => usesLeft(actor, slug) === 0;
+    const spentNames = [];
+    const ok = (slug, name) => { if (!has(actor, slug)) return false; if (spent(slug)) { spentNames.push(name); return false; } return true; };
+    /** A foe's HP as the player may quote it: its bar when the party sees it, "an estimate" otherwise. */
+    const hpText = (f) => (f.estimated ? "" : ` (${f.hp}/${f.maxHp})`);
+    /** A foe the party has seen shoot or cast this fight (the estimate's rangedReach), never its sheet. */
+    const shoots = (f) => (f.rangedReach ?? 0) > 0;
     const drilled = has(actor, "drilled-reactions");
     const drillN = has(actor, "practiced-reflexes") ? 4 : has(actor, "drilled-reflexes") ? 2 : 1;
     const drill = drilled ? ` Drilled Reactions: ${drillN > 1 ? `up to ${drillN} responders' reactions` : "one responder's reaction"} for it ${drillN > 1 ? "are" : "is"} free.` : "";
@@ -63,9 +72,10 @@ function commander(board, ctx, out) {
     const plan = (title, f, ev, steps, { bias = 0.5, dest = null, notes = [] } = {}) => out.plans.push({ kind: "tactic", title, target: f, ev, score: ev + bias, dest, steps, notes });
 
     // --- The banner: who it covers, how many tactics are prepared
-    if (hasAny(actor, "commanders-banner")) {
+    const dedicationOnly = actor?.class?.slug !== "commander" && has(actor, "commander-dedication");
+    if (has(actor, "commanders-banner") || dedicationOnly) {
         const out_ = squad.filter((a) => !inAura(a));
-        out.notes.push(`Banner (${auraFeet} ft, +${glorious ? 2 : 1} to Will saves and DCs against fear${glorious ? ", +1 AC, Fortitude and Reflex; enemies in it take -2 to Will" : ""}): ${list(squad.filter(inAura)) || "nobody"} inside${out_.length ? `; ${list(out_)} outside` : ""}.${has(actor, "battle-tested-companion") ? " On your companion the aura is 10 feet wider." : ""}`);
+        out.notes.push(`Banner (${auraFeet} ft${planted ? ", planted" : ""}${dedicationOnly ? ", for your tactics only: the dedication's banner gives no bonus against fear" : `, +${glorious ? 2 : 1} to Will saves and DCs against fear${glorious ? ", +1 AC, Fortitude and Reflex; enemies in it take -2 to Will" : ""}`}): ${list(squad.filter(inAura)) || "nobody"} inside${out_.length ? `; ${list(out_)} outside` : ""}.${has(actor, "battle-tested-companion") ? " On your companion the aura is 10 feet wider." : ""}`);
         if (glorious && foes.some(inAura)) out.notes.push(`Glorious Banner: ${list(foes.filter(inAura))} ${are(foes.filter(inAura))} in the banner, at -2 to Will against your tactics and Demoralize.`);
     }
     const prepared = 3 + (lv >= 7 ? 1 : 0) + (lv >= 15 ? 1 : 0) + (lv >= 19 ? 1 : 0) + (has(actor, "efficient-preparation") ? 1 : 0);
@@ -247,7 +257,7 @@ function commander(board, ctx, out) {
         }
     }
     // Pop, Drop, and Lock (2, once per 10 minutes): up to three squadmates with the same foe in reach: one Strikes, one Trips, one Grapples
-    if (has(actor, "pop-drop-and-lock") && ctx.actions >= 2) {
+    if (ok("pop-drop-and-lock", "Pop, Drop, and Lock") && ctx.actions >= 2) {
         for (const f of foes) {
             const on = inSquadAura.filter((a) => inReach(a.rect, f.rect, a.reach ?? 5));
             if (on.length < 2) continue;
@@ -264,7 +274,7 @@ function commander(board, ctx, out) {
         }
     }
     // Ready, Aim, Fire! (2, once per 10 minutes): up to three archers in the banner reload free and shoot a foe as a reaction
-    if (has(actor, "ready-aim-fire") && ctx.actions >= 2) {
+    if (ok("ready-aim-fire", "Ready, Aim, Fire!") && ctx.actions >= 2) {
         const archers = inSquadAura.filter((a) => hasRanged(a) || a.caster);
         if (archers.length && foes.length) {
             for (const f of foes.slice(0, 2)) {
@@ -277,7 +287,7 @@ function commander(board, ctx, out) {
         }
     }
     // Executioner's Volley (2, once a day): you and every archer in the banner shoot one foe; it dies, the rest save or are frightened 2
-    if (has(actor, "executioner-s-volley") && ctx.actions >= 2 && !effect(actor, /executioner/)) {
+    if (ok("executioners-volley", "Executioner's Volley") && ctx.actions >= 2) {
         const archers = inSquadAura.filter(hasRanged);
         const mine = board.strikes.filter((s) => s.ranged);
         if (archers.length + mine.length >= 2 && foes.length) {
@@ -286,11 +296,11 @@ function commander(board, ctx, out) {
             const b = mine.length ? bestStrike(board, f, { made: ctx.made, melee: false }) : null;
             if (b) ev += b.e.expected;
             const t = tail(null, ctx.actions - 2);
-            plan(`Executioner's Volley at ${nameOf(f)}`, f, ev + t.ev, [{ cost: 2, text: `Executioner's Volley (once a day): ${list(archers)}${b ? ` and you (${b.s.label} ${signed(b.bonus)})` : ""} shoot ${nameOf(f)} (${f.hp}/${f.maxHp}) as reactions, the damage pooled against its resistances; if it dies, every other foe in the banner saves or is frightened 2.${drill}` }, ...t.steps], { bias: 0.2 });
+            plan(`Executioner's Volley at ${nameOf(f)}`, f, ev + t.ev, [{ cost: 2, text: `Executioner's Volley (once a day): ${list(archers)}${b ? ` and you (${b.s.label} ${signed(b.bonus)})` : ""} shoot ${nameOf(f)}${hpText(f)} as reactions, the damage pooled against its resistances; if it dies, every other foe in the banner saves or is frightened 2.${drill}` }, ...t.steps], { bias: 0.2 });
         }
     }
     // Roaring Charge (2, once per 10 minutes): the squad Strides twice its Speed at the foes; foes within 10 ft of a squadmate save or are frightened
-    if (has(actor, "roaring-charge") && ctx.actions >= 2) {
+    if (ok("roaring-charge", "Roaring Charge") && ctx.actions >= 2) {
         const chargers = inSquadAura.filter((a) => canMove(a));
         if (chargers.length && foes.length) {
             const reached = foes.filter((f) => chargers.some((a) => canStrideTo(a, f, 2)));
@@ -301,19 +311,37 @@ function commander(board, ctx, out) {
             }
         }
     }
-    // Cry Havoc! (3, once a day): the squad Strides twice at a foe; each foe a squadmate ends beside saves or takes 2d6+2d6 per squadmate
-    if (has(actor, "cry-havoc") && ctx.actions >= 3 && foes.length) {
+    // Cry Havoc! (3, once a day): squadmates Stride up to twice their Speed directly toward one target; each enemy a squadmate
+    // comes adjacent to on the way saves or takes 2d6+2d6, plus 2d6+2d6 per squadmate taking part
+    if (ok("cry-havoc", "Cry Havoc!") && ctx.actions >= 3 && foes.length) {
         const chargers = inSquadAura.filter((a) => canMove(a));
-        const f = foes[0];
-        const reach = foes.filter((g) => chargers.some((a) => canStrideTo(a, g, 2)));
-        if (chargers.length && reach.length) {
-            const avg = dieAvg(2, 6) * 2 * (1 + chargers.length);
-            const ev = reach.reduce((s, g) => s + saveExpected(g.saves?.fortitude ?? lv + 5, classDc, avg, { basic: true }).expected, 0);
-            plan(`Cry Havoc! at ${nameOf(f)}`, f, ev, [{ cost: 3, text: `Cry Havoc! (once a day): ${list(chargers)} Stride${chargers.length > 1 ? "" : "s"} twice their Speed at ${nameOf(f)}; every foe a squadmate passes beside saves (basic, vs ${classDc}) or takes ${avg} split bludgeoning and sonic (deafened on a critical failure).${drill}` }], { bias: 0.2 });
+        const centre = (r) => ({ x: r.x + (r.w - 1) / 2, y: r.y + (r.h - 1) / 2 });
+        /** The foes a squadmate comes adjacent to on a straight run toward t, up to twice its Speed (sampled every half square). */
+        const passed = (a, t) => {
+            const from = centre(a.rect), to = centre(t.rect);
+            const len = Math.hypot(to.x - from.x, to.y - from.y);
+            const run = Math.min(2 * allySpeed(a), Math.max(0, feetBetween(a.rect, t.rect) - 5)) / 5;
+            const hit = new Set();
+            if (!len) return hit;
+            for (let k = 0; k <= Math.ceil(run * 2); k++) {
+                const d = Math.min(run, k / 2);
+                const at = { ...a.rect, x: Math.round(from.x + ((to.x - from.x) / len) * d - (a.rect.w - 1) / 2), y: Math.round(from.y + ((to.y - from.y) / len) * d - (a.rect.h - 1) / 2) };
+                for (const g of foes) if (feetBetween(at, g.rect) <= 5) hit.add(g);
+            }
+            return hit;
+        };
+        const avg = dieAvg(2, 6) * 2 * (1 + chargers.length);
+        let best = null;
+        for (const f of chargers.length ? foes : []) {
+            const caught = [...new Set(chargers.flatMap((a) => [...passed(a, f)]))];
+            if (!caught.length) continue;
+            const ev = caught.reduce((t, g) => t + saveExpected(g.saves?.fortitude ?? lv + 5, classDc, avg, { basic: true }).expected, 0);
+            if (!best || ev > best.ev) best = { f, caught, ev };
         }
+        if (best) plan(`Cry Havoc! at ${nameOf(best.f)}`, best.f, best.ev, [{ cost: 3, text: `Cry Havoc! (once a day): ${list(chargers)} Stride${chargers.length > 1 ? "" : "s"} up to twice their Speed straight at ${nameOf(best.f)}; ${list(best.caught)}, whom they come up beside, save${best.caught.length > 1 ? "" : "s"} (basic Fortitude vs ${classDc}) or take about ${avg} split bludgeoning and sonic (deafened on a critical failure), then are immune to it for a day.${drill}` }], { bias: 0.2 });
     }
     // Bloody Guillotine (2, once a day): three squadmates Stride half their Speed at a foe and Strike or Trip; the first hit makes it save or die
-    if (has(actor, "bloody-guillotine") && ctx.actions >= 2 && foes.length) {
+    if (ok("bloody-guillotine", "Bloody Guillotine") && ctx.actions >= 2 && foes.length) {
         for (const f of foes.filter((f) => (f.level ?? lv) <= lv + 1)) {
             const three = inSquadAura.filter((a) => canMove(a) && melee(a) && canStrideTo(a, f, 0.5)).sort((x, y) => allyHit(y, f).expected - allyHit(x, f).expected).slice(0, 3);
             if (!three.length) continue;
@@ -338,18 +366,18 @@ function commander(board, ctx, out) {
         plan(`${name} past ${list(touched)}`, touched[0], ev + t.ev, [{ cost: 2, text: `${name}: ${list(runners)} Stride${runners.length > 1 ? "" : "s"} as a reaction past ${list(touched)}, who save${touched.length > 1 ? "" : "s"} (vs ${classDc}) or ${are(touched)} ${cond} 1 for a round (2 on a critical failure).${drill}` }, ...t.steps], { bias: 0.3 });
     }
     // Corpse Crenellation (2, once per 10 minutes): two squadmates Stride half and Strike a foe; a kill leaves cover
-    if (has(actor, "corpse-crenellation") && ctx.actions >= 2) {
+    if (ok("corpse-crenellation", "Corpse Crenellation") && ctx.actions >= 2) {
         for (const f of foes.filter((f) => f.hp <= (f.maxHp || 1) * 0.4).slice(0, 2)) {
             const two = inSquadAura.filter((a) => canMove(a) && (canStrideTo(a, f, 0.5) || hasRanged(a))).sort((x, y) => allyHit(y, f).expected - allyHit(x, f).expected).slice(0, 2);
             if (!two.length) continue;
             const ev = two.reduce((s, a) => s + allyHit(a, f).expected, 0);
             if (ev < 0.5) continue;
             const t = tail(f, ctx.actions - 2);
-            plan(`Corpse Crenellation on ${nameOf(f)}`, f, ev + t.ev, [{ cost: 2, text: `Corpse Crenellation (once per 10 minutes): ${list(two)} Stride${two.length > 1 ? "" : "s"} half their Speed and Strike ${nameOf(f)} (${f.hp}/${f.maxHp}) as reactions; if it drops, its body is lesser cover for the squad around it until your next turn.${drill}` }, ...t.steps], { bias: 0.3 });
+            plan(`Corpse Crenellation on ${nameOf(f)}`, f, ev + t.ev, [{ cost: 2, text: `Corpse Crenellation (once per 10 minutes): ${list(two)} Stride${two.length > 1 ? "" : "s"} half their Speed and Strike ${nameOf(f)}${hpText(f)} as reactions; if it drops, its body is lesser cover for the squad around it until your next turn.${drill}` }, ...t.steps], { bias: 0.3 });
         }
     }
     // Sanguine Revitalization (2, once a day): the squad's edged weapons Stride half and Strike; a damaged foe saves or bleeds 10 persistent
-    if (has(actor, "sanguine-revitalization") && ctx.actions >= 2) {
+    if (ok("sanguine-revitalization", "Sanguine Revitalization") && ctx.actions >= 2) {
         for (const f of foes.slice(0, 2)) {
             const cutters = inSquadAura.filter((a) => canMove(a) && melee(a) && canStrideTo(a, f, 0.5));
             if (!cutters.length) continue;
@@ -376,7 +404,7 @@ function commander(board, ctx, out) {
         }
     }
     // Mirrored Wall (2, once per 10 minutes): a raised shield in the banner blinds a foe within 60 ft
-    if (has(actor, "mirrored-wall") && ctx.actions >= 2) {
+    if (ok("mirrored-wall", "Mirrored Wall") && ctx.actions >= 2) {
         const shields = inSquadAura.filter((a) => hasShield(a) || a.shieldRaised);
         if (shields.length && foes.length) {
             const f = foes.filter((g) => feetBetween(me.rect, g.rect) <= 60).sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
@@ -388,14 +416,14 @@ function commander(board, ctx, out) {
             }
         }
     }
-    if (has(actor, "seek-and-destroy") && (board.enemies.some((e) => e.state !== "observed") || (board.unseenKnown ?? 0) > 0)) out.notes.push(`Seek and Destroy (2 actions, once per 10 minutes): two squadmates Seek free, then Point Out, Stride or Strike as a reaction; a foe they find takes ${half(lv)} extra precision from their next hit.`);
-    if (has(actor, "piranha-assault") && foes.some((f) => f.iwr?.resist?.length)) out.notes.push(`Piranha Assault (1 action, once per 10 minutes): for a minute the squad ignores ${lv} of ${list(foes.filter((f) => f.iwr?.resist?.length))}'s resistance on every hit.`);
-    if (has(actor, "insta-ballista") && ctx.actions >= 2) out.notes.push("Insta-Ballista (2 actions, once a day): the squadmates you chose at preparation Stride into a knot and fire a ballista at a foe within 200 feet, +1 to hit per helper.");
-    if (has(actor, "for-talmandor-for-freedom")) {
+    if (ok("seek-and-destroy", "Seek and Destroy") && (board.enemies.some((e) => e.state !== "observed") || (board.unseenKnown ?? 0) > 0)) out.notes.push(`Seek and Destroy (2 actions, once per 10 minutes): two squadmates Seek free, then Point Out, Stride or Strike as a reaction; a foe they find takes ${half(lv)} extra precision from their next hit.`);
+    if (ok("piranha-assault", "Piranha Assault") && foes.some((f) => f.iwr?.resist?.length)) out.notes.push(`Piranha Assault (1 action, once per 10 minutes): for a minute the squad ignores ${lv} of ${list(foes.filter((f) => f.iwr?.resist?.length))}'s resistance on every hit.`);
+    if (ok("insta-ballista", "Insta-Ballista") && ctx.actions >= 2) out.notes.push("Insta-Ballista (2 actions, once a day): the squadmates you chose at preparation Stride into a knot and fire a ballista at a foe within 200 feet, +1 to hit per helper.");
+    if (ok("for-talmandor-for-freedom", "For Talmandor! For Freedom!")) {
         const afflicted = [me, ...inSquadAura].filter((c) => ["clumsy", "controlled", "frightened", "slowed", "stunned", "confused", "fascinated", "paralyzed", "sickened", "stupefied"].some((k) => c.conditions?.has?.(k)));
         if (afflicted.length) out.notes.push(`For Talmandor! For Freedom! (1 action, once a day): a counteract (Warfare Lore) against one effect on each of ${afflicted.map((c) => (c === me ? "you" : nameOf(c))).join(", ")}: mental effects, or anything imposing clumsy, controlled, frightened, slowed, stunned and the like.`);
     }
-    if (has(actor, "valkyrie-s-charge") && ctx.actions >= 3 && (board.downAllies?.length || up.filter((a) => hurt(a, 0.4)).length >= 2)) out.notes.push(`Valkyrie's Charge (3 actions, once a day): every squadmate in the banner heals${board.downAllies?.length ? `, ${list(board.downAllies)} Stand${board.downAllies.length > 1 ? "" : "s"} free` : ""}, Strides twice toward a foe and Strikes it as a reaction.`);
+    if (ok("valkyries-charge", "Valkyrie's Charge") && ctx.actions >= 3 && (board.downAllies?.length || up.filter((a) => hurt(a, 0.4)).length >= 2)) out.notes.push(`Valkyrie's Charge (3 actions, once a day): every squadmate in the banner heals${board.downAllies?.length ? `, ${list(board.downAllies)} Stand${board.downAllies.length > 1 ? "" : "s"} free` : ""}, Strides twice toward a foe and Strikes it as a reaction.`);
 
     // ===== Banner feats
     if (has(actor, "plant-banner") && ctx.actions >= 1 && !effect(actor, /plant(ed)?-banner|banner-planted/)) {
@@ -416,27 +444,28 @@ function commander(board, ctx, out) {
             plan(`Defiant Banner for ${engaged.map((c) => (c === me ? "you" : nameOf(c))).join(", ")}`, null, ev + t.ev, [{ cost: 1, text: `Defiant Banner: you and everyone in the banner resist ${int} physical damage per hit until your next turn.` }, ...t.steps], { bias: 0.3 });
         }
     }
-    if (has(actor, "rallying-banner") && ctx.actions >= 1 && !effect(actor, /rallying-banner/)) {
-        const heal = dieAvg(2 + Math.max(0, Math.floor((lv - 8) / 2)), 6);
-        const wounded = [me, ...inSquadAura].filter((a) => a.hp < a.maxHp);
+    if (ok("rallying-banner", "Rallying Banner") && ctx.actions >= 1 && !effect(actor, /rallying-banner/)) {
+        // 4d6 at 8th, +1d6 at 10th and every 2 levels after; each ally in the banner's aura, not you
+        const heal = dieAvg(4 + Math.max(0, Math.floor((lv - 8) / 2)), 6);
+        const wounded = inSquadAura.filter((a) => a.hp < a.maxHp);
         if (wounded.length) {
             const ev = wounded.reduce((s, a) => s + 0.8 * Math.min(heal, a.maxHp - a.hp), 0);
             const t = tail(foes[0] ?? null, ctx.actions - 1);
-            plan(`Rallying Banner (${wounded.map((c) => (c === me ? "you" : nameOf(c))).join(", ")})`, null, ev + t.ev, [{ cost: 1, text: `Rallying Banner (once per 10 minutes): about ${Math.round(heal)} HP to everyone in the banner: ${wounded.map((c) => `${c === me ? "you" : nameOf(c)} (${c.hp}/${c.maxHp})`).join(", ")}.` }, ...t.steps], { bias: 0.3 });
+            plan(`Rallying Banner (${wounded.map((c) => nameOf(c)).join(", ")})`, null, ev + t.ev, [{ cost: 1, text: `Rallying Banner (once per 10 minutes): about ${Math.round(heal)} HP to each ally in the banner: ${wounded.map((c) => `${nameOf(c)} (${c.hp}/${c.maxHp})`).join(", ")}.` }, ...t.steps], { bias: 0.3 });
         }
     }
-    if (has(actor, "quickening-banner") && ctx.actions >= 1 && inSquadAura.length) {
+    if (ok("quickening-banner", "Quickening Banner") && ctx.actions >= 1 && inSquadAura.length) {
         const ev = inSquadAura.reduce((s, a) => s + 0.6 * (a.reactiveStrike?.avg ?? 4), 0);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan(`Quickening Banner for ${list(inSquadAura)}`, null, ev + t.ev, [{ cost: 1, text: `Quickening Banner (once per 10 minutes): ${list(inSquadAura)} ${are(inSquadAura)} quickened for a round, an extra Stride or Strike each.` }, ...t.steps], { bias: 0.4 });
     }
-    if (has(actor, "pennant-of-victory") && ctx.actions >= 1 && inSquadAura.length) {
+    if (ok("pennant-of-victory", "Pennant of Victory") && ctx.actions >= 1 && inSquadAura.length) {
         const ev = [me, ...inSquadAura].reduce((s, a) => s + 2 * (0.1 * (a.reactiveStrike?.avg ?? 4) * 4 + 4 * 0.6), 0) + 40 * 0.3 * (inSquadAura.length + 1);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan("Pennant of Victory", null, ev + t.ev, [{ cost: 1, text: `Pennant of Victory (once per 10 minutes): you and ${list(inSquadAura)} get +4 to attack and damage, +10 feet of Speed and 40 temporary HP until your next turn.` }, ...t.steps], { bias: 0.5 });
     }
     if (has(actor, "banner-twirl") && ctx.actions >= 1) {
-        const shooters = foes.filter((f) => !melee(f) || (f.rangedReach ?? 0) > 0);
+        const shooters = foes.filter(shoots);
         const adj = up.filter((a) => inReach(me.rect, a.rect, 5));
         if (shooters.length) {
             const ev = (adj.length + 1) * 0.2 * (shooters[0].reactiveStrike?.avg ?? 4 + lv * 1.5);
@@ -444,7 +473,7 @@ function commander(board, ctx, out) {
             plan("Banner Twirl", null, ev + t.ev, [{ cost: 1, text: `Banner Twirl: you${adj.length ? ` and ${list(adj)}` : ""} ${adj.length ? "are" : "are"} concealed from ranged attacks until your next turn (${list(shooters)} shoot${shooters.length > 1 ? "" : "s"}).` }, ...t.steps], { bias: 0.2 });
         }
     }
-    if (has(actor, "banner-s-inspiration") && ctx.actions >= 1) {
+    if (has(actor, "banners-inspiration") && ctx.actions >= 1) {
         const scared = inSquadAura.filter((a) => a.conditions?.has?.("frightened") || a.conditions?.has?.("confused") || a.conditions?.has?.("fascinated") || a.conditions?.has?.("controlled"));
         if (scared.length) {
             const ev = scared.reduce((s, a) => s + worth(board, a.conditions.has("frightened") ? "frightened" : "confused") * 0.7, 0);
@@ -530,7 +559,7 @@ function commander(board, ctx, out) {
         const weak = up.filter((a) => inReach(me.rect, a.rect, 5) && hurt(a, 0.4) && me.hp > a.hp);
         if (weak.length) out.notes.push(`Defensive Swap (reaction): when ${list(weak)} ${are(weak)} attacked, you trade places and take the hit (${me.hp}/${me.maxHp} against ${weak.map((a) => `${a.hp}/${a.maxHp}`).join(", ")}).`);
     }
-    if (has(actor, "standard-bearer-s-sacrifice") && foes.some((f) => !melee(f) || (f.rangedReach ?? 0) > 0)) out.notes.push(`Standard-Bearer's Sacrifice (reaction, banner in hand): a foe aiming a ranged attack at an ally within its range of you saves (vs ${classDc}) or shoots you instead.`);
+    if (has(actor, "standard-bearers-sacrifice") && foes.some(shoots)) out.notes.push(`Standard-Bearer's Sacrifice (reaction, banner in hand): a foe aiming a ranged attack at an ally within its range of you saves (vs ${classDc}) or shoots you instead.`);
     if (round <= 1) {
         if (has(actor, "rapid-assessment")) out.notes.push(`Rapid Assessment (free, at initiative): Recall Knowledge about ${has(actor, "perfected-evaluations") ? "up to six foes" : "a foe"} you can see${has(actor, "warfare-expertise") ? ", with Warfare Lore" : ""}.`);
         if (has(actor, "adaptive-stratagem")) out.notes.push(`Adaptive Stratagem (free, at initiative): swap one prepared ${has(actor, "contact-with-the-enemy") ? "tactic" : "expert, mobility or offensive tactic"} for another in your folio.`);
@@ -544,6 +573,7 @@ function commander(board, ctx, out) {
     if (has(actor, "desperate-resuscitation") && board.downAllies?.length && ctx.actions >= 3) out.notes.push(`Desperate Resuscitation (3 actions, healer's kit): a Medicine check brings back ${list(board.downAllies)} if dead no more than 3 rounds, wounded one more.`);
     if (has(actor, "battle-hardened-companion") || has(actor, "peerless-mascot-companion")) out.notes.push(`Your companion acts once on your turn for free (a Stride or Strike) and keeps a reaction for your tactics${has(actor, "peerless-mascot-companion") ? "; as a peerless mascot it carries a second banner aura" : ""}.`);
     else if (hasAny(actor, "commanders-companion")) out.notes.push("Commander's Companion: your companion is always a squadmate; Command an Animal gives it a reaction for your tactics this turn.");
+    if (spentNames.length) out.notes.push(`Spent for now (no uses left on your sheet): ${spentNames.join(", ")}.`);
     if (drilled && !out.notes.some((n) => /Drilled/.test(n)) && !out.plans.some((p) => /Drilled/.test(p.steps[0]?.text ?? ""))) out.notes.push(`Drilled Reactions: once per round, ${drillN > 1 ? `up to ${drillN} allies` : "one ally"} responding to your tactic get${drillN > 1 ? "" : "s"} a free reaction for it.`);
 }
 

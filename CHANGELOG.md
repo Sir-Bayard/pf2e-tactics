@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.3.1
+
+A second-reader review of 3.3.0: six reviewers who hadn't seen the code checked every class read against the PF2e 8.6.1 compendium text and the shared layers for leaks and logic, then each finding was fixed and re-checked against the packs. 31 High and 62 Medium findings fixed, most Lows too.
+
+**The Turn Helper and what a player sees**
+- Foes carry nothing from their sheets: their senses, languages, class, spell list, ranged attacks and feats such as All-Around Vision no longer shape the advice. A foe counts as a caster, a healer or a shooter once the party has seen it cast, heal or shoot this fight; a reaction counts once seen (an attack roll a foe makes outside its own turn now counts as its Reactive Strike).
+- A condition the GM sets on a foe (concealed, hidden, undetected) holds even when PF2e Visioner says otherwise; a hidden foe gets its DC 11 flat check and is no longer the recommended target.
+- Off-guard foes (prone, grabbed and the rest) are 2 easier to hit in the estimates; marking one off-guard twice no longer counts the −2 twice.
+- The party's learned AC bounds were wrong after a natural 20, a natural 1 or a critical failure; corrected (the NPC card's guesses use the same bounds).
+- Undetected foes no longer bend the helper's paths around their square, and on gridless scenes the helper no longer warns about reactions the party hasn't seen.
+- A badly hurt character is no longer told to "Break off" as if it were an NPC; a character that can't reach a flier advances on a foe it can reach instead.
+- Sneak Attack dice go only on agile, finesse and ranged Strikes (and a ruffian's simple and smaller weapons), not on a greatsword.
+- Spell thrift covers class plans that spend a slot (Quickened Casting, hex and Force Bolt follow-ups, summons, Channel Smite, Psi Burst after a spell); with no cantrip, a slot spell is weighed against your best turn that spends nothing; innate spells aren't taxed; flexible casters' slots are counted right.
+- Battle Medicine picks the DC that heals most on average, can bring up a dying ally, and only your own Battle Medicine's immunity stops it.
+
+**Every class**
+- Feats with an apostrophe (Implement's Assault, Magus's Analysis, Deity's Protection, Archwizard's Might, Executioner's Volley and more) are found on real sheets; some had vanished from the advice entirely.
+- Each class's read also turns on for its dedication.
+- Rules corrections across the reads, among them: Fling Magic's dice, Rallying Banner's healing, Mercy's conditions by mercy and level, champion numbers that use half your level, the oracle's curse stages, Thrall Charge's 30-foot range, the kineticist's blast range and fire junction, Seething Frenzy, Feral Swing and Giant-Felling Comet as basic saves, Mega Bomb's area, Esvadir's bleed, Cruonign's scaling, Exult in Violence, Hero's Defiance, Crushing Ground and Cornucopia.
+- Turns that were illegal or wasted are gone: Two-Weapon Flurry more than once a turn, a free Rage from Quick-Tempered after initiative, Rage damage while fatigued, Violent Unleash after you've acted, four eidolon actions in three, Overdrive twice in a round, Gang Up's off-guard on ranged shots, a melee Strike at a foe 25 feet away, daily tactics and banners already spent, more than one animist primary apparition, guardian shield bashes the feats don't allow.
+- New: the alchemist's free Quick Vial every turn; the magus plans both a Spellstrike turn and a recharge turn and says which assumes a charge (PF2e doesn't track it); the animist's primary apparition can be set with the `primaryApparition` flag.
+
+Checked with every class's own tests (56), all 30 test characters' real sheets, the NPC turn replay (unchanged), and every class on the dev arena.
+
 ## 3.3.0
 
 - Your Class covers all twenty-nine classes at every level 1 to 20: Psychic, Summoner, Kineticist, Gunslinger, Inventor, Animist, Exemplar, Guardian, Necromancer and Runesmith are new (each read from the system's class features and feats, Remaster names first; the eidolon's and construct's Strikes come from their own sheets, the exemplar's spark from the sheet's roll options, runes by name since PF2e ships no rune items).

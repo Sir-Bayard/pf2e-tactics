@@ -10,15 +10,15 @@
  * Drawn in Vital Ink, Distant and Unbounded Invocations, Smithing Weapons and the passives of Esvadir and Marssyl.
  * The PF2e system (8.6.1) ships no rune items: see the "how runes are read" block below. The rest are when-notes.
  */
-import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 import { damageAgainst } from "../reader.mjs";
 
-/** Foundry's slugs drop apostrophes ("artists-attendance"); the catalog's keep a dash ("artist-s-attendance"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const listOf = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`);
 const plus2 = (lv) => 1 + Math.floor((lv - 1) / 2); // "Level (+2)": one more die at 3rd, 5th, 7th...
 const dieAvg = (n, d) => n * (d + 1) / 2;
+/** Cruonign (9th), Level (+2): +1 void on Strikes, +1d10 invocation, +3 healing for every 2 levels past 9th. */
+const cruo = (lv) => { const k = Math.max(0, Math.floor((lv - 9) / 2)); return { void: 3 + k, dice: 4 + k, heal: 12 + 3 * k }; };
 
 /**
  * The rune list (Impossible Magic). usage: what it's drawn on; foe: worth tracing on an enemy; own: worth having on you, an ally
@@ -28,7 +28,7 @@ const dieAvg = (n, d) => n * (d + 1) / 2;
 const RUNES = {
     atryl: { name: "Atryl, Rune of Fire", lv: 1, trad: "primal", usage: "creature", foe: true, passive: (lv) => `its fire resistance drops by ${5 + plus2(lv) - 1}`, inv: { kind: "damage", dice: plus2, die: 8, type: "fire", save: "fortitude", cond: { name: "dazzled", on: "cf" } } },
     baruiel: { name: "Baruiel, Rune of Hold's Bravery", lv: 1, trad: "magical", usage: "willing", own: true, passive: () => "near an ally, its frightened drops by 2 a round", inv: { kind: "text", text: "allies within 10 feet of the bearer reduce their frightened by 2", worth: 1 } },
-    camonica: { name: "Camonica, Rune of Perplexity", lv: 1, trad: "occult", usage: "creature", foe: true, passive: (lv) => `${1 + plus2(lv)} mental damage the first time each round it uses a concentrate action`, inv: { kind: "damage", dice: plus2, die: 4, type: "mental", save: "will", cond: { name: "stupefied", on: "f" } } },
+    camonica: { name: "Camonica, Rune of Perplexity", lv: 1, trad: "occult", usage: "creature", foe: true, passive: (lv) => `${1 + plus2(lv)} mental damage the first time each round it uses a concentrate action`, inv: { kind: "damage", dice: plus2, die: 4, type: "mental", save: "will", cond: { name: "stupefied", on: "f", cfMore: 1, cfText: "2 on a critical failure" } } },
     esvadir: { name: "Esvadir, Rune of Whetstones", lv: 1, trad: "magical", usage: "weapon-ps", own: true, passive: () => "+2 persistent bleed per weapon die on its Strikes", inv: { kind: "damage", dice: plus2, die: 8, type: "slashing", save: "reflex", adjacent: true } },
     holtrik: { name: "Holtrik, Rune of Dwarven Ramparts", lv: 1, trad: "magical", usage: "shield", own: true, passive: () => "+1 status bonus to AC while the shield is raised", inv: { kind: "text", text: "the shield is raised as if by Raise a Shield, until the bearer's next turn", worth: 2.5 } },
     ledria: { name: "Ledria, Rune of Appeal", lv: 1, trad: "occult", usage: "creature", own: true, passive: (lv) => `+${lv >= 17 ? 3 : lv >= 9 ? 2 : 1} status to Deception, Diplomacy and Performance`, inv: { kind: "text", text: "each creature within 30 feet may Step toward the bearer", worth: 0.5 } },
@@ -57,13 +57,13 @@ const RUNES = {
     sar: { name: "Sar-, Diacritic Rune of Righteousness", lv: 13, diacritic: true, text: "the rune is holy (an unholy bearer is enfeebled 2) and the invocation drains the target 1" },
     // 9th
     astillu: { name: "Astillu, Rune of Submersion", lv: 9, trad: "magical", usage: "creature", own: true, passive: () => "water breathing and a swim Speed", inv: { kind: "text", text: "the bearer Swims 60 feet for free without triggering reactions", worth: 1 } },
-    cruonign: { name: "Cruonign, Rune of Leeching", lv: 9, trad: "magical", usage: "weapon-ps", own: true, passive: () => "+3 void on its Strikes, and temporary HP for the void dealt", inv: { kind: "damage", dice: () => 4, die: 10, type: "void", save: "fortitude", cone: 30, healSelf: 12 } },
+    cruonign: { name: "Cruonign, Rune of Leeching", lv: 9, trad: "magical", usage: "weapon-ps", own: true, passive: (lv) => `+${cruo(lv).void} void on its Strikes, and temporary HP for the void dealt`, inv: { kind: "damage", dice: (lv) => cruo(lv).dice, die: 10, type: "void", save: "fortitude", cone: 30, healSelf: (lv) => cruo(lv).heal } },
     feikris: { name: "Feikris, Rune of Gravity", lv: 9, trad: "arcane", usage: "creature", own: true, passive: (lv) => `+${lv >= 17 ? 3 : 2} status to Athletics, and maneuvers against bigger foes`, inv: { kind: "condition", save: "fortitude", cond: "pulled", worthFlat: 1.5, area: 15, areaText: "every creature within 15 feet of the bearer", text: "pulled 5 feet toward the bearer (10 on a critical failure)" } },
     germantria: { name: "Germantria, Rune of Partnership", lv: 9, trad: "magical", usage: "creature", own: true, passive: () => "it takes half damage and you take the rest", inv: { kind: "heal", amount: (lv) => 20 + 5 * Math.floor((lv - 9) / 2), both: true } },
     ichelsu: { name: "Ichelsu, Rune of Observation", lv: 9, trad: "occult", usage: "creature", own: true, passive: () => "see the unseen and all-around vision (no flanking it)", inv: { kind: "text", text: "for 2 rounds, invisible creatures within 20 feet are only concealed and concealed ones aren't", worth: 1.5 } },
     jurroz: { name: "Jurroz, Rune of Dragon Fury", lv: 9, trad: "magical", usage: "creature", own: true, passive: () => "an enemy that Strikes the bearer is off-guard for a round", inv: { kind: "text", text: "the bearer Flies 60 feet to an enemy that hurt it in the last minute, which is off-guard to it until the end of its next turn", worth: 3 } },
     kojastri: { name: "Kojastri, Rune of Insulation", lv: 9, trad: "arcane", usage: "armor", own: true, passive: (lv) => `resistance ${4 + Math.floor((lv - 9) / 2)} to one energy type, and ${2 + Math.floor((lv - 9) / 2)} of it to whatever touches the bearer`, inv: { kind: "text", text: "whatever has the bearer grabbed, restrained, engulfed or swallowed takes 8d4 (and more by level) of the rune's energy, basic Reflex, and lets go on a failure", worth: 0 } },
-    oraloq: { name: "Oraloq, Rune of Inarticulateness", lv: 9, trad: "magical", usage: "creature", foe: true, passive: () => "a DC 5 flat check on its linguistic actions and non-subtle spells", inv: { kind: "damage", dice: () => 0, die: 0, flat: (lv) => 20 + 5 * Math.floor((lv - 9) / 2), type: "mental", save: "will", basic: false, conditional: 0.6, extraText: "when it next speaks, casts or uses a linguistic action before the end of its next turn" } },
+    oraloq: { name: "Oraloq, Rune of Inarticulateness", lv: 9, trad: "magical", usage: "creature", foe: true, passive: () => "a DC 5 flat check on its linguistic actions and non-subtle spells", inv: { kind: "damage", dice: () => 0, die: 0, flat: (lv) => 20 + 5 * Math.floor((lv - 9) / 2), type: "mental", save: "will", basic: false, cfDouble: true, conditional: 0.6, extraText: "when it next speaks, casts or uses a linguistic action before the end of its next turn" } },
     piteregrin: { name: "Piteregrin, Rune of Transposition", lv: 9, trad: "magical", usage: "creature", own: true, passive: () => "it can swap places with another willing rune-bearer within 15 feet for 1 action", inv: { kind: "text", text: "the bearer and each Large or smaller creature adjacent to it reappear in squares you choose within 15 feet (Will negates for unwilling ones)", worth: 2 } },
     trolistri: { name: "Trolistri, Rune of Forlorn Sorrow", lv: 9, trad: "arcane", usage: "creature", own: true, passive: () => "enemies within 20 feet treat the ground between them and the bearer as difficult terrain", inv: { kind: "condition", save: "will", cond: "slowed", area: 15, areaText: "every enemy within 15 feet of the bearer", text: "slowed 1 for a round (slowed 2 on a critical failure), then immune for an hour" } },
     ulgatus: { name: "Ulgatus, Rune of Restraint", lv: 9, trad: "magical", usage: "armor", own: true, passive: (lv) => `a DC ${lv >= 17 ? 10 : 15} flat check to shrug off drained, enfeebled or sickened`, inv: { kind: "text", text: "resistance 10 (20 at 17th) to critical hits for a minute", worth: 2 } },
@@ -117,7 +117,7 @@ function runesmith(board, ctx, out) {
     const freeDiacritic = shades || fluency;
     const urBonus = know("ur") ? 2 + Math.floor(lv / 2) : 0;
     const melee = board.strikes.filter((s) => !s.ranged);
-    const weaponDice = (s) => (Number(s.item?.system?.damage?.dice) || 1) + (Number(s.item?.system?.runes?.striking) || 0);
+    const weaponDice = (s) => Number(s.dice ?? s.item?.system?.damage?.dice) || 1; // PF2e's prepared damage.dice already counts the striking rune
     const weaponGroup = (s) => s.item?.system?.group ?? s.group ?? null;
     const ammoStrike = board.strikes.filter((s) => s.ranged && !s.thrown && (s.reload >= 0) && !(s.traits ?? []).includes("thrown"));
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.ev + (plan.bias ?? 0.4) });
@@ -162,7 +162,8 @@ function runesmith(board, ctx, out) {
                 const dmg = damageAgainst(t.iwr, [inv.type]);
                 const e = saveExpected(saveOf(t, inv.save) - pen - edify, classDC, avg, { basic: inv.basic !== false, delta: dmg.delta, immune: dmg.immune });
                 let ev = e.expected * (inv.conditional ?? 1);
-                if (inv.cond) ev += worth(board, inv.cond.name) * (inv.cond.on === "cf" ? e.critFail : e.fail);
+                if (inv.cond) ev += worth(board, inv.cond.name) * ((inv.cond.on === "cf" ? e.critFail : e.fail) + (inv.cond.cfMore ?? 0) * e.critFail);
+                if (inv.cfDouble && !dmg.immune) ev += e.critFail * Math.max(0, avg + dmg.delta) * (inv.conditional ?? 1); // non-basic, double on a critical failure
                 if (inv.cfPersistent) ev += e.critFail * inv.cfPersistent(lv) * 2;
                 if (inv.extra) ev += inv.extra;
                 if (inv.extraDice && !inv.extraDice.radius) ev += saveExpected(saveOf(t, inv.save) - pen - edify, classDC, dieAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected;
@@ -176,7 +177,7 @@ function runesmith(board, ctx, out) {
             if (inv.burst) { for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= inv.burst)) { ev += one(t).ev; others.push(t); } for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.burst)) { ev -= 0.6 * avg; if (!caught.includes(a)) caught.push(a); } }
             if (en) { if (friends.some((x) => feetBetween(f.rect, x.rect) <= 15)) return null; for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= 15)) { ev += one(t).ev; others.push(t); } }
             const diceText = inv.dice(lv) ? `${inv.dice(lv)}d${inv.die}${bonus ? `+${bonus}` : ""}` : `${inv.flat(lv) + bonus}`;
-            const text = `${diceText} ${inv.type}, ${inv.basic === false ? "" : "basic "}${cap(inv.save)} DC ${classDC} (about ${pct(main.e.fail)} to fail)${inv.cond ? `, ${inv.cond.name} on a ${inv.cond.on === "cf" ? "critical failure" : "failure"}` : ""}${inv.extraText ? `; ${inv.extraText}` : ""}${others.length ? `; ${others.map(nameOf).join(", ")} too` : ""}${caught.length ? ` (and ${caught.map((c) => (c === me ? "you" : nameOf(c))).join(", ")} in it)` : ""}`;
+            const text = `${diceText} ${inv.type}, ${inv.basic === false ? "" : "basic "}${cap(inv.save)} DC ${classDC} (about ${pct(main.e.fail)} to fail)${inv.cond ? `, ${inv.cond.name}${inv.cond.cfText ? " 1" : ""} on a ${inv.cond.on === "cf" ? "critical failure" : "failure"}${inv.cond.cfText ? ` (${inv.cond.cfText})` : ""}` : ""}${inv.cfDouble ? ", double on a critical failure" : ""}${inv.extraText ? `; ${inv.extraText}` : ""}${others.length ? `; ${others.map(nameOf).join(", ")} too` : ""}${caught.length ? ` (and ${caught.map((c) => (c === me ? "you" : nameOf(c))).join(", ")} in it)` : ""}`;
             return { ev, own: main.ev, text, hit: main.e.fail, affected: [f, ...others] };
         }
         if (inv.kind === "condition") {
@@ -203,10 +204,10 @@ function runesmith(board, ctx, out) {
         if (inv.kind === "damage" && inv.cone) { // Cruonign: a cone from the wielder
             const inCone = foes.filter((f) => feetBetween(p.who.rect, f.rect) <= inv.cone);
             if (!inCone.length) return null;
-            const best = inCone.map((c) => { const dx = Math.sign(c.rect.x - p.who.rect.x), dy = Math.sign(c.rect.y - p.who.rect.y); const side = (x) => x !== p.who && feetBetween(p.who.rect, x.rect) <= inv.cone && Math.sign(x.rect.x - p.who.rect.x) * dx >= 0 && Math.sign(x.rect.y - p.who.rect.y) * dy >= 0; const hit = inCone.filter(side); return { hit, ev: hit.reduce((s, f) => s + invokeOn(r, f).ev, 0) - 0.6 * dieAvg(4, 10) * friends.filter(side).length }; }).sort((a, b) => b.ev - a.ev)[0];
+            const best = inCone.map((c) => { const dx = Math.sign(c.rect.x - p.who.rect.x), dy = Math.sign(c.rect.y - p.who.rect.y); const side = (x) => x !== p.who && feetBetween(p.who.rect, x.rect) <= inv.cone && Math.sign(x.rect.x - p.who.rect.x) * dx >= 0 && Math.sign(x.rect.y - p.who.rect.y) * dy >= 0; const hit = inCone.filter(side); return { hit, ev: hit.reduce((s, f) => s + invokeOn(r, f).ev, 0) - 0.6 * dieAvg(inv.dice(lv), 10) * friends.filter(side).length }; }).sort((a, b) => b.ev - a.ev)[0];
             if (best.ev <= 0) return null;
-            const heal = Math.min(inv.healSelf, Math.max(0, (p.who.maxHp ?? 0) - (p.who.hp ?? 0))) * 0.8;
-            return { ev: best.ev + heal, text: `Cruonign on ${p.on === "weapon" ? "your weapon" : nameOf(p.who)}: a 30-foot cone of 4d10 void, basic Fortitude DC ${classDC}, at ${best.hit.map(nameOf).join(", ")}; the wielder regains 12 HP if any take damage`, target: best.hit[0] };
+            const heal = Math.min(inv.healSelf(lv), Math.max(0, (p.who.maxHp ?? 0) - (p.who.hp ?? 0))) * 0.8;
+            return { ev: best.ev + heal, text: `Cruonign on ${p.on === "weapon" ? "your weapon" : nameOf(p.who)}: a 30-foot cone of ${inv.dice(lv)}d10 void, basic Fortitude DC ${classDC}, at ${best.hit.map(nameOf).join(", ")}; the wielder regains ${inv.healSelf(lv)} HP if any take damage`, target: best.hit[0] };
         }
         if (inv.kind === "weapon") { // Marssyl: the next hit this turn
             const s = melee.sort((a, b) => b.avg - a.avg)[0];
@@ -272,6 +273,15 @@ function runesmith(board, ctx, out) {
     else out.notes.push(`No rune items found on your sheet: add your runes as feats or actions named after them (Atryl, Rune of Fire...) or set the pf2e-tactics rune flag, and traced or etched runes as effects (Effect: Rune (Atryl), Etched Rune: Esvadir) so the plans can read them.`);
     for (const p of placed) out.notes.push(`${p.etched ? "Etched" : "Traced"}: ${p.r.name.split(",")[0]} on ${p.holder === "self" ? (p.on === "creature" ? "you" : `your ${p.on}`) : nameOf(p.who)}${p.holder === "foe" ? "" : ` (${p.r.passive(lv)})`}${p.etched ? "" : "; a traced rune lasts until the end of your next turn"}.`);
     if (noInvoke) out.notes.push("Tracing Trance: you're quickened this turn for Trace Rune only, and you can't invoke anything until your next turn.");
+
+    // ---- Runic Optimization (7th; doubled at 15th): PF2e adds it as a FlatModifier on weapon-damage (min(1 + striking, 4)), so
+    // it's in a Strike's avg when the board took PF2e's own formula (s.formula); a Strike without one gets it here, before the plans
+    let runicOpt = null;
+    if (lv >= 7 && isClass && board.strikes.some((s) => Number(s.item?.system?.runes?.striking) > 0)) {
+        const ro = (s) => { const st = Number(s.item?.system?.runes?.striking) || 0; return st ? Math.min(1 + st, 4) * (lv >= 15 ? 2 : 1) : 0; };
+        runicOpt = [];
+        for (const s of board.strikes) { if (!ro(s) || s.formula || s.runicOptimized) continue; s.avg += ro(s); s.runicOptimized = true; runicOpt.push(`${s.label} (+${ro(s)})`); }
+    }
 
     // ---- plans
     const foeRunes = placed.filter((p) => p.holder === "foe" && feetBetween(me.rect, p.who.rect) <= invRange);
@@ -603,7 +613,7 @@ function runesmith(board, ctx, out) {
     // ---- marks and strike math from runes up
     for (const p of placed.filter((x) => x.holder === "self" && x.on === "weapon")) {
         if (p.key === "esvadir") for (const s of melee) if (!s.esvadir && (s.damageTypes ?? []).some((t) => ["piercing", "slashing"].includes(t))) { s.esvadir = true; s.avg += 2 * weaponDice(s); out.notes.push(`Esvadir on your ${s.label}: +${2 * weaponDice(s)} persistent bleed on each hit (counted once in the plans).`); }
-        if (p.key === "cruonign") for (const s of melee) if (!s.cruonign) { s.cruonign = true; s.avg += 3; }
+        if (p.key === "cruonign") for (const s of melee) if (!s.cruonign) { s.cruonign = true; s.avg += cruo(lv).void; }
     }
     for (const p of placed.filter((x) => x.key === "jurroz" && x.holder !== "foe")) out.notes.push(`Jurroz on ${p.holder === "self" ? "you" : nameOf(p.who)}: any enemy that Strikes ${p.holder === "self" ? "you" : "them"} is off-guard for a round afterward.`);
     if (has(actor, "smithing-weapons") && melee.some((s) => ["hammer", "knife", "pick"].includes(weaponGroup(s)))) out.notes.push("Smithing Weapons: your hammer, knife or pick deals +1 fire to a foe bearing one of your runes, and etches without a toolkit.");
@@ -639,7 +649,7 @@ function runesmith(board, ctx, out) {
     if (has(actor, "unbounded-invocations")) out.notes.push("Unbounded Invocations: one Invoke Rune sets off every rune within reach, not two.");
     if (has(actor, "stone-forge-of-the-first")) out.notes.push("Stone Forge of the First (2 actions, once a day): a forge within 30 feet for a minute; traced runes in 30 feet of it don't run out and invoked ones go faint but keep their passive benefit.");
     if (has(actor, "forge-new-word")) out.notes.push("Forge New Word: your own rune casts its spell from the bearer's square when invoked (class DC - 10 as the attack roll).");
-    if (lv >= 7 && isClass && board.strikes.some((s) => Number(s.item?.system?.runes?.striking) > 0)) out.notes.push(`Runic Optimization: ${lv >= 15 ? "+4 to +8" : "+2 to +4"} damage with a striking weapon is already in your Strike numbers.`);
+    if (runicOpt) out.notes.push(`Runic Optimization: ${lv >= 15 ? "+4 to +8" : "+2 to +4"} damage with a striking weapon${runicOpt.length ? `; the read adds it to ${runicOpt.join(", ")}, whose damage came without PF2e's formula` : "; your Strike damage from the sheet already includes it"}.`);
     if (lv >= 11 && isClass) out.notes.push("Forged Endurance: a success on a Fortitude save is a critical success.");
     if (has(actor, "seek-the-hidden-glyphs")) out.notes.push("Seek the Hidden Glyphs: if you set off a magical trap by critically failing to disable it, Trace a Rune on yourself as a reaction first.");
 }

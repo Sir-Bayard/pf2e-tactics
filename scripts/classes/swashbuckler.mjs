@@ -8,11 +8,9 @@
  * Finisher's half damage on a failure, Precise and Combination Finisher, Exemplary Finisher by style, Keen Flair, Deadly
  * Grace, Flamboyant Cruelty, Derring-Do and Even the Odds are math; the reactions, parries, stances and the rest are when-notes.
  */
-import { canMove, effect, has, level, moveText, myReach, pct, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, nameOf, signed } from "./_common.mjs";
+import { canMove, effect, has, hasAny, usesLeft, level, moveText, myReach, pct, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, nameOf, signed } from "./_common.mjs";
 import { flanks } from "../reader.mjs";
 
-/** Foundry's slugs drop apostrophes; the catalog's keep a dash for them. Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const STYLES = ["fencer", "gymnast", "braggart", "battledancer", "wit", "rascal"];
 const STYLE_SKILL = { fencer: "deception", gymnast: "athletics", braggart: "intimidation", battledancer: "performance", wit: "diplomacy", rascal: "thievery" };
 const STYLE_ACTION = { fencer: "Feint (or Create a Diversion)", gymnast: "Grapple, Shove, Trip or Reposition", braggart: "Demoralize", battledancer: "Perform", wit: "Bon Mot", rascal: "Dirty Trick" };
@@ -26,8 +24,6 @@ const finesse = (s) => !!(s.traits?.includes("agile") || s.traits?.includes("fin
 const diceCount = (s, lv) => Number(s.dice ?? s.item?.system?.damage?.dice) || (lv >= 19 ? 4 : lv >= 12 ? 3 : lv >= 4 ? 2 : 1);
 const pierceOrBludgeon = (s) => !s.damageTypes?.length || s.damageTypes.some((t) => ["bludgeoning", "piercing"].includes(t));
 const slashOrPierce = (s) => !s.damageTypes?.length || s.damageTypes.some((t) => ["slashing", "piercing"].includes(t));
-/** Uses left today of a feat with a frequency, or null when the sheet doesn't say. */
-const usesLeft = (actor, slug) => { const it = actor?.items?.find?.((i) => (i.slug ?? i.system?.slug) === slug); const v = it?.system?.frequency?.value; return v == null ? null : Number(v); };
 const CRUEL = ["clumsy", "drained", "enfeebled", "frightened", "sickened", "stupefied"];
 
 /** Precise strike's flat damage: the sheet's flag, else the class table (2, +1 at 5, 9, 13, 17); Finishing Precision gives 1. */
@@ -96,7 +92,8 @@ function swashbuckler(board, ctx, out) {
     const skill = (k) => { const v = actor.skills?.[k]?.mod ?? me[k]; return v == null ? null : Number(v); };
     const trained = (k) => (actor.skills?.[k]?.rank ?? 0) >= 1 || !!actor.skills?.[k]?.proficient || STYLE_SKILL[style] === k || (k === "deception" && !!me.deceptionTrained);
     const bravadoMod = (k) => (skill(k) == null ? null : skill(k) + stylish);
-    const shared = (f) => !me.languages?.length || !f.languages?.length || me.languages.some((l) => f.languages.includes(l));
+    // A foe's languages are its sheet's, which the player doesn't see: no -4 is assumed, and the step says when it would apply
+    const shared = () => true;
     const smart = !me.mindless && (me.int ?? 0) > -4;
     const freeHand = me.freeHand !== false;
     const perceptionDC = (f) => 10 + (f.perception ?? f.saves?.will ?? 0);
@@ -165,11 +162,11 @@ function swashbuckler(board, ctx, out) {
         }
         if (style === "braggart" && smart && bravadoMod("intimidation") != null && dist <= 30 && !f.conditions?.has?.("deafened") && !f.conditions?.has?.("frightened")) {
             const m = bravadoMod("intimidation") - (shared(f) ? 0 : 4), c = roll(m, saveDC(f, "will"));
-            list.push({ key: "demoralize", text: `Demoralize ${nameOf(f)} (Intimidation ${signed(m)}${shared(f) ? "" : ", -4 for no shared language"} vs Will DC ${saveDC(f, "will")}${flavor}; about ${pct(c.s + c.cs)}): frightened 1, 2 on a critical success${has(actor, "antagonize") ? "; Antagonize keeps it at 1 until it comes for you" : ""}`, c, attack: false, worth: c.s * worth(board, "frightened") + c.cs * 2 * worth(board, "frightened"), acAdj: -(c.s + 2 * c.cs), ogFirst: 0, dest: null });
+            list.push({ key: "demoralize", text: `Demoralize ${nameOf(f)} (Intimidation ${signed(m)} vs Will DC ${saveDC(f, "will")}${flavor}, -4 if it shares no language with you; about ${pct(c.s + c.cs)}): frightened 1, 2 on a critical success${has(actor, "antagonize") ? "; Antagonize keeps it at 1 until it comes for you" : ""}; it's then immune to your Demoralize for 10 minutes${exemplary ? " unless a finisher of yours hits it (Exemplary Finisher)" : ", so not a creature you've already Demoralized"}`, c, attack: false, worth: c.s * worth(board, "frightened") + c.cs * 2 * worth(board, "frightened"), acAdj: -(c.s + 2 * c.cs), ogFirst: 0, dest: null });
         }
         if (style === "wit" && smart && bravadoMod("diplomacy") != null && dist <= 30 && shared(f) && !f.conditions?.has?.("deafened")) {
             const m = bravadoMod("diplomacy"), c = roll(m, saveDC(f, "will"));
-            list.push({ key: "bon-mot", text: `Bon Mot at ${nameOf(f)} (Diplomacy ${signed(m)} vs Will DC ${saveDC(f, "will")}${flavor}; about ${pct(c.s + c.cs)}): -2 to its Perception and Will saves for a minute, -3 on a critical success`, c, attack: false, worth: (c.s + 1.5 * c.cs) * worth(board, "frightened", 0.6), acAdj: 0, ogFirst: 0, dest: null });
+            list.push({ key: "bon-mot", text: `Bon Mot at ${nameOf(f)} (Diplomacy ${signed(m)} vs Will DC ${saveDC(f, "will")}${flavor}; about ${pct(c.s + c.cs)}; it has to understand your language): -2 to its Perception and Will saves for a minute, -3 on a critical success`, c, attack: false, worth: (c.s + 1.5 * c.cs) * worth(board, "frightened", 0.6), acAdj: 0, ogFirst: 0, dest: null });
         }
         if (style === "battledancer" && bravadoMod("performance") != null && dist <= 30) {
             const m = bravadoMod("performance"), c = roll(m, saveDC(f, "will"));
@@ -229,7 +226,8 @@ function swashbuckler(board, ctx, out) {
                 if (key === "unbalancing-finisher" && !(exemplary && style === "fencer")) { ev += (c.s + c.cs) * worth(board, "off-guard"); bits.push("a hit leaves it off-guard until the end of your next turn"); }
                 if (key === "bleeding-finisher") { ev += (c.s + 2 * c.cs) * 1.2 * dice; bits.push(`a hit adds ${N}d6 persistent bleed`); }
                 if (key === "stunning-finisher") { const d = degreeChances(f.saves?.fortitude ?? 0, dc, (f.level ?? 0) > lv ? 1 : 0); ev += (c.s + c.cs) * (d.f * worth(board, "stunned") + d.cf * 3 * worth(board, "stunned") + d.s * 0.5); bits.push(`a hit forces a Fortitude save against your class DC ${dc} (incapacitation): stunned 1 on a failure, 3 on a critical failure, no reactions on a success`); }
-                if (key === "targeting-finisher") { const part = f.caster ? "head (stupefied 2)" : "arm (enfeebled 2)"; ev += (c.s + c.cs) * worth(board, f.caster ? "stupefied" : "enfeebled", 2); bits.push(`a hit targets its ${part} until the end of your next turn, and a lesser one for a minute on a critical hit`); }
+                // f.caster is true only once the party has seen it cast this fight; otherwise both parts are offered
+                if (key === "targeting-finisher") { const part = f.caster ? "head (stupefied 2; you've seen it cast)" : "arm (enfeebled 2), or its head (stupefied 2) if it casts spells"; ev += (c.s + c.cs) * worth(board, f.caster ? "stupefied" : "enfeebled", 2); bits.push(`a hit targets its ${part} until the end of your next turn, and a lesser one for a minute on a critical hit`); }
                 if (key === "stumbling-finisher") { ev += (c.s + c.cs) * 0.5; bits.push("a hit pushes it 5 feet, 10 on a critical hit"); }
                 if (key === "retreating-finisher") { ev += c.f * 0.3 * (f.reactiveStrike?.avg ?? 5); bits.push("a miss lets you Step for free"); }
                 if (key === "perfect-finisher") bits.push("roll twice and take the better");
@@ -263,7 +261,7 @@ function swashbuckler(board, ctx, out) {
             // Impaling Finisher (4): a second foe directly behind the first, one roll against both
             if (has(actor, "impaling-finisher") && !s.ranged && pierceOrBludgeon(s) && inReach(at, f.rect, 5)) {
                 const dx = Math.sign(f.rect.x - at.x), dy = Math.sign(f.rect.y - at.y);
-                const g = near.find((g) => g.rect.x === f.rect.x + dx * f.rect.w && g.rect.y === f.rect.y + dy * f.rect.h && (dx === 0 || dy === 0 || true));
+                const g = near.find((g) => g.rect.x === f.rect.x + dx * f.rect.w && g.rect.y === f.rect.y + dy * f.rect.h);
                 if (g) {
                     const bonus = s.bonus + finisherPen(made, s);
                     const c1 = chances(bonus, ac, { keen }), c2 = chances(bonus, g.ac, { keen });
@@ -360,7 +358,7 @@ function swashbuckler(board, ctx, out) {
 
     /* ---- notes: state, speed, reactions, parries, stances and the rest ---- */
     if (panache) n(`${panacheWhy}: a finisher is open (${N}d6 precision instead of +${N}), and it spends the panache; your Speed is up by ${speedBonus(actor, own, lv, true)} feet${has(actor, "flamboyant-athlete") ? "; Flamboyant Athlete: climb and swim at half your Speed, jump DCs down by 10, a 5-foot vertical Leap" : ""}.`);
-    else n(`No panache: earn it with ${style ? STYLE_ACTION[style] : "your style's action"} or Tumble Through (bravado, +${stylish} circumstance from Stylish Combatant${derring ? "; Derring-Do rolls twice once you already have panache" : ""}), then finish. A failure short of a critical failure still gives it until the end of your next turn.${speedBonus(actor, own, lv, false) ? ` Your Speed is up by ${speedBonus(actor, own, lv, false)} feet even now (${hasAny(actor, "swashbucklers-speed", "swashbuckler-s-speed") ? "Swashbuckler's Speed" : "Vivacious Speed"}).` : ""}`);
+    else n(`No panache: earn it with ${style ? STYLE_ACTION[style] : "your style's action"} or Tumble Through (bravado, +${stylish} circumstance from Stylish Combatant${derring ? "; Derring-Do rolls twice once you already have panache" : ""}), then finish. A failure short of a critical failure still gives it until the end of your next turn.${speedBonus(actor, own, lv, false) ? ` Your Speed is up by ${speedBonus(actor, own, lv, false)} feet even now (${has(actor, "swashbucklers-speed") ? "Swashbuckler's Speed" : "Vivacious Speed"}).` : ""}`);
     if (style === "fencer" && has(actor, "goading-feint")) n("Goading Feint: on a Feint that works you can take -2 to its next attack against you instead (every attack until its next turn on a critical success).");
     if (style === "braggart" && has(actor, "antagonize")) n("Antagonize: a foe you Demoralize stays at least frightened 1 until it attacks you or loses sight of you.");
     if (style === "battledancer" && has(actor, "focused-fascination")) n("Focused Fascination: a Perform aimed at one creature fascinates it on a success, not only a critical success.");
@@ -386,7 +384,7 @@ function swashbuckler(board, ctx, out) {
     if (has(actor, "panache-paragon")) n("Panache Paragon: you're permanently quickened; the extra action does only a bravado action.");
     if (derring && !panache) n("Derring-Do: with panache already up, your bravado checks and Tumble Through roll twice.");
     // reactions
-    if (hasAny(actor, "opportune-riposte", "swashbucklers-riposte", "swashbuckler-s-riposte") || (own && lv >= 3)) {
+    if (hasAny(actor, "opportune-riposte", "swashbucklers-riposte") || (own && lv >= 3)) {
         const bits = [];
         if (has(actor, "impossible-riposte")) bits.push("Impossible Riposte: also from outside your reach, a ranged attack turned back as its own damage type");
         if (has(actor, "parry-and-riposte")) bits.push("Parry and Riposte: on a plain miss too, against a foe you finished last turn while you have a parry bonus to AC");
@@ -398,7 +396,7 @@ function swashbuckler(board, ctx, out) {
     }
     if (hasAny(actor, "flashy-dodge", "nimble-dodge")) n(`${has(actor, "flashy-dodge") ? "Flashy Dodge" : "Nimble Dodge"} fires when a foe you can see attacks you: +2 AC against it, and panache until the end of your next turn if it misses${has(actor, "flashy-roll") ? "; Flashy Roll: before a Reflex save too, and a Stride of 10 feet when the attack or effect fails" : ""}.`);
     if (has(actor, "charmed-life")) n(`Charmed Life fires before you roll a save: +2, and panache until the end of your next turn if it succeeds${has(actor, "incredible-luck-swashbuckler") || has(actor, "incredible-luck") ? "; Incredible Luck: the save rolls twice" : ""}.`);
-    if (hasAny(actor, "guardian-s-deflection-swashbuckler", "guardians-deflection-swashbuckler")) { const near = board.allies.filter((a) => inReach(me.rect, a.rect, myReach(board))); n(near.length ? `Guardian's Deflection fires when ${near.map(nameOf).join(" or ")} is hit by a margin of 2 or less, if you hold one one-handed weapon with the other hand free: the hit misses and you gain panache.` : "Guardian's Deflection fires when an ally in your reach is hit by 2 or less, with a single one-handed weapon and a free hand: the hit misses and you gain panache."); }
+    if (has(actor, "guardians-deflection-swashbuckler")) { const near = board.allies.filter((a) => inReach(me.rect, a.rect, myReach(board))); n(near.length ? `Guardian's Deflection fires when ${near.map(nameOf).join(" or ")} is hit by a margin of 2 or less, if you hold one one-handed weapon with the other hand free: the hit misses and you gain panache.` : "Guardian's Deflection fires when an ally in your reach is hit by 2 or less, with a single one-handed weapon and a free hand: the hit misses and you gain panache."); }
     if (has(actor, "switcheroo") && panache && foes.some((f) => inReach(me.rect, f.rect, 5))) n("Switcheroo fires when a ranged attack targets you, with panache and a foe adjacent: Reposition it into the attack's path; a failure costs the panache.");
     if (has(actor, "cheat-death")) n("Cheat Death fires when damage would drop you: you stay at 1 HP with panache and become doomed 1 for 10 minutes.");
     if (has(actor, "plummeting-roll")) n("Plummeting Roll fires when you fall: no damage from a fall you can land.");
@@ -416,7 +414,7 @@ function swashbuckler(board, ctx, out) {
 
 /** The status bonus to Speed: Stylish Combatant +5 with panache; Vivacious Speed (3) +10, +5 at 7, 11, 15 and 19, half of it without panache. */
 function speedBonus(actor, own, lv, panache) {
-    if (has(actor, "swashbucklers-speed") || has(actor, "swashbuckler-s-speed")) return panache ? 10 : 5;
+    if (has(actor, "swashbucklers-speed")) return panache ? 10 : 5;
     const vivacious = has(actor, "vivacious-speed") || (own && lv >= 3);
     if (!vivacious) return panache ? 5 : 0;
     const full = 10 + 5 * [7, 11, 15, 19].filter((x) => lv >= x).length;

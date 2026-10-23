@@ -1437,19 +1437,24 @@ function visionerStates(token, others) {
  * A visibility state with Visioner's reading folded in. From the creature's own square Visioner's answer stands
  * (it reads light and senses itself). From any other square the computed state is used, except that hidden and
  * undetected carry: a creature that Hid or Sneaked stays so until it's found, wherever the observer moves to.
+ * A condition the GM set on the target (concealed, hidden, undetected, unnoticed) is a floor either way: Visioner's
+ * per-token map doesn't know about it, and the GM's word stands.
  */
-function withVisioner(computed, visionerState, fromOwnSquare) {
-    if (!visionerState) return computed;
-    if (fromOwnSquare) return visionerState;
+function withVisioner(computed, visionerState, fromOwnSquare, targetConditions = null) {
+    const tc = targetConditions ?? new Set();
+    const floor = tc.has?.("undetected") || tc.has?.("unnoticed") ? 3 : tc.has?.("hidden") ? 2 : tc.has?.("concealed") ? 1 : 0;
+    const raise = (s) => (VIS_ORDER.indexOf(s) >= floor ? s : VIS_ORDER[floor]);
+    if (!visionerState) return raise(computed);
+    if (fromOwnSquare) return raise(visionerState);
     const vi = VIS_ORDER.indexOf(visionerState);
-    return vi >= 2 && vi > VIS_ORDER.indexOf(computed) ? visionerState : computed;
+    return raise(vi >= 2 && vi > VIS_ORDER.indexOf(computed) ? visionerState : computed);
 }
 
 /**
  * reactionsSeen: for the player's Turn Helper, a test (enemy, reaction) => boolean: reactions it rejects are dropped
  * from the board, so paths and warnings only go round reactions the party has seen. The GM's card passes nothing.
  */
-async function readBoard(token, combat = game.combat, { extra = [], reactionsSeen = null } = {}) {
+async function readBoard(token, combat = game.combat, { extra = [], reactionsSeen = null, unseen = null } = {}) {
     if (token && !token.document && token.documentName === "Token") token = token.object ?? tokenStandIn(token);
     const scene = token?.document?.parent ?? canvas?.scene;
     if (!token?.actor || !scene || scene !== canvas?.scene) return null;
@@ -1605,15 +1610,19 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     board.lineBlocked = (p, q) => {
         try { return !!sight?.testCollision({ x: p.x * size, y: p.y * size, elevation: me.rect.z + 1 }, { x: q.x * size, y: q.y * size, elevation: me.rect.z + 1 }, { type: "sight", mode: "any", ...lvlCfg }); } catch { return false; }
     };
+    // The Turn Helper's foes keep only the reactions the party has seen (before any early return, so a gridless scene too)
+    if (typeof reactionsSeen === "function") for (const e of board.enemies) e.reactions = e.reactions.filter((r) => reactionsSeen(e, r));
     if (!square) return board;
 
     // Who stands where
     const occupant = new Map();
-    for (const c of [...board.enemies, ...board.allies]) for (const k of rectSquares(c.rect)) occupant.set(k, c);
+    // unseen: for the Turn Helper, foes the character can't detect stand nowhere (finding one by bumping into it is the GM's call)
+    const placed = (c) => !(typeof unseen === "function" && board.enemies.includes(c) && unseen(c, board));
+    for (const c of [...board.enemies, ...board.allies]) if (placed(c)) for (const k of rectSquares(c.rect)) occupant.set(k, c);
     // The dying and unconscious still fill their squares: nothing ends its move on top of them
     for (const c of [...(board.downAllies ?? []), ...(board.downEnemies ?? [])]) for (const k of rectSquares(c.rect)) if (!occupant.has(k)) occupant.set(k, c);
     const blockers = new Map(); // dead bodies don't block; living enemies block passage
-    for (const c of board.enemies) for (const k of rectSquares(c.rect)) blockers.set(k, c);
+    for (const c of board.enemies) if (placed(c)) for (const k of rectSquares(c.rect)) blockers.set(k, c);
     const rect = board.sceneRect = {
         x: Math.floor(canvas.dimensions.sceneRect.x / size), y: Math.floor(canvas.dimensions.sceneRect.y / size),
         w: Math.floor(canvas.dimensions.sceneRect.width / size), h: Math.floor(canvas.dimensions.sceneRect.height / size),
@@ -1646,7 +1655,6 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     const ground = move.ignoresDifficult || ignoresDifficultTerrain(actor) || move.stride.speed === "fly" ? () => 1 : terrainReader(scene, size, { climb: !!speedsOf(actor)?.climb, z: me.rect.z });
     board.terrainNoteAt = move.stride.speed === "fly" ? () => [] : terrainNotes(scene, size, me.rect.z);
     const terrain = me.conditions.has("blinded") ? (x, y) => Math.max(2, ground(x, y)) : ground;
-    if (typeof reactionsSeen === "function") for (const e of board.enemies) e.reactions = e.reactions.filter((r) => reactionsSeen(e, r));
     const threatsAt = (x, y, z = me.rect.z) => {
         const at = { x, y, w, h, z, ht: me.rect.ht, lvl: me.rect.lvl };
         return board.enemies.filter((e) => e.reactions.some((r) => r.trigger.onMove) && inReach(e.rect, at, e.reach)).map((e) => e.id);

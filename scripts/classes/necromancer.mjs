@@ -10,16 +10,13 @@
  * The grave spells and the two grave cantrips are taken out of board.spells: the advisor would cast them from your own
  * square, and they originate from a thrall.
  */
-import { bestStrike, effect, focusLeft, has, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, effect, focusLeft, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 import { areaTest, centerOf, rectInArea } from "../reader.mjs";
 
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const spellDC = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.dc) || 0)) || Number(board.me.actor?.classDC?.value) || 10 + level(board) + 5;
 const spellAttack = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.attack) || 0)) || spellDC(board) - 10;
 const sq1 = (x, y, z = 0) => ({ x, y, w: 1, h: 1, z });
 const n2 = (x) => Math.round(x * 10) / 10;
-/** Uses left today of a feat with a frequency, or null when the sheet doesn't say. */
-const usesLeft = (actor, slug) => { const i = actor?.items?.find?.((it) => slugOf(it) === slug); const v = i?.system?.frequency?.value; return v == null ? null : Number(v); };
 
 /**
  * The grave spells: the catalog's text, reduced to what a plan needs. rank: the rank the spell is learned at (focus spells
@@ -190,15 +187,30 @@ function necromancer(board, ctx, out) {
     // ---- thrall turns: Create Thrall beside a foe and Strike with it, Thrall Charge, Reaper's and Puppeteer's extras
     const strikeAt = (f, made, extra = 0) => strikeExpected(atk + mapFor(made, false), f.ac, thrallDie + spiritDmg + extra);
     const existingBy = (f) => thralls.filter((t) => inReach(t.rect, f.rect, t.reach ?? 5));
-    const chargeable = (f) => thralls.filter((t) => feetBetween(t.rect, f.rect) <= thrallSpeed + 5 && (t.canAct !== false));
+    // Thrall Charge: "range 30 feet; target 1 of your thralls": the thrall within 30 feet of you, the foe within its Stride
+    const chargeable = (f) => thralls.filter((t) => feetBetween(me.rect, t.rect) <= 30 && feetBetween(t.rect, f.rect) <= thrallSpeed + 5 && (t.canAct !== false));
     const bestFree = new Map(); // per foe: the best free thrall turn's ev, for the Focus Point comparison
     const freePlans = [];
     const pushFree = (plan) => freePlans.push(plan);
     for (const f of foes) {
         const squares = ring(f);
         const sq = squares.map((r) => ({ r, fw: flankWith(f, r) })).sort((a, b) => (b.fw?.ev ?? 0) - (a.fw?.ev ?? 0))[0] ?? null;
-        // Create Thrall (1 action): a thrall beside f that Strikes at once; Reaper's free Strike; Puppeteer's second thrall
-        if (sq && ctx.actions >= 1 && feetBetween(me.rect, sq.r) <= 30) {
+        // The Necromancer Dedication's thrall (1 action, once per turn): one thrall beside f; its Strike is a Command a Thrall (1 action)
+        if (archetype && sq && ctx.actions >= 2 && feetBetween(me.rect, sq.r) <= 30) {
+            const create = { cost: 1, text: `Create a thrall beside ${nameOf(f)} (Necromancer Dedication, once per turn)${flankText(sq.fw, f)}` };
+            const e = strikeAt(f, ctx.made);
+            // Command it to Strike (1 action), then your own Strikes; or, with Thrall Charger and three actions, Thrall Charge it
+            let steps = [create, { cost: 1, text: `Command a Thrall: it Strikes ${nameOf(f)} (${signed(atk + mapFor(ctx.made, false))}, about ${n2(thrallDie + spiritDmg)})` }];
+            let ev = e.expected;
+            if (ctx.actions >= 3) { const r = strikeRun(board, f, ctx.actions - 2, { made: ctx.made + 1, acAdj: sq.fw?.ally?.self ? -2 : 0 }); if (r.used.length && inReach(me.rect, f.rect, myReach(board))) { ev += r.ev; steps.push({ cost: r.used.length, text: r.text }); } }
+            const charge = hasThrallCharge && ctx.actions >= 3 ? strikeAt(f, ctx.made, chargeDice * 3.5 + rank) : null;
+            if (charge && charge.expected > ev) { ev = charge.expected; steps = [create, { cost: 2, text: `Thrall Charge: the thrall Strikes ${nameOf(f)} (${signed(atk + mapFor(ctx.made, false))}) for +${chargeDice}d6, destroyed for +${rank} more` }]; }
+            ev += sq.fw?.ev ?? 0;
+            bestFree.set(f.id, Math.max(bestFree.get(f.id) ?? 0, ev));
+            pushFree({ title: `Create a thrall beside ${nameOf(f)}, then Strike with it`, target: f, ev, bias: 0.3, steps, notes: ["The dedication's action only makes the thrall; its Strike is a Command a Thrall (or Thrall Charge) of its own. Thralls last a minute."] });
+        }
+        // Create Thrall (1 action, the cantrip): a thrall beside f that Strikes at once; Reaper's free Strike; Puppeteer's second thrall
+        if (!archetype && sq && ctx.actions >= 1 && feetBetween(me.rect, sq.r) <= 30) {
             const e = strikeAt(f, ctx.made);
             const ogAdj = sq.fw?.ally?.self ? -2 : 0;
             const teamwork = reaper && board.strikes.some((s) => !s.ranged) && inReach(me.rect, f.rect, myReach(board)) ? bestStrike(board, f, { made: ctx.made, acAdj: ogAdj }) : null;
@@ -254,7 +266,7 @@ function necromancer(board, ctx, out) {
         }
     }
 
-    for (const kind of ["Create Thrall", "Thrall Charge", "Command"]) for (const p of freePlans.filter((x) => x.title.startsWith(kind)).sort((a, b) => b.ev - a.ev).slice(0, 3)) push(p);
+    for (const kind of ["Create Thrall", "Create a thrall", "Thrall Charge", "Command"]) for (const p of freePlans.filter((x) => x.title.startsWith(kind)).sort((a, b) => b.ev - a.ev).slice(0, 3)) push(p);
 
     // ---- the grave spells that spend a thrall, cast from the thrall's square (an existing thrall, or one made this turn)
     const foesInArea = (shape, size, from, aim) => {
@@ -263,8 +275,8 @@ function necromancer(board, ctx, out) {
     };
     const degree = (f, stat) => degreeChances(f.saves?.[stat] ?? 5 + lv, dc);
     /** Options to have a thrall in r against f: 0 actions when one stands there, 1 (Create Thrall) otherwise. */
-    const thrallAt = (f, want) => {
-        const have = thralls.filter((t) => feetBetween(me.rect, t.rect) <= 30 && want(t.rect));
+    const thrallAt = (f, want, from = 30) => {
+        const have = thralls.filter((t) => feetBetween(me.rect, t.rect) <= from && want(t.rect));
         if (have.length) return { cost: 0, r: have[0].rect, who: nameOf(have[0]), text: `${nameOf(have[0])} (already there)` };
         if (ctx.actions < 1) return null;
         const r = ring(f).find((x) => want(x));
@@ -301,7 +313,7 @@ function necromancer(board, ctx, out) {
                 const extra = slug === "bony-barrage" && hit.allies.length ? "; destroy a second thrall in the cone and you and your allies in it take nothing and get +1 AC" : "";
                 consider({ at, ev, hit, text: `${g.name} from ${at.who}'s square: ${g.shape === "emanation" ? `every creature within ${g.size} feet of it` : g.shape === "burst" ? `a ${g.size}-foot burst on it` : `a ${g.size}-foot ${g.shape} through ${nameOf(f)}`}, ${hit.foes.length} foe${hit.foes.length === 1 ? "" : "s"} (${parts.join(", ")} to fail), ${g.basic ? "basic " : ""}${g.save[0].toUpperCase() + g.save.slice(1)} DC ${dc} for about ${n2(dmg)} ${g.type}${slug === "deathly-scream" ? " (half on a success, frightened 1 on a failure, double and frightened 2 on a critical failure)" : ""}${slug === "zombie-horde" ? " at the start of each of their turns, difficult terrain, a minute" : ""}${friends.length ? `; ${friends.map(nameOf).join(", ")} caught too` : ""}${extra}` });
             } else if (g.kind === "area" && slug === "blossoming-gore") {
-                const at = thrallAt(f, (r) => inReach(r, f.rect, 5));
+                const at = thrallAt(f, (r) => inReach(r, f.rect, 5), g.from);
                 if (!at || at.cost > need) continue;
                 const hit = foesInArea("burst", 20, at.r, null);
                 const bleed = 10 + 2 * Math.max(0, rank - 5);
@@ -317,7 +329,7 @@ function necromancer(board, ctx, out) {
                 ev -= hit.allies.length * 3;
                 consider({ at, ev, hit, text: `Flesh Tsunami from ${at.who}'s square: a 60-foot cone of greater difficult terrain through ${nameOf(f)} (${hit.foes.length} foe${hit.foes.length === 1 ? "" : "s"})${two ? `; a second thrall in the cone makes each foe save (DC ${dc}) or be immobilized a round` : "; with a second thrall in the cone it would also immobilize them"}` });
             } else if (g.kind === "one") {
-                const at = thrallAt(f, (r) => feetBetween(r, f.rect) <= g.reach);
+                const at = thrallAt(f, (r) => feetBetween(r, f.rect) <= g.reach, g.from);
                 if (!at || at.cost > need) continue;
                 const c = degree(f, g.save);
                 let ev = 0, text = "";
@@ -327,7 +339,7 @@ function necromancer(board, ctx, out) {
                     const target = ally((a) => feetBetween(at.r, a.rect) <= 30).sort((a, b) => missing(b) - missing(a))[0] ?? me;
                     const heal = (k) => 0.8 * Math.min(missing(target), 2 * lost(k));
                     ev = c.s * (lost(1) + heal(1)) + c.f * (lost(2) + heal(2)) + c.cf * (lost(3) + heal(3)) + (c.f + c.cf) * worth(board, "drained");
-                    text = `Life Tap on ${nameOf(f)} through ${at.who}: Fortitude DC ${dc} (${pct(c.f + c.cf)} to fail): drained 1 (2 on a failure, 3 on a critical failure), losing ${lv} HP per point, and ${target === me ? "you" : nameOf(target)} regain${target === me ? "" : "s"} double that (${missing(target)} missing)`;
+                    text = `Life Tap on ${nameOf(f)} through ${at.who}: Fortitude DC ${dc} (${pct(c.f + c.cf)} to fail): drained 1 (2 on a failure, 3 on a critical failure), losing ${lv} HP per point, and ${target === me ? "you" : nameOf(target)} regain${target === me ? "" : "s"} double that (${missing(target)} missing; once every 10 minutes per creature healed)`;
                 } else if (slug === "blood-infusion") { ev = c.s * rank + c.f * (rank * 3.5 * 2) + c.cf * (rank * 7 * 2); text = `Blood Infusion on ${nameOf(f)} through ${at.who}: Fortitude DC ${dc} (${pct(c.f + c.cf)} to fail): ${rank} bleed on a success, ${rank}d6 persistent bleed on a failure (${2 * rank}d6 on a critical failure); it loses any immunity to bleed`; }
                 else if (slug === "calcification") { ev = c.s * (worth(board, "slowed") + 2) + c.f * (worth(board, "slowed") * 2 + 4) + c.cf * (worth(board, "slowed") * 3 + 4); text = `Calcification on ${nameOf(f)} through ${at.who}: Fortitude DC ${dc} (${pct(c.f + c.cf)} to fail): slowed 1 and weakness 5 to bludgeoning a round; on a failure the bone keeps growing (weakness 10, a save each turn, petrified when it can't act), slowed 2 on a critical failure`; }
                 else if (slug === "temporary-possession") { const shift = (f.level ?? lv) > 2 * rank ? 1 : 0; const cc = degreeChances(f.saves?.will ?? 5 + lv, dc, shift); ev = (cc.s + cc.f + cc.cf) * worth(board, "stunned") * 0.5 + (cc.s * 1 + cc.f * 2 + cc.cf * 3) * (f.reactiveStrike?.avg ?? 6) * 0.5; text = `Temporary Possession of ${nameOf(f)} through ${at.who}: Will DC ${dc} (${pct(cc.f + cc.cf)} to fail${shift ? ", incapacitation: it's above twice the spell's rank, one degree better" : ""}): you spend 1 of its actions (2 on a failure, 3 on a critical failure) to make it Strike a foe or drop what it holds, and it's stunned 1 after; any HP it loses meanwhile costs you half`; }
@@ -359,8 +371,8 @@ function necromancer(board, ctx, out) {
             let ev = best.ev;
             const infuse = lv >= 8 && has(actor, "infuse-void") && g.kind === "area" && best.hit && ctx.actions >= total + 1;
             if (infuse) { steps.push({ cost: 1, text: `Infuse Void: +${rank} void on each creature the spell damages; a kill gives the Focus Point back (once per 10 minutes)` }); ev += best.hit.foes.length * rank * 0.7; total += 1; }
+            if (lv >= 10 && reaper && has(actor, "skeletal-extension") && g.kind !== "ally") steps.push({ cost: 0, text: "Skeletal Extension (free, right before the spell): the thrall's remains stretch your limbs, +10 feet of reach and 15-foot Steps until the end of your turn" });
             steps.push({ cost: g.cost, text: `${best.text}${consume ? "" : ` (${fpText(g)})`}` });
-            if (lv >= 10 && reaper && has(actor, "skeletal-extension") && g.kind !== "ally") steps.push({ cost: 0, text: "Skeletal Extension (free, before the spell): the thrall's remains stretch your limbs, +10 feet of reach and 15-foot Steps until the end of your turn" });
             const freeEv = f ? bestFree.get(f.id) ?? 0 : 0;
             const reserve = fpReserve();
             const notes = [`The free version of this turn (Create Thrall and Strike, or Thrall Charge) is worth about ${n2(freeEv)}; this spends a Focus Point, so it's scored ${reserve} under its value.`];
@@ -376,7 +388,7 @@ function necromancer(board, ctx, out) {
     if (known.has("bloody-tendrils") && canFocus && ctx.actions >= 1 && foes.length) {
         const dice = 1 + Math.floor((rank - 3) / 3);
         const picks = [];
-        for (const f of foes) { const r = ring(f).find((x) => !picks.some((p) => p.x === x.x && p.y === x.y)); if (r) picks.push(r); if (picks.length >= Math.min(3, 3 + Math.floor((rank - 3) / 3))) break; }
+        for (const f of foes) { const r = ring(f).find((x) => !picks.some((p) => p.x === x.x && p.y === x.y)); if (r) picks.push(r); if (picks.length >= 3 + Math.floor((rank - 3) / 3)) break; }
         if (picks.length) {
             let ev = 0;
             for (const f of foes) if (picks.some((p) => feetBetween(p, f.rect) <= 10)) ev += saveExpected(f.saves?.reflex ?? 5 + lv, dc, dice * 6.5, { basic: true }).expected;

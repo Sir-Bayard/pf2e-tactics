@@ -6,10 +6,8 @@
  * Second Sting, Impossible Flurry, Impossible Volley, Time Dilation Cascade), Monster Hunter on the Hunt, Warden's Boon,
  * Far Shot and Legendary Shot on the board's ranges. The rest are when-notes.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("hunters-aim"); the catalog's keep a dash for them ("hunter-s-aim"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** Weapon specialization damage for a ranger: expert at 5, master at 13; greater at 15. */
 const weaponSpec = (lv) => (lv >= 15 ? 6 : lv >= 13 ? 3 : lv >= 7 ? 2 : 0);
@@ -41,8 +39,12 @@ function ranger(board, ctx, out) {
     const inRange = (s, at, f) => (s.ranged ? feetBetween(at, f.rect) <= (s.range ?? 30) * (master ? 3 : 2) : inReach(at, f.rect, s.reach || 5));
     const melee2 = () => board.strikes.filter((s) => !s.ranged && !s.traits?.includes("unarmed"));
     const reload0 = () => board.strikes.filter((s) => s.ranged && !(s.reload > 0));
-    // Far Shot doubles range increments; Legendary Shot (master weapon) stretches the no-penalty range against the prey to five increments
-    if (has(actor, "far-shot")) for (const s of board.strikes) if (s.ranged && s.range && !s.farShot) { s.farShot = true; s.range *= 2; }
+    // Far Shot doubles range increments. Its AdjustStrike rule already doubles the weapon's increment on a real sheet, which
+    // the board reads; only a Strike whose range still equals its weapon's own (the rule didn't reach it) is doubled here.
+    if (has(actor, "far-shot")) for (const s of board.strikes) {
+        const base = Number(s.item?._source?.system?.range ?? s.item?._source?.system?.range?.increment) || 0;
+        if (s.ranged && s.range && !s.farShot && base && s.range === base) { s.farShot = true; s.range *= 2; }
+    }
     // The multiple attack penalty against the prey, by edge
     const mapVs = (n, agile) => (n === 0 ? 0 : edge === "flurry" ? (master ? (n === 1 ? (agile ? -1 : -2) : (agile ? -2 : -4)) : (n === 1 ? (agile ? -2 : -3) : (agile ? -4 : -6))) : mapFor(n, agile));
     /** Precision damage on the hitIndex-th hit of the round against the prey (0-based): 1d8/2d8/3d8 on the first; Masterful Hunter adds a second and a third. */
@@ -96,7 +98,7 @@ function ranger(board, ctx, out) {
         const skills = ["nature", "arcana", "occultism", "religion", "society"].map((k) => actor.skills?.[k]).filter((sk) => sk && (sk.rank ?? 0) >= 1).sort((a, b) => (b.mod ?? 0) - (a.mod ?? 0));
         const sk = has(actor, "master-monster-hunter") ? actor.skills?.nature ?? skills[0] : skills[0];
         if (!sk) return null;
-        const c = degreeChances((sk.mod ?? 0) + (edge === "outwit" ? (master ? 4 : 2) : 0), 15 + lv);
+        const c = degreeChances((sk.mod ?? 0) + (edge === "outwit" ? (master ? 4 : 2) : 0), standardDC(lv)); // a creature of the party's level
         const p = has(actor, "master-monster-hunter") ? c.s + c.cs : c.cs;
         const bonus = has(actor, "legendary-monster-hunter") ? 2 : 1;
         return { text: `Monster Hunter: Recall Knowledge on it as part of the Hunt (${sk.label ?? sk.slug ?? "Nature"} ${signed(sk.mod ?? 0)}, about ${pct(p)} for the +${bonus} on your next attack, and your allies' if you tell them)`, ev: p * bonus * 0.1 * (board.strikes[0]?.avg ?? 6) * 2, bonus, p };
@@ -233,7 +235,8 @@ function ranger(board, ctx, out) {
     }
     // Warden spells: what the pool holds
     const fp = focusLeft(actor);
-    if (has(actor, "warden-spells") || has(actor, "initiate-warden") || has(actor, "gravity-weapon")) out.notes.push(`Warden spells are focus spells${fp != null ? ` (${fp} Focus Point${fp === 1 ? "" : "s"} left)` : ""}: Gravity Weapon (1 action) adds a weapon die to your first hit each round for a minute${hasAny(actor, "wardens-focus", "warden-s-focus") ? "; Warden's Focus refills the whole pool when you Refocus" : ""}${hasAny(actor, "wardens-reload", "warden-s-reload") ? "; Warden's Reload reloads for free right after a warden spell" : ""}.`);
+    const gravity = (board.spells ?? []).some((sp) => /^gravity weapon$/i.test(sp.name ?? "")) || (actor.items ?? []).some?.((i) => i.type === "spell" && /^gravity weapon$/i.test(i.name ?? ""));
+    if (has(actor, "warden-spells") || has(actor, "initiate-warden") || gravity) out.notes.push(`Warden spells are focus spells${fp != null ? ` (${fp} Focus Point${fp === 1 ? "" : "s"} left)` : ""}${gravity ? ": Gravity Weapon (1 action) gives a status bonus to damage of twice your weapon's damage dice on your first weapon Strike each round, for a minute" : ""}${hasAny(actor, "wardens-focus", "warden-s-focus") ? "; Warden's Focus refills the whole pool when you Refocus" : ""}${hasAny(actor, "wardens-reload", "warden-s-reload") ? "; Warden's Reload reloads for free right after a warden spell" : ""}.`);
 }
 
 export { ranger };

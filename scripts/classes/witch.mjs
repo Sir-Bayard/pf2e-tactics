@@ -5,19 +5,14 @@
  * for a Focus Point), what to Sustain and how (Cackle for a Focus Point as a free action, or the Sustain action; Hex
  * Master at 20), the familiar (the patron's "when you Cast or Sustain a hex" trick, Patron's Puppet, Phase Familiar,
  * Shed Spirit and the other familiar activities as plans), Sympathetic Strike and Split Hex as composed turns, Siphon
- * Power, Quickened Casting, the spellshape feats as "when" notes, slots left by rank and the cantrip-or-slot rule.
+ * Power, Quickened Casting, the spellshape feats as "when" notes, and slots left by rank. A plan that casts a slot spell
+ * says so (spendsSlot) and spell thrift weighs the slot against the cantrip; the read keeps no cantrip-or-slot rule of its own.
  * Hexes are planned here, so they're taken off board.spells before the advisor runs (nothing is listed twice).
  */
-import { bestStrike, castable, effect, focusLeft, has, level, pct, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 const lc = (s) => String(s ?? "").toLowerCase().trim();
 const cap = (s) => String(s ?? "").charAt(0).toUpperCase() + String(s ?? "").slice(1);
-const slugOf = (i) => i?.slug ?? i?.system?.slug ?? lc(i?.name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-/** Foundry's sluggify drops apostrophes (witchs-charge); the catalog keeps a dash (witch-s-charge). Both are read. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
-const item = (actor, ...slugs) => actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && slugs.includes(slugOf(i))) ?? null;
-/** Uses left today of a feat with a frequency, or null when the sheet doesn't count them. */
-function usesLeft(actor, ...slugs) { const f = item(actor, ...slugs)?.system?.frequency; return f && typeof f.value === "number" ? f.value : null; }
 const isHex = (sp) => !!sp.traits?.includes("hex");
 const isFocus = (sp) => !!sp.traits?.includes("focus");
 const ordinal = (r) => `${r}${r === 1 ? "st" : r === 2 ? "nd" : r === 3 ? "rd" : "th"}`;
@@ -97,8 +92,11 @@ function primary(board) {
     return foes[0] ?? null;
 }
 const rankText = (sp) => (sp.cantrip ? "" : isFocus(sp) ? " (focus)" : ` (rank ${sp.rank})`);
-/** The cantrip-or-slot rule (the magus read's): the best cantrip and the best slot spell at t, and whether the slot is worth it. */
-function cantripOrSlot(board, t, actions, made) {
+/**
+ * The spells that could follow something else this turn at t: the best cantrip, and the best slot spell when it does more
+ * than the cantrip. A turn with the slot spell is its own plan, marked with spendsSlot, and spell thrift weighs the two.
+ */
+function followUps(board, t, actions, made) {
     let cantrip = null, slot = null;
     for (const sp of hurters(board, t, actions)) {
         if (isFocus(sp)) continue;
@@ -106,30 +104,34 @@ function cantripOrSlot(board, t, actions, made) {
         if (sp.cantrip) { if (!cantrip || pick.e.expected > cantrip.e.expected) cantrip = pick; }
         else if (!slot || pick.e.expected > slot.e.expected) slot = pick;
     }
-    const gain = cantrip && slot ? slot.e.expected - cantrip.e.expected : 0;
-    const nearlyDown = !!slot && t.hp > 0 && t.hp <= slot.e.expected;
-    const clear = !!slot && gain >= 3 + (slot.sp.rank ?? 1);
-    return { cantrip, slot, gain, nearlyDown, clear, spend: !!slot && (!cantrip || clear || nearlyDown) };
+    return [cantrip, slot && (!cantrip || slot.e.expected > cantrip.e.expected) ? slot : null];
 }
-/** The spell to cast after something else this turn: the cantrip unless the rule says the slot. already: damage already on the way. */
-function spendOrNot(board, t, actions, made, already = 0) {
-    const r = cantripOrSlot(board, t, actions, made);
-    const nearly = r.slot && t.hp > 0 && t.hp <= r.slot.e.expected + already;
-    return r.slot && (!r.cantrip || r.clear || nearly) ? r.slot : r.cantrip;
-}
-/** What to do with the actions a hex turn leaves at t: the spell by the rule, then a 1-action spell or a Strike. */
-function fillRest(board, t, rest, made, already = 0) {
+/**
+ * What to do with the actions a hex turn leaves at t: a cantrip (or, with slot, the slot spell when it does more; one slot
+ * a turn at most), then a 1-action spell or a Strike. spent: the slot spell it casts, if any.
+ */
+function fillRest(board, t, rest, made, { slot = false } = {}) {
     const steps = [];
     let ev = 0;
     let guard = 0;
+    let spent = null;
     while (rest >= 1 && t && guard++ < 3) {
-        const next = spendOrNot(board, t, rest, made, already + ev);
-        if (next) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; continue; }
+        const [cantrip, better] = followUps(board, t, rest, made);
+        const next = slot && !spent && better ? better : cantrip;
+        if (next) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; if (!next.sp.cantrip) spent = next.sp; continue; }
         const b = bestStrike(board, t, { made });
         if (b && inReach(board.me.rect, t.rect, b.s.reach || 5)) { steps.push({ cost: 1, text: `Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)}, about ${Math.round(b.e.expected)})` }); ev += b.e.expected; made += 1; rest -= 1; continue; }
         break;
     }
-    return { steps, ev, rest };
+    return { steps, ev, rest, spent };
+}
+/** A plan casting one or two slot spells joins spell thrift on the higher-rank one; the other slot is named in a note. */
+function slotSpells(plan, spells) {
+    const slots = spells.filter((sp) => sp && !sp.cantrip && !isFocus(sp) && !sp.consumable).sort((a, b) => (b.rank ?? 1) - (a.rank ?? 1));
+    if (!slots.length) return plan;
+    spendsSlot(plan, slots[0]);
+    if (slots[1]) plan.notes.push(`It also spends a rank-${slots[1].rank ?? 1} slot on ${slots[1].name}.`);
+    return plan;
 }
 /** The target's chances against a hex's save (its save -1 when a Sympathetic Strike landed). */
 const deg = (board, sp, t, stat, adj = 0, shift = 0) => degreeChances((t.saves?.[stat] ?? level(board) + 5) + adj, sp.dc ?? 10 + level(board) + 4, shift);
@@ -145,8 +147,8 @@ const canReachMe = (board, f) => inReach(f.rect, board.me.rect, f.reach ?? 5) ||
  */
 const HEXES = {
     "evil eye": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + 1.6 * c.cf) * worth(board, "sickened"), how: `Will DC ${sp.dc ?? "?"}: sickened 1 on a failure, 2 on a critical failure (lands about ${pct(c.f + c.cf)}), and it stays at least 1 while you Sustain and can see it` }; } },
-    "information overload": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + 1.6 * c.cf) * worth(board, "stupefied") * (t.caster ? 1.6 : 1), how: `Will DC ${sp.dc ?? "?"}: stupefied 1 on a failure, 2 on a critical failure (about ${pct(c.f + c.cf)})${t.caster ? "; it's a caster, so its spells suffer" : ""}` }; } },
-    "scrounger's glee": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + 1.6 * c.cf) * worth(board, "frightened"), how: `Will DC ${sp.dc ?? "?"}: frightened 1 on a failure, 2 on a critical failure (about ${pct(c.f + c.cf)}), stuck at 1 while it can hear you; Dismiss it as a reaction when an ally crits it to heal them ${Math.ceil(level(board) / 2) + Math.floor(Math.max(0, sp.rank - 1) / 2)}d4` }; } },
+    "information overload": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + 1.6 * c.cf) * worth(board, "stupefied") * (t.caster ? 1.6 : 1), how: `Will DC ${sp.dc ?? "?"}: stupefied 1 on a failure, 2 on a critical failure (about ${pct(c.f + c.cf)})${t.caster ? "; it has been casting this fight, so its spells suffer" : ""}` }; } },
+    "scrounger's glee": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + 1.6 * c.cf) * worth(board, "frightened"), how: `Will DC ${sp.dc ?? "?"}: frightened 1 on a failure, 2 on a critical failure (about ${pct(c.f + c.cf)}), stuck at 1 while it can hear you; Dismiss it as a reaction when an ally crits it to heal them ${Math.ceil((sp.rank || Math.ceil(level(board) / 2)) / 2)}d4` }; } },
     "buzzing bites": { on: "foe", save: "fortitude", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "fortitude", adj); const avg = sp.avg || 2.5 * sp.rank; const e = c.s * avg / 2 + c.f * avg + c.cf * avg * 2; return { ev: e + c.cf * worth(board, "sickened"), how: `Fortitude DC ${sp.dc ?? "?"}: ${sp.rank}d4 piercing (about ${Math.round(e)}), sickened 1 on a critical failure` }; } },
     "clinging ice": { on: "foe", save: "reflex", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "reflex", adj); const avg = sp.avg || 2.5 * sp.rank; const e = c.s * avg / 2 + c.f * avg + c.cf * avg * 2; return { ev: e + c.f * 1 + c.cf * 2, how: `Reflex DC ${sp.dc ?? "?"}: ${sp.rank}d4 cold (about ${Math.round(e)}), -5 feet of Speed on a failure, -10 on a critical failure while you Sustain` }; } },
     "shroud of night": { on: "foe", save: "will", ev(board, sp, t, env, adj) { const c = deg(board, sp, t, "will", adj); return { ev: (c.f + c.cf) * 0.2 * foeHit(board, t) * 2, how: `Will DC ${sp.dc ?? "?"}: on a failure (about ${pct(c.f + c.cf)}) everyone is concealed to it, a DC 5 flat check on each of its attacks; no good against greater darkvision` }; } },
@@ -222,7 +224,7 @@ function witch(board, ctx, out) {
     const fp = focusLeft(actor);
     const fmax = Number(actor?.system?.resources?.focus?.max) || 0;
     const slots = slotsOf(actor);
-    const patronSlug = Object.keys(PATRONS).find((s) => hasAny(actor, s, s === "faiths-flamekeeper" ? "faith-s-flamekeeper" : s)) ?? null;
+    const patronSlug = Object.keys(PATRONS).find((s) => has(actor, s)) ?? null;
     const patron = patronSlug ? PATRONS[patronSlug] : null;
     const hexMaster = lv >= 20 && has(actor, "hex-master");
     const effortless = lv >= 16 && has(actor, "effortless-concentration");
@@ -243,7 +245,7 @@ function witch(board, ctx, out) {
     const exposed = [me, ...board.allies].filter((a) => foes.some((f) => inReach(f.rect, a.rect, f.reach ?? 5))).sort((a, b) => (a === me ? 1 : 0) - (b === me ? 1 : 0));
     const guarded = exposed.find((a) => a !== me) ?? me;
     const unseen = board.enemies.some((e) => e.state !== "observed") || (board.unseenKnown ?? 0) > 0;
-    const env = { foes, t, strikers, hurt: hurtList[0] ?? null, exposed, guarded, unseen, charge: lv >= 6 && hasAny(actor, "witchs-charge", "witch-s-charge") };
+    const env = { foes, t, strikers, hurt: hurtList[0] ?? null, exposed, guarded, unseen, charge: lv >= 6 && has(actor, "witchs-charge") };
 
     // What's left: Focus Points and slots
     if (fp !== null) {
@@ -254,13 +256,6 @@ function witch(board, ctx, out) {
     }
     const ranks = Object.keys(slots.byRank).map(Number).sort((a, b) => b - a);
     if (ranks.length) out.notes.push(`Slots left: ${ranks.map((r) => `rank ${r}: ${slots.byRank[r].left} of ${slots.byRank[r].max}`).join(", ")}.${lv >= 19 && slots.byRank[10] ? ` The 10th-rank slot${slots.byRank[10].max > 1 ? "s are Patron's Gift and Patron's Truth" : " is Patron's Gift"}: nothing recasts or replaces it, so it's for the fight that decides the day.` : ""}`);
-    if (t && ctx.actions >= 1) {
-        const { cantrip, slot, nearlyDown, clear } = cantripOrSlot(board, t, ctx.actions, ctx.made);
-        if (cantrip && slot) {
-            const verdict = nearlyDown ? `${nameOf(t)} is nearly down, so the slot is worth it` : clear ? "the slot is worth it unless you're saving it" : "keep the slot; the gain is small. Spend one only when the gain is clear, the foe is nearly down, or this is the day's last fight";
-            out.notes.push(`Against ${nameOf(t)}: ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}, ${slot.sp.name} (rank ${slot.sp.rank}) about ${Math.round(slot.e.expected)}; ${verdict}.`);
-        } else if (cantrip && !slot) out.notes.push(`No damaging slot spell of yours reaches ${nameOf(t)} from here; ${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}, and your slots are for the save spells (Slow, Fear) and the rest.`);
-    }
 
     // The hex already up: the sustained spell the flag remembers, or a hex's effect still on you or an ally
     const upFromFlag = board.sustain && (allHexes.some((sp) => lc(sp.name) === lc(board.sustain.name)) || HEXES[lc(board.sustain.name)]) ? { name: board.sustain.name, value: board.sustain.value ?? 0 } : null;
@@ -302,7 +297,14 @@ function witch(board, ctx, out) {
         else if (!inRange) text += "; nothing is in its reach now";
         plan.notes.push(`${text}.`);
     };
-    const hexPlan = (c, { prefix = [], prefixEv = 0, prefixNotes = [], title = null, sustain = null, allowSpell = true, made = ctx.made } = {}) => {
+    // A hex turn, and the same turn with a slot spell in place of the cantrip when that does more (spell thrift weighs it)
+    const hexPlan = (c, opts = {}) => {
+        const plain = hexPlanOne(c, opts, false);
+        if (!plain || opts.allowSpell === false) return plain ? [plain] : [];
+        const slotted = hexPlanOne(c, opts, true);
+        return slotted?.spell ? [plain, slotted] : [plain];
+    };
+    function hexPlanOne(c, { prefix = [], prefixEv = 0, prefixNotes = [], title = null, sustain = null, allowSpell = true, made = ctx.made } = {}, slotMode = false) {
         const steps = [...prefix];
         let ev = prefixEv;
         let rest = ctx.actions - prefix.reduce((n, s) => n + (s.cost || 0), 0);
@@ -322,11 +324,13 @@ function witch(board, ctx, out) {
         }
         const notes = [...prefixNotes];
         if (c && focusNote(c)) notes.push(focusNote(c));
+        let spent = null;
         if (allowSpell && rest >= 1) {
             const at = c && !c.ally ? c.target : t;
-            if (at && !moved) { const f = fillRest(board, at, rest, made, ev); steps.push(...f.steps); ev += f.ev; rest = f.rest; }
-            else if (at && moved) { const next = spendOrNot(board, at, rest, made, ev); if (next && (next.sp.range ?? 30) >= feetBetween(me.rect, at.rect) - 30) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(at)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; } }
+            if (at && !moved) { const f = fillRest(board, at, rest, made, { slot: slotMode }); steps.push(...f.steps); ev += f.ev; rest = f.rest; spent = f.spent; }
+            else if (at && moved) { const [cantrip, better] = followUps(board, at, rest, made); const next = slotMode && better ? better : cantrip; if (next && (next.sp.range ?? 30) >= feetBetween(me.rect, at.rect) - 30) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(at)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; if (!next.sp.cantrip) spent = next.sp; } }
         }
+        if (slotMode && !spent) return null;
         if (rest >= 1 && adjacentFoes.length && !moved) steps.push({ cost: 1, text: `Step out of reach of ${adjacentFoes.map(nameOf).join(", ")}` });
         if (sustain && sustain.step.cost === 0) notes.push(`Cackle spends a Focus Point${fp !== null ? ` (${fp} left)` : ""}.`);
         if (c && sustain && HEXES[lc(c.sp.name)]?.sustain !== false && !hexMaster) notes.push(`Two hexes up next turn: a Sustain action for each, or Cackle for one and the action for the other.`);
@@ -334,12 +338,14 @@ function witch(board, ctx, out) {
         if (up && !sustain && !sustainFree && c) notes.push(`${up.name} ends: this doesn't Sustain it.`);
         if (sustainFree) { ev += up.value; notes.push(`Effortless Concentration Sustains ${up.name} for free as your turn begins.`); }
         if (adjacentFoes.length && c) notes.push(`Casting next to ${adjacentFoes.map(nameOf).join(", ")} provokes a Reactive Strike if it has one.`);
-        const plan = { kind: "class", title: title ?? (c ? `${c.sp.name} on ${c.ally ? (c.target === me ? "yourself" : nameOf(c.target)) : nameOf(c.target)}` : "Hex turn"), target: c && !c.ally ? c.target : null, ev, score: ev + 0.3, dest: c?.dest ?? null, steps, notes };
+        const baseTitle = title ?? (c ? `${c.sp.name} on ${c.ally ? (c.target === me ? "yourself" : nameOf(c.target)) : nameOf(c.target)}` : "Hex turn");
+        const plan = { kind: "class", title: !spent ? baseTitle : /then a spell$/.test(baseTitle) ? baseTitle.replace(/a spell$/, spent.name) : `${baseTitle}, then ${spent.name}`, target: c && !c.ally ? c.target : null, ev, score: ev + 0.3, dest: c?.dest ?? null, steps, notes };
         if (c) familiarNote(plan); else if (sustain) familiarNote(plan);
         plan.score = plan.ev + 0.3;
+        if (spent) spendsSlot(plan, spent);
         return plan;
-    };
-    const push = (p) => { if (p && p.steps.length) out.plans.push(p); };
+    }
+    const push = (p) => { for (const x of [p].flat()) if (x && x.steps.length) out.plans.push(x); };
 
     // One hex a turn (Hex Master lifts it): the foe hex and the ally hex are two plans, not one
     const sustainStep = up && !sustainFree ? { step: { cost: 1, text: `Sustain ${up.name} (if it's still up)` }, ev: up.value } : null;
@@ -414,8 +420,14 @@ function witch(board, ctx, out) {
         else if (up && !sustainFree) notes.push(`${up.name} ends: this doesn't Sustain it.`);
         if (after) { steps.push({ cost: after.cost, text: after.text }); total += after.ev; if (focusNote(after)) notes.push(focusNote(after)); }
         const left = rest - (after?.cost ?? 0);
-        if (left >= 1 && t) { const f = fillRest(board, t, left, ctx.made, total); steps.push(...f.steps); total += f.ev; }
-        out.plans.push({ kind: "class", title, target: t, ev: total, score: total + 0.3, dest: null, steps, notes });
+        // The cantrip after it, and a slot spell instead when that does more (spell thrift weighs it)
+        for (const slotMode of [false, true]) {
+            const f = left >= 1 && t ? fillRest(board, t, left, ctx.made, { slot: slotMode }) : { steps: [], ev: 0, spent: null };
+            if (slotMode && !f.spent) break;
+            const plan = { kind: "class", title: f.spent ? `${title}, then ${f.spent.name}` : title, target: t, ev: total + f.ev, score: total + f.ev + 0.3, dest: null, steps: [...steps, ...f.steps], notes: [...notes] };
+            if (f.spent) spendsSlot(plan, f.spent);
+            out.plans.push(plan);
+        }
     };
     const famDice = 6 + Math.max(0, Math.ceil((lv - 8) / 2) * 2);
     if (lv >= 8 && hasAny(actor, "spirit-familiar-witch", "spirit-familiar") && t && feetBetween(famRect, t.rect) <= 20) {
@@ -428,16 +440,16 @@ function witch(board, ctx, out) {
         const e = saveExpected(t.saves?.reflex ?? lv + 5, dc, famDice * 3.5, { basic: true });
         famPlan(`Stitching Strike at ${nameOf(t)}`, `Stitching Strike (its 2 actions): ${famDice}d6 slashing at ${nameOf(t)} with a basic Reflex save against your DC ${dc} (about ${Math.round(e.expected)}), immobilized for a round on a failure`, e.expected + e.fail * worth(board, "immobilized"), ["Once every 10 minutes; the sheet doesn't count it, so count it yourself."]);
     }
-    if (lv >= 14 && hasAny(actor, "patrons-presence", "patron-s-presence")) {
+    if (lv >= 14 && has(actor, "patrons-presence")) {
         const inAura = foes.filter((f) => feetBetween(famRect, f.rect) <= 15);
         if (inAura.length) {
             const ev = inAura.reduce((s, f) => { const c = degreeChances(f.saves?.will ?? lv + 5, dc); return s + (c.f * 2 + c.cf * 3) * worth(board, "stupefied") * 0.7 * (f.caster ? 1.5 : 1); }, 0);
             famPlan(`Patron's Presence on ${inAura.map(nameOf).join(", ")}`, `Patron's Presence (its 2 actions, once an hour): a 15-foot aura; ${inAura.map(nameOf).join(", ")} save against Will DC ${dc} or are stupefied 2 (3 on a critical failure) while inside it`, ev, ["The aura lasts until your next turn ends; the familiar can Sustain it up to a minute. Casters inside it suffer most."]);
         }
     }
-    if (lv >= 18 && hasAny(actor, "patrons-claim", "patron-s-claim") && t && feetBetween(famRect, t.rect) <= 30) {
+    if (lv >= 18 && has(actor, "patrons-claim") && t && feetBetween(famRect, t.rect) <= 30) {
         const e = saveExpected(t.saves?.fortitude ?? lv + 5, dc, 55, { basic: true });
-        famPlan(`Patron's Claim on ${nameOf(t)}`, `Patron's Claim (its 2 actions, once an hour): 10d10 spirit at ${nameOf(t)}, basic Fortitude against DC ${dc} (about ${Math.round(e.expected)}); drained 2 on a failure (4 on a critical failure), and you get a Focus Point back`, e.expected + e.fail * worth(board, "drained") * 2 + (fp !== null && fp < fmax ? 1.5 : 0), []);
+        famPlan(`Patron's Claim on ${nameOf(t)}`, `Patron's Claim (its 2 actions, once an hour): 10d10 spirit at ${nameOf(t)}, basic Fortitude against DC ${dc} (about ${Math.round(e.expected)}); drained 2 on a failure (4 on a critical failure), and you get a Focus Point back`, e.expected + e.fail * worth(board, "drained") * 2 + (fp !== null && fp < fmax ? 1.5 * e.fail : 0), []);
     }
 
     // The familiar's other hexes and the patron's trick when no hex is planned
@@ -470,27 +482,29 @@ function witch(board, ctx, out) {
                 const second = pool.filter((x) => x.sp !== q.sp).sort((a, b) => b.e.expected - a.e.expected)[0] ?? (q.sp.cantrip ? q : null);
                 if (second) {
                     const ev = q.e.expected + second.e.expected;
-                    out.plans.push({ kind: "class", title: `Quickened Casting: ${q.sp.name}, then ${second.sp.name}`, target: t, ev, score: ev + 0.4, dest: null,
+                    const plan = { kind: "class", title: `Quickened Casting: ${q.sp.name}, then ${second.sp.name}`, target: t, ev, score: ev + 0.4, dest: null,
                         steps: [{ cost: 0, text: `Quickened Casting (free, once a day): ${q.sp.name}${rankText(q.sp)} takes 1 action` }, { cost: 1, text: `Cast ${q.sp.name} at ${nameOf(t)} (about ${Math.round(q.e.expected)})` }, { cost: 2, text: `Cast ${second.sp.name}${rankText(second.sp)} at ${nameOf(t)} (about ${Math.round(second.e.expected)})` }],
-                        notes: [`Only a cantrip or a spell of rank ${Math.max(1, slots.top - 2)} or lower can be quickened. No hex this turn, unless you drop the second spell for one.${up && !sustainFree ? ` ${up.name} ends unless Cackle keeps it.` : ""}`] });
+                        notes: [`Only a cantrip or a spell of rank ${Math.max(1, slots.top - 2)} or lower can be quickened, and it spends your one Quickened Casting today. No hex this turn, unless you drop the second spell for one.${up && !sustainFree ? ` ${up.name} ends unless Cackle keeps it.` : ""}`] };
+                    slotSpells(plan, [q.sp, second.sp]);
+                    out.plans.push(plan);
                 }
             }
         }
     }
 
     // Witch's Armaments and the hair feats: the Strikes are on the board; what changes the math
-    if (lv >= 6 && hasAny(actor, "wild-witchs-armaments", "wild-witch-s-armaments")) {
+    if (lv >= 6 && has(actor, "wild-witchs-armaments")) {
         if (armaments.some((s) => /nails/i.test(s.label))) out.notes.push(`Wild Witch's Armaments: a second nails hit in a row on the same foe adds ${Math.floor(lv / 2)} slashing; two nails Strikes beat one Strike and a cantrip only against a low AC.`);
         if (armaments.some((s) => /jaws|teeth/i.test(s.label))) out.notes.push("Wild Witch's Armaments: a jaws critical hit means a save against your DC or sickened 1.");
         if (board.strikes.some((s) => /quills/i.test(s.label))) out.notes.push("Your quills (15 feet) are the armament to use when nothing is in reach.");
     }
-    if (lv >= 8 && hasAny(actor, "syu-tak-nwas-hexed-locks", "syu-tak-nwa-s-hexed-locks") && armaments.some((s) => /hair/i.test(s.label))) {
+    if (lv >= 8 && has(actor, "syu-tak-nwas-hexed-locks") && armaments.some((s) => /hair/i.test(s.label))) {
         const hair = armaments.find((s) => /hair/i.test(s.label));
         const two = allHexes.filter((sp) => sp.cost >= 2 && !HEXES[lc(sp.name)]?.attack);
         if (two.length && t && inReach(me.rect, t.rect, hair.reach || 10)) { const e = strikeExpected(hair.bonus + mapFor(ctx.made, hair.agile), t.ac, hair.avg); out.notes.push(`Hexed Locks: a 2-action hex on ${nameOf(t)} (${two.map((s) => s.name).join(", ")}) can ride a hair Strike (${signed(hair.bonus + mapFor(ctx.made, hair.agile))}, hits about ${pct(e.hit)}); the hex is lost on a miss, so only when the hit chance beats the save's.`); }
         else out.notes.push("Hexed Locks: your hair has reach, and a 2-action hex on a foe in reach can ride a hair Strike (no hex on a miss).");
     }
-    if (lv >= 20 && hasAny(actor, "demons-hair", "demon-s-hair")) out.notes.push(`Demon's Hair: while your familiar is alive and within 30 feet you're quickened, the extra action a hair Strike only${familiar && feetBetween(famRect, me.rect) > 30 ? "; it's farther than that now" : ""}. A non-cantrip 2-action hex on a foe in reach can ride a hair Strike, and is lost on a miss.`);
+    if (lv >= 20 && has(actor, "demons-hair")) out.notes.push(`Demon's Hair: while your familiar is alive and within 30 feet you're quickened, the extra action a hair Strike only${familiar && feetBetween(famRect, me.rect) > 30 ? "; it's farther than that now" : ""}. A non-cantrip 2-action hex on a foe in reach can ride a hair Strike, and is lost on a miss.`);
 
     // Spellshape feats: one action before the spell, each with its moment (free with Spellshape Mastery)
     const free = lv >= 20 && (has(actor, "spellshape-mastery") || has(actor, "metamagic-mastery"));
@@ -513,10 +527,10 @@ function witch(board, ctx, out) {
     if (lv >= 4 && has(actor, "portents-of-the-haruspex")) { const low = foes.filter((f) => f.hp !== undefined && f.hp <= 0.25 * (f.maxHp ?? f.hp)); out.notes.push(`Portents of the Haruspex (reaction) when a creature within 30 feet drops to 0 HP: roll a d12 for a damage type, and the next foe to take it from the party before your next turn ends has weakness ${lv} to it${low.length ? `; ${low.map(nameOf).join(", ")} may drop this round` : ""}.`); }
     if (lv >= 6 && has(actor, "steady-spellcasting") && adjacentFoes.length) out.notes.push("Steady Spellcasting: a Reactive Strike that would disrupt your casting only does so if you fail a DC 15 flat check.");
     if (effortless && !up) out.notes.push("Effortless Concentration: one of your hexes is Sustained for free as your turn begins.");
-    if (env.charge) { const touch = castable(board, (sp) => (sp.range ?? 30) <= 5 && sp.cost); if (touch.length) out.notes.push(`Witch's Charge: your touch spells (${touch.map((s) => s.name).join(", ")}) reach your charge from 30 feet${lv >= 10 && hasAny(actor, "witchs-communion", "witch-s-communion") ? ", and you have up to your Intelligence modifier of charges" : ""}.`); }
-    if (lv >= 8 && hasAny(actor, "witchs-bottle", "witch-s-bottle") && fp !== null && fp < fmax) out.notes.push("Witch's Bottle: a bottled hex holds its Focus Point until someone drinks it; if you brewed one this morning, that's where the missing point is, and an ally can drink a Stoke the Heart or a foe can be fed an Evil Eye.");
+    if (env.charge) { const touch = castable(board, (sp) => (sp.range ?? 30) <= 5 && sp.cost); if (touch.length) out.notes.push(`Witch's Charge: your touch spells (${touch.map((s) => s.name).join(", ")}) reach your charge from 30 feet${lv >= 10 && has(actor, "witchs-communion") ? ", and you have up to your Intelligence modifier of charges" : ""}.`); }
+    if (lv >= 8 && has(actor, "witchs-bottle") && fp !== null && fp < fmax) out.notes.push("Witch's Bottle: a bottled hex holds its Focus Point until someone drinks it; if you brewed one this morning, that's where the missing point is, and an ally can drink a Stoke the Heart or a foe can be fed an Evil Eye.");
     if (lv >= 2 && has(actor, "scatter-swarm") && foes.some((f) => (f.traits ?? []).includes("swarm"))) out.notes.push(`Scatter Swarm (1 action): a swarm sharing your familiar's space takes its area weakness in acid, cold, electricity or fire; move the familiar into ${nameOf(foes.find((f) => (f.traits ?? []).includes("swarm")))} first.`);
-    if (lv >= 8 && hasAny(actor, "helts-spelldance", "helt-s-spelldance") && adjacentFoes.length) out.notes.push(`Helt's Spelldance (3 actions): Performance against ${adjacentFoes.map(nameOf).join(", ")}'s Perception DC, then Stride away without their reactions and cast a 2-action spell; the way out of melee that still casts.`);
+    if (lv >= 8 && has(actor, "helts-spelldance") && adjacentFoes.length) out.notes.push(`Helt's Spelldance (3 actions): Performance against ${adjacentFoes.map(nameOf).join(", ")}'s Perception DC, then Stride away without their reactions and cast a 2-action spell; the way out of melee that still casts.`);
     if (lv >= 4 && has(actor, "rites-of-convocation")) out.notes.push("Rites of Convocation: 10 minutes with your familiar swaps a prepared spell for your summon spell at the same rank; nothing for this turn, but think of it between fights.");
     if (lv >= 14 && has(actor, "rites-of-transfiguration")) out.notes.push("Rites of Transfiguration: 10 minutes with your familiar swaps a prepared 6th-rank or higher spell for Cursed Metamorphosis; between fights.");
     if (lv >= 10 && has(actor, "double-double") && !has(actor, "cauldron")) out.notes.push("Double, Double needs Cauldron's brew; the morning's temporary potions are gone tomorrow, so drink them before a slot does the same job.");

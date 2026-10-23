@@ -6,7 +6,7 @@
  * casting from here on), summons (worth on the turn they appear, what a Sustain buys afterwards), Untamed Shift,
  * Focus Points and the once-a-day features, and the spellshapes and reactions as "when" notes.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 /** The orders (Remaster first, Legacy after), with the order spell each grants. */
 const ORDERS = [
@@ -31,7 +31,6 @@ const FORMS = [
     { key: "dragon", feat: "dragon-shape", name: "dragon form", shape: "a dragon's jaws, flying", tiers: { 6: { atk: 22, ac: 18, thp: 10, avg: 26, reach: 5, breath: 35 }, 8: { atk: 28, ac: 21, thp: 15, avg: 32, reach: 10, breath: 49 } }, fly: true },
     { key: "monstrosity", feat: "monstrosity-shape", name: "monstrosity form", shape: "a sea serpent's jaws", tiers: { 8: { atk: 28, ac: 20, thp: 20, avg: 33, reach: 15 }, 9: { atk: 31, ac: 22, thp: 25, avg: 39, reach: 15 } } },
     { key: "kaiju", feat: "heart-of-the-kaiju", name: "kaiju form", shape: "a kaiju's jaws", tiers: { 9: { atk: 32, ac: 23, thp: 25, avg: 39.5, reach: 20, breath: 45 } } },
-    { key: "incarnate", feat: "true-shapeshifter", name: "nature incarnate (once a day)", shape: "a kaiju's jaws", tiers: { 10: { atk: 34, ac: 25, thp: 30, avg: 43, reach: 30 } } },
 ];
 /** The best tier of a form at this Untamed Form rank, or null when the rank is too low. */
 function tierAt(form, rank) {
@@ -121,10 +120,10 @@ function druid(board, ctx, out) {
     if (orderKey === "storm" && focus > 0 && spellNamed(/^tempest surge$/i)) out.notes.push(`Tempest Surge (2 actions, 1 Focus Point, Reflex): ${rank}d12 electricity, and a foe that fails is clumsy 2 for a round (-2 AC and Reflex for the party's attacks). Spend it on a foe your melee allies are about to hit.`);
     if (orderKey === "leaf" || orderKey === "cultivation") {
         const sp = spellNamed(/^(cornucopia|goodberry)$/i);
-        if (sp) out.notes.push(`${sp.name} (1 action, 1 Focus Point): food that heals when eaten with an Interact action. In a fight it costs two actions for the healing of one; make it before the fight or hand it to an ally who has an action to spare.`);
+        if (sp) out.notes.push(`${sp.name} (2 actions, 1 Focus Point): food that heals when eaten with an Interact action. In a fight it costs three actions for the healing of one; make it before the fight or hand it to an ally who has an action to spare.`);
     }
     if (orderKey === "wave" && spellNamed(/^rising surf$/i)) out.notes.push("Rising Surf (1 action, 1 Focus Point): ride a wave 35 feet and up to 5 feet off the ground; it still provokes. Use it to leave a melee or reach high ground without a second Stride.");
-    if (orderKey === "stone" && spellNamed(/^crushing ground$/i)) out.notes.push("Crushing Ground (2 actions, 1 Focus Point): a cone of shaking earth; foes that fail are knocked prone. Best when two or more foes stand in a line ahead of you.");
+    if (orderKey === "stone" && spellNamed(/^crushing ground$/i)) out.notes.push(`Crushing Ground (2 actions, 1 Focus Point, 60 feet, one foe, Reflex): ${2 * (spellNamed(/^crushing ground$/i).rank ?? rank)}d6 bludgeoning; off-guard and -10 feet of Speed on a failure, immobilized on a critical failure. Spend it on the foe your melee allies are about to hit, or one closing on you.`);
     if (orderKey === "flame" && spellNamed(/^wildfire$/i)) out.notes.push("Wildfire (2 actions, 1 Focus Point): fire that spreads from the square it lands in on the turns you Sustain it; drop it where the foes stand and your allies don't.");
     if (orderKey === "spore" && spellNamed(/^mushroom patch$/i)) out.notes.push("Mushroom Patch (1 Focus Point): fungal terrain to Sustain; put it where foes must cross.");
 
@@ -191,8 +190,10 @@ function druid(board, ctx, out) {
                 if (!best || turn > best.turn) best = { ...x, turn };
             }
             if (!best) continue;
-            const other = Math.max(bestCast(board, f)?.e ?? 0, strikeRun(board, f, 3, { made: 0 }).ev);
+            // A turn of your own: a cantrip and a Strike, or three weapon Strikes (the form is free of slots, so slot spells aren't the measure)
             const cantrip = bestCast(board, f, { cantripOnly: true });
+            const oneStrike = Math.max(strikeRun(board, f, 1, { made: 0 }).ev, strikeRun(board, f, 1, { made: 0, melee: false }).ev);
+            const other = Math.max(cantrip ? cantrip.e + (cantrip.sp.cost <= 2 ? oneStrike : 0) : 0, strikeRun(board, f, 3, { made: 0 }).ev, strikeRun(board, f, 3, { made: 0, melee: false }).ev);
             const inReachNow = inReach(me.rect, f.rect, best.t.reach);
             const steps = [{ cost: 2, text: `Untamed Form (rank ${best.t.rank}): ${best.fm.name}, ${best.fm.shape} (${signed(best.atk)}${best.atk === own ? ", your own modifier +2" : ""}, about ${Math.round(best.t.avg)} a hit, reach ${best.t.reach} feet), AC ${best.t.ac + lv}, ${best.t.thp} temporary HP${best.fm.fly ? ", flying" : ""}` }];
             let ev = best.t.thp * 0.3;
@@ -221,13 +222,14 @@ function druid(board, ctx, out) {
             if (has(actor, "toppling-transformation") && best.t.reach >= 10 && adjFoes.length) { notes.push(`Toppling Transformation (reaction, as you grow): a free Trip or Shove on ${nameOf(nearest(adjFoes))}.`); ev += worth(board, "prone") * 0.4; }
             // The investment: each later turn is three form Strikes against the best two-action cast or three weapon Strikes
             const edge = best.turn - other;
-            notes.push(`From the next turn, three Strikes in this form are worth about ${Math.round(best.turn)} a turn against ${nameOf(f)}; your best turn of casting or weapon Strikes is about ${Math.round(other)}${cantrip ? ` (${cantrip.sp.name}: ${Math.round(cantrip.e)})` : ""}. ${edge > 0 ? "The form wins for the rest of the fight" : "Casting keeps up; take the form for the temporary HP, reach or mobility, not the damage"}; it lasts a minute, and you can't cast while in it.`);
+            notes.push(`From the next turn, three Strikes in this form are worth about ${Math.round(best.turn)} a turn against ${nameOf(f)}; your best turn of a cantrip and a Strike, or of weapon Strikes, is about ${Math.round(other)}${cantrip ? ` (${cantrip.sp.name}: ${Math.round(cantrip.e)})` : ""}. ${edge > 0 ? "The form wins for the rest of the fight" : "Casting keeps up; take the form for the temporary HP, reach or mobility, not the damage"}; it lasts a minute, and you can't cast while in it.`);
             if (has(actor, "misty-transformation")) notes.push("Misty Transformation (reaction, once a minute): a concealing mist around you as you change.");
             if (best.t.breath) notes.push(`The form's breath (2 actions, basic save, about ${best.t.breath} in a cone) is its best opener, then 1d4 rounds to recharge.`);
             ev += Math.max(0, edge) * 0.5;
             out.plans.push({ kind: "class", title: `Untamed Form: ${best.fm.name} against ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps, notes });
             break; // one plan: the shape is the same whichever foe; the advisor's Strike plans take it from here
         }
+        if (has(actor, "true-shapeshifter") && lv >= 20) out.notes.push("True Shapeshifter (once a day): cast nature incarnate as a kaiju without preparing it, no Focus Point or slot; for the fight that decides the day.");
         if (shapes.length && has(actor, "form-control")) out.notes.push(`Form Control (1 action before Untamed Form): the form at rank ${Math.max(1, rank - 2)} for ${has(actor, "perfect-form-control") ? "as long as you like" : "an hour"}: for the trek, not this fight.`);
         if (shapes.length && has(actor, "bizarre-transformation")) out.notes.push("Bizarre Transformation (1 action before Untamed Form): the form's Strike deals acid, cold, electricity, fire or poison instead; pick what the foe is weak to or can't resist.");
         if (shapes.length && has(actor, "reactive-transformation")) out.notes.push("Reactive Transformation (reaction): a fall, or fire, poison or bludgeoning damage, puts you in a form that resists it.");
@@ -276,8 +278,8 @@ function druid(board, ctx, out) {
             const cantrip = bestCast(board, f, { cantripOnly: true });
             const notes = [`Each later turn, Sustain (1 action) buys its two actions, about ${Math.round(ev)} against this foe, and leaves you two for a cantrip${cantrip ? ` (${cantrip.sp.name}, about ${Math.round(cantrip.e)})` : ""}. ${ev + (cantrip?.e ?? 0) > other ? "That beats your best three-action turn from the second turn on." : "Your own best turn is about " + Math.round(other) + "; the summon is for a body in the way, not the damage."} It has the minion trait and goes at 0 HP; the spell lasts a minute.`];
             if (has(actor, "primal-summons")) notes.push("Primal Summons: give it air (fly 60 feet), earth (burrow, +1d6 bludgeoning), fire (+1d6 fire, fire resistance) or water (swim, +1d6 bludgeoning) as you summon it.");
-            out.plans.push({ kind: "class", title: `${sp.name} beside ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null,
-                steps: [{ cost: 3, text: `Cast ${sp.name} (rank ${sp.rank}): a level ${s.level} creature appears next to ${nameOf(f)} and Strikes twice at once (about ${signed(s.atk)}, ${Math.round(s.avg)} a hit)` }], notes });
+            out.plans.push(spendsSlot({ kind: "class", title: `${sp.name} beside ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null,
+                steps: [{ cost: 3, text: `Cast ${sp.name} (rank ${sp.rank}): a level ${s.level} creature appears next to ${nameOf(f)} and Strikes twice at once (about ${signed(s.atk)}, ${Math.round(s.avg)} a hit)` }], notes }, sp));
             break;
         }
     }
@@ -295,7 +297,7 @@ function druid(board, ctx, out) {
         const pick = castable(board, (sp) => !sp.cantrip && (sp.rank ?? 1) <= 5 && sp.avg > 0 && !sp.buff && !sp.heals).sort((a, b) => b.avg - a.avg)[0];
         out.notes.push(`Ley Line Conduit (1 action, once a minute): the next rank 5 or lower spell with no duration costs no slot${pick ? `; ${pick.name} (rank ${pick.rank}) is the one to use it on` : ""}.`);
     }
-    if (has(actor, "hierophant-s-power") || has(actor, "hierophants-power") || has(actor, "primal-wellspring")) {
+    if (has(actor, "hierophants-power") || has(actor, "primal-wellspring")) {
         const tens = (board.spells ?? []).filter((sp) => !sp.cantrip && sp.rank === 10 && !(sp.traits ?? []).includes("focus"));
         out.notes.push(`Two 10th-rank slots (Hierophant's Power): ${tens.length ? tens.map((sp) => sp.name).join(" and ") + " still prepared" : "both spent"}.`);
     }

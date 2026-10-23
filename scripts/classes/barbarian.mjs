@@ -5,10 +5,8 @@
  * class feats that change the math: Swipe, Whirlwind Strike, Thrash, Spirit's Wrath, Terrifying Howl, Unbalancing Sweep,
  * Giant's Stature and Lunge, Desperate Wrath, Furious Bully, Brutal Critical, Share Rage. The rest are when-notes.
  */
-import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("hunters-aim"); the catalog's keep a dash for them ("hunter-s-aim"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 /**
  * Rage damage by instinct: at 1st, with the 7th-level specialization, and with greater weapon specialization (15th).
  * fury 3/7/13; dragon 4/8/16 (with the dragon's damage type); giant 6/10/18 (with a larger weapon, clumsy 1); spirit 3/7/13
@@ -21,7 +19,7 @@ const RAGE_DAMAGE = {
     elemental: [4, 6, 12], ligneous: [6, 10, 18], decay: [6, 10, 18], bloodrager: [2, 4, 8], default: [2, 2, 2],
 };
 const RAGE_HOW = {
-    dragon: "if you take your dragon's damage type", giant: "with your larger weapon (clumsy 1 while you wield it)", spirit: "as spirit damage if you like",
+    dragon: "if you take your dragon's damage type", giant: "with your larger weapon, clumsy 1 while you wield it", spirit: "as spirit damage if you like",
     animal: "with your animal's attacks; you can't use weapons", superstition: "and one more against a foe you've seen cast a spell", elemental: "as your element's damage",
     ligneous: "if you take the bark (your Speed drops by 10)", decay: "as poison, if you accept the rot (you take damage at the end of each of your turns)",
     bloodrager: "plus persistent bleed of half that", fury: "", default: "",
@@ -63,13 +61,14 @@ function rageBonusFor(s, actor, inst, tier) {
 }
 /** The animal instinct's attacks, built for the plan when the sheet doesn't show them yet (they appear while raging). */
 function animalStrikes(board, actor, lv) {
-    const item = actor?.items?.find?.((i) => (i.slug ?? i.system?.slug) === "animal-instinct");
-    const animal = item?.flags?.pf2e?.rulesSelections?.animal ?? actor?.flags?.pf2e?.rulesSelections?.animal ?? "bear";
+    // The ChoiceSet has no flag, so PF2e keys it by the item's slug ("animalInstinct"); its roll option is "animal-instinct:<animal>"
+    const opt = Object.keys(actor?.rollOptions?.all ?? {}).find((k) => /^animal-instinct:/.test(k))?.split(":")[1];
+    const animal = choiceOf(actor, "animal-instinct", "animalInstinct") ?? choiceOf(actor, "animal-instinct", "animal") ?? opt ?? "bear";
     const rows = ANIMALS[animal] ?? ANIMALS.bear;
     const melee = board.strikes.filter((s) => !s.ranged);
     const bonus = melee.length ? Math.max(...melee.map((s) => s.bonus)) : lv + 4 + abil(actor, "str");
     return rows.map(([label, die, agile, reach = 5, deadly = 0]) => {
-        const d = lv >= 7 ? stepUp(die) : die;
+        const d = lv >= 7 && (actor?.class?.slug ?? "") === "barbarian" ? stepUp(die) : die; // not for the dedication
         return { label, bonus, avg: (d + 1) / 2 + abil(actor, "str"), agile, ranged: false, reach, traits: ["unarmed", ...(agile ? ["agile"] : [])], deadly: deadly ? (deadly + 1) / 2 : 0, synthetic: true };
     });
 }
@@ -88,22 +87,32 @@ function barbarian(board, ctx, out) {
     const howl = me.intimidation ?? null; // read before raging may hide Demoralize
     const round1 = typeof game !== "undefined" && game.combat?.round === 1;
     const heavy = actor.wornArmor?.category === "heavy" || !!actor.items?.some?.((i) => i.type === "armor" && i.system?.category === "heavy" && (i.isEquipped ?? i.system?.equipped?.inSlot));
-    const quick = has(actor, "quick-tempered") && round1 && (!heavy || has(actor, "invulnerable-rager")) && ctx.made === 0 && ctx.actions >= 3;
+    // Quick-Tempered fires when you roll initiative, not on your turn: the plans never spend it
+    const quickOk = has(actor, "quick-tempered") && (!heavy || has(actor, "invulnerable-rager"));
     const fatigued = me.conditions?.has?.("fatigued");
     const spec = weaponSpec(lv);
+    // Brutal Critical (18): an extra die and two dice of bleed on a melee critical hit, raging or not
+    if (has(actor, "brutal-critical")) for (const s of board.strikes) if (!s.ranged && !s.brutalCounted) { s.brutalCounted = true; const die = Number(String(s.item?.system?.damage?.die ?? "d8").replace("d", "")) || 8; s.deadly = (s.deadly || 0) + (die + 1) / 2 * 4; }
 
     // ---- the Strikes the plans use: the sheet's, with Rage damage on them (and the animal's attacks when they're not up yet)
+    const canRage = !raging && !fatigued;
     let rs;
     if (raging) {
         for (const s of board.strikes) if (!s.rageCounted) { s.rageCounted = true; s.avg += rageBonusFor(s, actor, inst, tier); }
         if (inst === "animal") { const own = board.strikes.filter((s) => instinctStrike(s) || s.traits?.includes("unarmed")); if (own.length) board.strikes = own; }
         rs = board.strikes;
-    } else {
+    } else if (canRage) {
         rs = inst === "animal" ? animalStrikes(board, actor, lv) : board.strikes.map((s) => ({ ...s, avg: s.avg + rageBonusFor(s, actor, inst, tier) }));
+    } else {
+        rs = board.strikes; // fatigued: no Rage, so no Rage damage and no instinct attacks
     }
     const reach = Math.max(5, ...rs.filter((s) => !s.ranged).map((s) => s.reach || 5));
-    const canRage = !raging && !fatigued;
-    const rageStep = () => ({ cost: quick ? 0 : 1, text: `${quick ? "Quick-Tempered: Rage as a free action" : "Rage"}: +${base} on your melee Strikes${RAGE_HOW[inst] ? ` (${RAGE_HOW[inst]})` : ""}, ${tempHp} temporary HP` });
+    /** The Rage step, with the bonus the plan's Strike actually gets (a giant's normal weapon or an animal's weapon get 2). */
+    const rageStep = (s = null) => {
+        const b = s ? rageBonusFor(s, actor, inst, tier) : base;
+        const how = inst === "giant" ? (b === base ? RAGE_HOW.giant : "; +" + base + " with a larger weapon") : RAGE_HOW[inst];
+        return { cost: 1, text: `Rage: +${b} on your melee Strikes${how ? (how.startsWith(";") ? how : ` (${how})`) : ""}, ${tempHp} temporary HP` };
+    };
     /** A run of Strikes at f with the raged Strikes, the penalty climbing; firstExtra on the first (Mighty Rage). */
     const run = (f, n, made, { firstExtra = 0, acAdj = 0, at = me.rect } = {}) => {
         const used = [];
@@ -137,18 +146,19 @@ function barbarian(board, ctx, out) {
             for (const s of board.strikes) if (!s.wrathCounted) { s.wrathCounted = true; s.bonus += 2; }
             out.notes.push(`Desperate Wrath (free action as your turn begins, at ${me.hp}/${me.maxHp} HP): +2 on attack rolls, -1 to AC and saves until your Rage ends or you're above half; the plans count the +2.`);
         }
-        if (has(actor, "brutal-critical")) for (const s of board.strikes) if (!s.ranged && !s.brutalCounted) { s.brutalCounted = true; const die = Number(String(s.item?.system?.damage?.die ?? "d8").replace("d", "")) || 8; s.deadly = (s.deadly || 0) + (die + 1) / 2 * 4; }
+        if (round1 && ctx.made === 0 && has(actor, "mighty-rage") && quickOk) out.notes.push(`Mighty Rage: if Quick-Tempered started this Rage, your first Strike this turn deals ${base} more (your Rage damage again); the plans don't count it.`);
     } else {
         if (fatigued) out.notes.push("Fatigued: you can't Rage.");
-        else if (ctx.actions < 2 && !quick) out.notes.push(`Rage (1 action): +${base} on melee Strikes, ${tempHp} temporary HP, for a minute.`);
+        else if (round1 && quickOk) out.notes.push(`Quick-Tempered fires when you roll initiative (a free Rage then); this fight that's past, so Rage costs an action now. Next fight, apply it as initiative is rolled${has(actor, "mighty-rage") ? ", and Mighty Rage adds your Rage damage to your first Strike" : ""}.`);
+        if (!fatigued && ctx.actions < 2) out.notes.push(`Rage (1 action): +${base} on melee Strikes, ${tempHp} temporary HP, for a minute.`);
         if (has(actor, "wounded-rage") && !fatigued) out.notes.push("Wounded Rage (reaction): when you take damage, you Rage; the plans spend an action on it instead, so it's free if a foe hits you first.");
         if (has(actor, "second-wind")) out.notes.push("Second Wind: you can Rage again within the minute and still get the temporary HP, but you're fatigued when that Rage ends until you rest 10 minutes.");
         if (has(actor, "revitalizing-rage")) out.notes.push("Revitalizing Rage: one full turn out of a Rage, not a minute, and Rage gives temporary HP again.");
     }
 
     // ---- Rage, then Strike: the plan when not raging
-    if (canRage && (ctx.actions >= 2 || quick) && foes.length) {
-        const spare = ctx.actions - (quick ? 0 : 1);
+    if (canRage && ctx.actions >= 2 && foes.length) {
+        const spare = ctx.actions - 1;
         const scouring = has(actor, "scouring-rage") ? foes.filter((f) => feetBetween(me.rect, f.rect) <= 20) : [];
         const scourEv = scouring.reduce((t, f) => t + saveExpected(f.saves?.fortitude ?? 0, dc, lv).expected, 0);
         for (const f of foes) {
@@ -157,15 +167,15 @@ function barbarian(board, ctx, out) {
             const left = spare - sq.route.actions;
             if (left < 1) continue;
             const at = sq.route.actions ? { ...me.rect, x: sq.x, y: sq.y } : me.rect;
-            const r = run(f, left, ctx.made, { firstExtra: quick && has(actor, "mighty-rage") ? base : 0, at });
+            const r = run(f, left, ctx.made, { at });
             if (!r.used.length) continue;
-            const steps = [rageStep()];
-            if (scouring.length) steps.push({ cost: 0, text: `Scouring Rage (free): ${scouring.map(nameOf).join(", ")} within 20 feet take ${lv} ${inst === "default" ? "" : inst + " "}damage, basic Fortitude DC ${dc}` });
+            const steps = [rageStep(r.used[0].s)];
+            if (scouring.length) steps.push({ cost: 0, text: `Scouring Rage (free): ${scouring.map(nameOf).join(", ")} within 20 feet take ${lv} damage of your Rage damage's type, basic Fortitude DC ${dc}` });
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
-            steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)}; +${rageBonusFor(r.used[0].s, actor, inst, tier)} each${quick && has(actor, "mighty-rage") ? ", Mighty Rage doubles it on the first" : ""}` });
+            steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)}; +${rageBonusFor(r.used[0].s, actor, inst, tier)} each` });
             const ev = r.ev + tempHp * 0.3 + scourEv;
-            push({ title: `${quick ? "Rage free, then" : "Rage, then"} Strike ${nameOf(f)}`, target: f, ev, bias: 0.5, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps,
-                notes: [quick ? "Quick-Tempered: your first turn's Rage costs no action." : has(actor, "quick-tempered") ? "Rage lasts a minute; Quick-Tempered makes it free on the first turn of a fight only." : "Rage lasts a minute; you can't use concentrate actions while it does."] });
+            push({ title: `Rage, then Strike ${nameOf(f)}`, target: f, ev, bias: 0.5, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps,
+                notes: ["Rage lasts a minute; you can't use concentrate actions while it does."] });
         }
     }
     // Rage-trait plans below work when raging, or after a Rage step this turn
@@ -271,10 +281,10 @@ function barbarian(board, ctx, out) {
     }
     // ---- Giant's Stature, Titan's Stature, Giant's Lunge: reach for the rest of the rage, when a foe is just out of it
     const grown = !!effect(actor, /giants-stature|giant-s-stature|giants-lunge|giant-s-lunge/);
-    const grow = grown ? 0 : hasAny(actor, "titans-stature", "titan-s-stature") ? 10 : hasAny(actor, "giants-stature", "giant-s-stature") ? 5 : hasAny(actor, "giants-lunge", "giant-s-lunge") ? Math.max(0, 10 - reach) : 0;
+    const stature = hasAny(actor, "giants-stature") && (me.sizeRank ?? 2) <= 2; // Giant's Stature needs you Medium or smaller
+    const grow = grown ? 0 : stature && hasAny(actor, "titans-stature") ? 10 : stature ? 5 : hasAny(actor, "giants-lunge") ? Math.max(0, 10 - reach) : 0;
     if (grow && avail >= 2) {
-        const stature = hasAny(actor, "giants-stature", "giant-s-stature") && (me.sizeRank ?? 2) <= 2;
-        const name = stature ? (hasAny(actor, "titans-stature", "titan-s-stature") ? "Titan's Stature" : "Giant's Stature") : "Giant's Lunge";
+        const name = stature ? (hasAny(actor, "titans-stature") ? "Titan's Stature" : "Giant's Stature") : "Giant's Lunge";
         const just = foes.filter((f) => !inReach(me.rect, f.rect, reach) && inReach(me.rect, f.rect, reach + grow));
         for (const f of just) {
             // the Strikes' own reach is short of f; the grown reach covers it, so pick by damage alone
@@ -351,7 +361,7 @@ function barbarian(board, ctx, out) {
     if (has(actor, "towering-transformation")) out.notes.push("Towering Transformation (reaction): when you grow (Giant's Stature), every smaller foe within 30 feet saves or is frightened.");
     if (has(actor, "brutal-crush") && inst === "animal") out.notes.push("Brutal Crush (1 action, after a bludgeoning hit with your animal attack): Strike again; a hit stupefies 2 for a round.");
     if (has(actor, "rip-and-tear") && inst === "animal") out.notes.push(`Rip and Tear (1 action, after a piercing or slashing hit with your animal attack): Strike again; a hit adds ${lv >= 12 ? "2d6" : "1d6"} persistent bleed.`);
-    if (has(actor, "mighty-rage") && !raging && !quick && has(actor, "quick-tempered")) out.notes.push("Mighty Rage: when Quick-Tempered starts your Rage, your first Strike that turn deals your Rage damage again.");
+    if (has(actor, "mighty-rage") && !raging && !round1 && has(actor, "quick-tempered")) out.notes.push("Mighty Rage: when Quick-Tempered starts your Rage, your first Strike that turn deals your Rage damage again.");
     if (has(actor, "contagious-rage") && !raging) out.notes.push("Contagious Rage: Share Rage as often as you like, and allies may take your instinct's ability with it.");
 }
 /** The best of these melee Strikes at t for the nth attack, reach aside (the caller has checked it). */

@@ -340,9 +340,9 @@ function attackCtx(at, t, { ranged = true, area = false } = {}) {
     const light = BOARD.lightAt ? BOARD.lightAt(t.rect) : "bright";
     const v = BOARD.visioner?.get?.(t.id) ?? null;
     const own = !at || (from.x === BOARD.me.rect.x && from.y === BOARD.me.rect.y && (from.z ?? 0) === (BOARD.me.rect.z ?? 0));
-    const state = withVisioner(visibilityOf({ senses: BOARD.me.senses, conditions: BOARD.me.conditions }, t, light, feet), v?.state, own);
+    const state = withVisioner(visibilityOf({ senses: BOARD.me.senses, conditions: BOARD.me.conditions }, t, light, feet), v?.state, own, t.conditions);
     const mine = BOARD.lightAt ? BOARD.lightAt(from) : "bright";
-    const seen = withVisioner(t.senses ? visibilityOf({ senses: t.senses, conditions: t.conditions }, { conditions: BOARD.me.conditions }, mine, feet) : "observed", v?.seen, own);
+    const seen = withVisioner(t.senses ? visibilityOf({ senses: t.senses, conditions: t.conditions }, { conditions: BOARD.me.conditions }, mine, feet) : "observed", v?.seen, own, BOARD.me.conditions);
     const out = { cover: Math.max(0, cover), noLine: cover < 0, state, light, seen, flat: area ? 1 : flatFor(state), hidden: seen === "hidden" || seen === "undetected", visioner: !!v };
     CTX.set(k, out);
     return out;
@@ -356,7 +356,7 @@ function hiddenFrom(board, at) {
     if (!board.lightAt) return 0;
     const light = board.lightAt(at);
     const own = at.x === board.me.rect.x && at.y === board.me.rect.y && (at.z ?? 0) === (board.me.rect.z ?? 0);
-    return board.enemies.filter((e) => e.senses && ["hidden", "undetected"].includes(withVisioner(visibilityOf({ senses: e.senses, conditions: e.conditions }, { conditions: board.me.conditions }, light, feetBetween(at, e.rect)), board.visioner?.get?.(e.id)?.seen, own))).length;
+    return board.enemies.filter((e) => e.senses && ["hidden", "undetected"].includes(withVisioner(visibilityOf({ senses: e.senses, conditions: e.conditions }, { conditions: board.me.conditions }, light, feetBetween(at, e.rect)), board.visioner?.get?.(e.id)?.seen, own, board.me.conditions))).length;
 }
 /** Notes on a plan about cover and sight between this square and the target. */
 function sightNotes(plan, at, t, { ranged = true, attack = true } = {}) {
@@ -389,7 +389,7 @@ function strikeRun(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
             // Prone and it moved, so it stood first: the prone -2 already in its Strikes is gone
             const stood = BOARD.me.conditions?.has?.("prone") && at && (at.x !== BOARD.me.rect.x || at.y !== BOARD.me.rect.y) ? 2 : 0;
             const dmg = damageAgainst(vs?.iwr, s.damageTypes ?? []);
-            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + (offGuard || surprise ? SNEAK : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
+            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? SNEAK : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
             const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f };
             if (!best || e.expected > best.e.expected) best = { s, bonus, e };
@@ -1535,8 +1535,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     }
 
     // Nothing it can hit this turn: close on the best target, as safely as it can
-    if (board.square && targets.length && !intent?.run && !plans.some((p) => p.target && p.ev > 0)) {
-        const pick = [...targets].sort((x, y) => (feetBetween(me.rect, x.rect) - threatShare(board, x) * 15 - (x.objective ? 10 : 0))
+    // A walker doesn't advance on a flier it can't reach from the ground: a few feet closer changes nothing
+    const canFly = (board.move?.speeds?.fly ?? 0) > 0;
+    const myReach = Math.max(5, ...board.strikes.filter((s) => !s.ranged).map((s) => s.reach || 5));
+    const reachableUp = (x) => canFly || ((x.rect?.z ?? 0) - (me.rect?.z ?? 0)) <= myReach;
+    const advanceOn = targets.filter(reachableUp);
+    if (board.square && advanceOn.length && !intent?.run && !plans.some((p) => p.target && p.ev > 0)) {
+        const pick = [...advanceOn].sort((x, y) => (feetBetween(me.rect, x.rect) - threatShare(board, x) * 15 - (x.objective ? 10 : 0))
             - (feetBetween(me.rect, y.rect) - threatShare(board, y) * 15 - (y.objective ? 10 : 0)))[0];
         let best = null;
         for (const sq of squares) {
@@ -1698,7 +1703,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         : leader && (me.wis ?? 0) <= 2 && hpFrac < 0.75 ? `${nameOf(leader)} is down`
         : fallen.length >= 1 && fallen.length >= (board.allies?.length ?? 0) + 1 && hpFrac < 0.5 ? `half its side is down`
         : (board.recentDamage ?? 0) >= 0.4 * me.maxHp && hpFrac < 0.5 ? `took ${board.recentDamage} damage since its last turn` : null;
-    if (top && !intent && !me.mindless && !fearless && !pinned && me.hp > 0 && (hpFrac < 0.25 || morale) && targets.length && !(plans[0].why ?? []).includes("could drop")) {
+    if (top && !me.pc && !intent && !me.mindless && !fearless && !pinned && me.hp > 0 && (hpFrac < 0.25 || morale) && targets.length && !(plans[0].why ?? []).includes("could drop")) {
         // A boss (two or more levels over the party's best) or the last of its side (nobody else to run to) is
         // offered the choice second, not first: its flight ends the fight, and that's the GM's story call
         const partyLevel = Math.max(0, ...targets.map((t) => t.level ?? 0));

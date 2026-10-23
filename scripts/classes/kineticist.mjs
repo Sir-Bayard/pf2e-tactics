@@ -10,11 +10,10 @@
  * Numbers come from the system's rule elements: blast dice 1 + (level-1)/4 (the archetype's from Improved Elemental
  * Blast), the impulse attack from the "impulse" statistic (class DC - 10 when it isn't there).
  */
-import { canMove, effect, has, level, moveText, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { canMove, effect, has, level, moveText, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, reachableSquares, signed } from "./_common.mjs";
 import { areaHits } from "../advisor.mjs";
 import { centerOf, damageAgainst } from "../reader.mjs";
 
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const F = (a, b) => Math.floor(a / b);
 const dAvg = (n, d) => Math.max(0, n) * (d + 1) / 2;
@@ -25,7 +24,7 @@ const round1 = (n) => Math.round(n * 10) / 10;
 const ELEMENTS = {
     air: { die: 6, range: 60, types: ["electricity", "slashing"], versatile: "cold", resist: "air and electricity", skill: "Stealth", aura: "allies in your aura get +10 feet of Speed", crit: "the junction's rider on a critical air blast (see the gate feature)", impulse: "the junction's rider on every 2-action air impulse (see the gate feature)" },
     earth: { die: 8, range: 30, types: ["bludgeoning", "piercing"], versatile: "poison", resist: "earth and poison", skill: "Athletics", aura: "the junction's effect on your aura (see the gate feature)", crit: "the junction's rider on a critical earth blast (see the gate feature)", impulse: "the junction's rider on every 2-action earth impulse (see the gate feature)" },
-    fire: { die: 6, range: 60, types: ["fire"], versatile: "cold", resist: "cold and fire", skill: "Intimidation", aura: "foes in your aura have weakness to your fire impulses equal to half your level", crit: "a critical fire blast adds 1d6 persistent fire (plus your gate's item bonus)", impulse: "2-action fire impulses roll one die size bigger (counted in the plans)" },
+    fire: { die: 6, range: 60, types: ["fire"], versatile: "cold", resist: "cold and fire", skill: "Intimidation", aura: "foes in your aura have weakness to your fire impulses equal to half your level", crit: "a critical fire blast adds 1d6 persistent fire (plus your gate's item bonus)", impulse: "2-action fire impulses roll one die size bigger, 2-action Elemental Blasts included (counted in the plans)" },
     metal: { die: 8, range: 30, types: ["piercing", "slashing"], versatile: "electricity", resist: "electricity and metal", skill: "Crafting", aura: "metal creatures in your aura take -1 AC", crit: "a critical metal blast adds 1d6 persistent bleed (plus your gate's item bonus)", impulse: "the junction's rider on every 2-action metal impulse (see the gate feature)" },
     water: { die: 8, range: 30, types: ["bludgeoning", "cold"], versatile: "acid", resist: "fire and water", skill: "Athletics", aura: "allies in your aura resist fire, half your level", crit: "a critical water blast splashes the creatures next to the target", impulse: "the junction's rider on every 2-action water impulse (see the gate feature)" },
     wood: { die: 8, range: 30, types: ["bludgeoning", "vitality"], versatile: "poison", resist: "poison and wood", skill: "Survival", aura: "allies that start their turn in your aura get temporary HP (1, 2 from 10th, 3 from 15th)", crit: "the junction's rider on a critical wood blast (see the gate feature)", impulse: "the junction's rider on every 2-action wood impulse (see the gate feature)" },
@@ -200,15 +199,24 @@ function kineticist(board, ctx, out) {
         const dist = feetBetween(at, f.rect);
         for (const c of choices) {
             const dice = blastDice + extraDice(c.el);
-            const base = dAvg(dice, c.die) + extraFlat(c.el) + (cost === 2 ? con : 0);
+            // the fire impulse junction: a 2-action blast's fire damage rolls one die size bigger (the fire half of a Two-Element blast)
+            const fireUp = cost === 2 && c.types.includes("fire") && !!junctions.fire?.has("impulse") && c.die < 12;
+            const perDie = fireUp ? (c.two ? (c.die + 2) / 2 : (c.die + 3) / 2) : (c.die + 1) / 2;
+            const diceAvg = dice * perDie;
+            const dieText = fireUp && !c.two ? `${dice}d${c.die + 2}` : `${dice}d${c.die}`;
+            const junctionText = fireUp ? (c.two ? `, the fire half a die bigger (fire junction)` : ", fire junction") : "";
+            const base = diceAvg + extraFlat(c.el) + (cost === 2 ? con : 0);
             const dmg = damageAgainst(f.iwr, c.types);
             const delta = (dmg.immune ? 0 : Math.max(0, dmg.delta)) + fireWeak(f, c.types);
             const forms = [];
-            // melee: reach 5 (10 with a reach infusion), Strength added; agile from the infusion once the penalty bites
-            if (inReach(at, f.rect, infusion ? 10 : 5)) forms.push({ melee: true, bonus: impulseMod + mapFor(made, infusion && made > 0), avg: base + str, how: `melee${infusion && made > 0 ? ", agile infusion" : infusion && dist > 5 ? ", reach infusion" : ""}` });
-            // ranged: the element's range, -2 per increment past the first; Weapon Infusion's shapes
+            // melee: reach 5 (10 with a reach infusion), Strength added; Weapon Infusion adds one trait, so the blast that
+            // needs reach can't also be agile
+            const needReach = !inReach(at, f.rect, 5);
+            if (inReach(at, f.rect, infusion ? 10 : 5)) forms.push({ melee: true, bonus: impulseMod + mapFor(made, infusion && made > 0 && !needReach), avg: base + str, how: `melee${needReach ? ", reach infusion" : infusion && made > 0 ? ", agile infusion" : ""}` });
+            // ranged: the element's range is a maximum, not an increment (Elemental Blast: "Earth ... 30 feet"); only Weapon
+            // Infusion's shapes have range increments, -2 each past the first
             const pen = (r) => -2 * Math.max(0, Math.ceil(dist / r) - 1);
-            if (dist <= c.range * 6) forms.push({ melee: false, bonus: impulseMod + mapFor(made) + pen(c.range), avg: base, how: `ranged ${c.range} ft${pen(c.range) ? ` (${pen(c.range)} range)` : ""}` });
+            if (dist <= c.range) forms.push({ melee: false, bonus: impulseMod + mapFor(made), avg: base, how: `ranged ${c.range} ft` });
             if (infusion) {
                 if (dist <= 600) forms.push({ melee: false, bonus: impulseMod + mapFor(made) + pen(100) + (dist <= 30 ? -2 : 0), avg: base, how: `ranged, bow infusion 100 ft${dist <= 30 ? " (-2 volley)" : ""}` });
                 if (dist <= 300) forms.push({ melee: false, bonus: impulseMod + mapFor(made) + pen(50), avg: base + F(Math.max(0, str), 2), how: "ranged, propulsive infusion 50 ft" });
@@ -216,7 +224,7 @@ function kineticist(board, ctx, out) {
             }
             for (const fm of forms) {
                 const e = strikeExpected(fm.bonus, f.ac, fm.avg, { delta, immune: dmg.immune });
-                if (!best || e.expected > best.e.expected) best = { ...fm, e, el: c.el, two: !!c.two, label: c.label, dice, die: c.die, cost, text: `${cost === 2 ? "2-action " : ""}${c.label} Blast at ${nameOf(f)}: ${fm.how} (${signed(fm.bonus)}, ${dice}d${c.die}${fm.avg - dAvg(dice, c.die) > 0 ? `+${Math.round(fm.avg - dAvg(dice, c.die))}` : ""}${cost === 2 ? ", Con added" : ""}${delta ? `, +${delta} weakness` : ""})` };
+                if (!best || e.expected > best.e.expected) best = { ...fm, e, el: c.el, two: !!c.two, label: c.label, dice, die: c.die, cost, text: `${cost === 2 ? "2-action " : ""}${c.label} Blast at ${nameOf(f)}: ${fm.how} (${signed(fm.bonus)}, ${dieText}${fm.avg - diceAvg > 0 ? `+${Math.round(fm.avg - diceAvg)}` : ""}${cost === 2 ? ", Con added" : ""}${junctionText}${delta ? `, +${delta} weakness` : ""})` };
             }
         }
         return best;
@@ -259,7 +267,8 @@ function kineticist(board, ctx, out) {
     if (ctx.actions >= 1) for (const f of foes) {
         const op = opener(f, me.rect);
         const left = ctx.actions - op.cost;
-        const r = blastRun(f, me.rect, left, ctx.made + op.made, { quick: pinnacle && ctx.actions <= 3 });
+        // Kinetic Pinnacle's quickened blast: added when ctx.actions doesn't count it yet; when it does, the 4th action is it
+        const r = blastRun(f, me.rect, left, ctx.made + op.made, { quick: pinnacle && (ctx.actions <= 3 || left > 3) });
         const plan = r.steps.length || op.ev ? { title: `${auraOn ? "Elemental Blasts at" : "Channel Elements, then blast"} ${nameOf(f)}`, target: f, ev: op.ev + r.ev, steps: [...op.steps, ...r.steps] } : null;
         // A step in for a melee blast with Strength behind it
         if (str >= 2 && canMove(me) && !inReach(me.rect, f.rect, 5) && left >= 2) {
@@ -267,8 +276,21 @@ function kineticist(board, ctx, out) {
             if (sq && sq.route.actions === 1) {
                 const at = { ...me.rect, x: sq.x, y: sq.y };
                 const op2 = opener(f, at);
-                const r2 = blastRun(f, at, ctx.actions - 1 - op2.cost, ctx.made + op2.made, { quick: pinnacle && ctx.actions <= 3 });
+                const left2 = ctx.actions - 1 - op2.cost;
+                const r2 = blastRun(f, at, left2, ctx.made + op2.made, { quick: pinnacle && (ctx.actions <= 3 || left2 > 3) });
                 if (r2.steps.length && op2.ev + r2.ev > (plan?.ev ?? 0) + 0.5) push({ title: `Close in and blast ${nameOf(f)} in melee`, target: f, ev: op2.ev + r2.ev, dest: { x: sq.x, y: sq.y }, steps: [{ cost: 1, text: moveText(sq, f) }, ...op2.steps, ...r2.steps], notes: [`A melee blast adds your Strength (+${str}) to each hit${sq.route.provokes.length ? "; the move provokes" : ""}.`] });
+            }
+        }
+        // Out of range from here (an element's blast range is a maximum, not an increment): one Stride into range first
+        if (!r.steps.length && !op.ev && canMove(me) && ctx.actions >= 2) {
+            const far = Math.max(...elements.map((el) => ELEMENTS[el].range));
+            const sq = squareToReach(board, f, far, 1);
+            if (sq && sq.route.actions === 1) {
+                const at = { ...me.rect, x: sq.x, y: sq.y };
+                const op2 = opener(f, at);
+                const left2 = ctx.actions - 1 - op2.cost;
+                const r2 = blastRun(f, at, left2, ctx.made + op2.made, { quick: pinnacle && (ctx.actions <= 3 || left2 > 3) });
+                if (r2.steps.length || op2.ev) push({ title: `Move into range and blast ${nameOf(f)}`, target: f, ev: op2.ev + r2.ev, dest: { x: sq.x, y: sq.y }, steps: [{ cost: 1, text: `${sq.route.via ?? "Stride"} to within ${far} feet of ${nameOf(f)}` }, ...op2.steps, ...r2.steps], notes: [`Your blasts reach ${far} feet and no farther${sq.route.provokes.length ? "; the move provokes" : ""}.`] });
             }
         }
         if (plan) push(plan);
@@ -378,7 +400,7 @@ function kineticist(board, ctx, out) {
         push({ title: title ?? `${imp.name} on ${nameOf(f)}`, target: f, ev: total, bias: 0.3, dest, steps, notes: n });
     };
     const impulsesOnSheet = [];
-    for (const [key, imp] of Object.entries(IMPULSES)) { if (!imp) continue; const slug = key.split(":")[0]; if (has(actor, slug) || has(actor, slug.replace(/-s-/g, "s-"))) impulsesOnSheet.push({ key, slug, imp }); }
+    for (const [key, imp] of Object.entries(IMPULSES)) { if (!imp) continue; const slug = key.split(":")[0]; if (has(actor, slug)) impulsesOnSheet.push({ key, slug, imp }); }
     for (const { imp } of impulsesOnSheet) {
         if (ctx.actions < imp.cost + (auraOn || finalGate ? 0 : 1)) continue;
         if (!foes.length && !imp.heal) continue;
@@ -518,7 +540,7 @@ function kineticist(board, ctx, out) {
         const sctx = { foesInAura, alliesInAura, hiddenFoes: board.enemies.some((e) => e.state === "hidden") };
         const near = foes.slice().sort((a, b) => feetBetween(me.rect, a.rect) - feetBetween(me.rect, b.rect))[0];
         for (const [slug, st] of Object.entries(STANCES)) {
-            if (!(has(actor, slug) || has(actor, slug.replace(/-s-/g, "s-"))) || (activeStance && activeStance[0] === slug)) continue;
+            if (!has(actor, slug) || (activeStance && activeStance[0] === slug)) continue;
             const text = typeof st.text === "function" ? st.text(lv) : st.text;
             const value = st.value(sctx, lv, board);
             const name = st.name;
@@ -565,9 +587,9 @@ function kineticist(board, ctx, out) {
     if (pinnacle) out.notes.push("Kinetic Pinnacle: you're quickened; the extra action only Channels, makes a 1-action blast or enters a 1-action stance. The plans add a blast for it.");
     if (has(actor, "effortless-impulse")) out.notes.push("Effortless Impulse (free, at the start of your turn): Sustain one of your impulses without an action.");
     if (has(actor, "imperious-aura")) out.notes.push("Imperious Aura (free, at the start of your turn): enter a stance impulse that affects your aura without an action; the stance plans cost nothing with it.");
-    if (has(actor, "elemental-transformation")) { const uses = (actor?.items ?? []).find((i) => slugOf(i) === "elemental-transformation")?.system?.frequency?.value; out.notes.push(`Elemental Transformation (1 action, once a day${uses != null ? `, ${uses} left` : ""}, aura down): elemental form heightened to rank ${Math.ceil(lv / 2)} instead of your aura; for a fight where the form's attacks and flight beat your impulses.`); }
+    if (has(actor, "elemental-transformation")) { const uses = usesLeft(actor, "elemental-transformation"); out.notes.push(`Elemental Transformation (1 action, once a day${uses != null ? `, ${uses} left` : ""}, aura down): elemental form heightened to rank ${Math.ceil(lv / 2)} instead of your aura; for a fight where the form's attacks and flight beat your impulses.`); }
     // impulses the read doesn't score: when they pay
-    const n = (slug, text) => { if (has(actor, slug) || has(actor, slug.replace(/-s-/g, "s-"))) out.notes.push(text); };
+    const n = (slug, text) => { if (has(actor, slug)) out.notes.push(text); };
     n("burning-jet", `Burning Jet (2 actions): a straight 40-foot Stride${lv >= 6 ? " or a 40-foot Leap in any direction" : ""} that ignores difficult terrain and triggers no reactions; the way out of a surrounded spot.`);
     n("four-winds", `Four Winds (2 actions): up to four willing creatures within 30 feet Stride ${lv >= 10 ? "their Speed" : "half their Speed"}; moves the party into place when the fight starts.`);
     n("stepping-stones", "Stepping Stones (2 actions): a 20-foot path over water, chasms or difficult terrain within 60 feet.");

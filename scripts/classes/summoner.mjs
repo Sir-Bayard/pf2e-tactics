@@ -9,18 +9,14 @@
  * Field of Roots, Elemental Burst, Elemental Maelstrom, Tendril Strike's reach), Eidolon's Wrath, Piercing Jab, Eidolon's
  * Trample, Seething Frenzy, Lifelink Surge, and Manifest Eidolon when the eidolon isn't on the board. The rest are when-notes.
  */
-import { bestStrike, castable, effect, focusLeft, has, level, myReach, allySpeed, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, myReach, allySpeed, pct, slugOf, squareToReach, standardDC, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 
-/** Foundry's slugs drop apostrophes ("eidolons-wrath"); the catalog's keep a dash for them ("eidolon-s-wrath"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 const times = (n) => (n === 1 ? "" : n === 2 ? " twice" : n === 3 ? " three times" : ` ${n} times`);
 const r1 = (x) => Math.round(x * 10) / 10;
 const center = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
 const angleDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
-/** The standard DC by level (GM Core), for Extend Boost's check. */
-const STANDARD_DC = [14, 15, 16, 18, 19, 20, 22, 23, 24, 26, 27, 28, 30, 31, 32, 34, 35, 36, 38, 39, 40];
 /** Eidolon types: feature slug, the tradition's skill, the tradition. */
 const TYPES = [
     ["angel-eidolon", "angel", "divine"], ["anger-phantom-eidolon", "anger", "occult"], ["beast-eidolon", "beast", "primal"], ["construct-eidolon", "construct", "arcane"],
@@ -30,20 +26,29 @@ const TYPES = [
 ];
 const SKILL_OF = { arcane: "arcana", divine: "religion", occult: "occultism", primal: "nature" };
 
-/** The character's eidolon among its allies: the eidolon trait, the Eidolon class, a master flag pointing here, or an eidolon-type feat on its sheet. */
+/**
+ * The character's eidolon among its allies: one whose master flag points here first; failing that, the one ally that looks
+ * like an eidolon (the eidolon trait, the Eidolon class, an eidolon-type feat), never a guess between two players' eidolons.
+ */
 function eidolonOf(board) {
     const me = board.me;
     const myId = String(me.actor?.id ?? me.actor?.uuid ?? "");
-    const isEidolon = (a) => {
+    const mine = (a) => {
+        if (!a?.actor || !myId) return false;
+        const master = a.actor.flags?.pf2e?.master ?? a.actor.flags?.pf2e?.eidolon?.master ?? a.actor.system?.master?.id ?? null;
+        return !!master && String(master).includes(myId);
+    };
+    const looks = (a) => {
         if (!a?.actor) return false;
         const traits = [...(a.traits ?? a.actor.traits ?? a.actor.system?.traits?.value ?? [])];
         if (traits.includes("eidolon")) return true;
         if ((a.cls ?? "") === "eidolon" || /^eidolon$/i.test(a.actor.class?.name ?? "")) return true;
-        const master = a.actor.flags?.pf2e?.master ?? a.actor.flags?.pf2e?.eidolon?.master ?? a.actor.system?.master?.id ?? null;
-        if (master && myId && String(master).includes(myId)) return true;
         return !!a.actor.items?.some?.((i) => i.type === "feat" && /-eidolon$/.test(slugOf(i)));
     };
-    return board.allies.find((a) => a.canAct !== false && isEidolon(a)) ?? board.allies.find(isEidolon) ?? null;
+    const linked = board.allies.filter(mine);
+    if (linked.length) return linked.find((a) => a.canAct !== false) ?? linked[0];
+    const like = board.allies.filter(looks);
+    return like.length === 1 ? like[0] : null;
 }
 /** The eidolon's Strikes from its own sheet (system.actions), read like reader.mjs's strikesOf, which isn't exported: label, bonus, avg, agile, ranged, reach, range, dice, damage types. */
 function sheetStrikes(actor) {
@@ -97,7 +102,9 @@ function summoner(board, ctx, out) {
     const kind = type?.[1] ?? null;
     const tradition = actor.flags?.pf2e?.eidolon?.tradition ?? actor.flags?.system?.eidolon?.tradition ?? type?.[2] ?? null;
     const dedication = has(actor, "summoner-dedication") && (actor?.class?.slug ?? "") !== "summoner";
-    const tandem = has(actor, "act-together") && !dedication;
+    // Act Together is once a round: when the sheet shows it spent, this turn's plans go without it
+    const togetherSpent = usesLeft(actor, "act-together") === 0;
+    const tandem = has(actor, "act-together") && !dedication && !togetherSpent;
     const spellNamed = (re) => (board.spells ?? []).find((sp) => re.test(sp.name ?? "") && !sp.consumable) ?? null;
     const boostKnown = !!spellNamed(/^boost eidolon$/i) || has(actor, "link-spells");
     const reinforceKnown = !!spellNamed(/^reinforce eidolon$/i) || has(actor, "reinforce-eidolon");
@@ -115,7 +122,6 @@ function summoner(board, ctx, out) {
     if (!eid) {
         const instant = lv >= 19 && has(actor, "instant-manifestation");
         const cost = instant ? 1 : 3;
-        const fp = focus;
         if (A >= cost) {
             const guess = { bonus: lv + 6 + (lv >= 5 ? 2 : 0) + (lv >= 13 ? 2 : 0), avg: 4.5 + 4 + Math.floor(lv / 4) * 4.5 };
             const adj = foes.filter((f) => inReach(me.rect, f.rect, 10)).sort((a, b) => a.hp - b.hp);
@@ -124,9 +130,21 @@ function summoner(board, ctx, out) {
             const later = f ? strikeExpected(guess.bonus, f.ac, guess.avg).expected + strikeExpected(guess.bonus - 5, f.ac, guess.avg).expected : 0;
             const steps = [];
             let ev = now + 0.5 * later;
-            if (has(actor, "ostentatious-arrival") && !instant && fp > 0) {
-                const burst = foes.filter((x) => feetBetween(me.rect, x.rect) <= 15);
-                if (burst.length) { const d = Math.floor(lv / 2) * 2.5; ev += burst.length * d; steps.push({ cost: 0, text: `Ostentatious Arrival (free action, 1 Focus Point of ${fp}): it arrives in an explosion, ${Math.floor(lv / 2)}d4 to everything within 10 feet of it but you (${burst.map(nameOf).join(", ")}; allies beside you too)` }); }
+            // Ostentatious Arrival (6, free, no Focus Point): a 10-foot emanation around the eidolon as it appears beside you,
+            // 1d4 per 2 levels, basic Reflex; you're spared, allies aren't. The square that catches most foes for fewest allies.
+            if (has(actor, "ostentatious-arrival") && !instant) {
+                const dice = Math.floor(lv / 2), avg = dice * 2.5;
+                let best = null;
+                for (let dx = -1; dx <= me.rect.w; dx++) for (let dy = -1; dy <= me.rect.h; dy++) {
+                    if (dx >= 0 && dx < me.rect.w && dy >= 0 && dy < me.rect.h) continue;
+                    const sq = { x: me.rect.x + dx, y: me.rect.y + dy, w: 1, h: 1, z: me.rect.z ?? 0 };
+                    if (board.occupant?.has?.(`${sq.x},${sq.y}`)) continue;
+                    const hit = foes.filter((x) => feetBetween(sq, x.rect) <= 10);
+                    const friends = board.allies.filter((x) => x.rect && feetBetween(sq, x.rect) <= 10);
+                    const v = hit.reduce((t, x) => t + saveExpected(x.saves?.reflex ?? lv + 5, dc, avg, { basic: true }).expected, 0) - friends.length * avg * 0.5;
+                    if (hit.length && (!best || v > best.v)) best = { sq, hit, friends, v };
+                }
+                if (best && dice >= 1 && best.v > 0) { ev += best.v; steps.push({ cost: 0, text: `Ostentatious Arrival (free action): it arrives in an explosion, ${dice}d4 (basic Reflex DC ${dc}) to everything within 10 feet of it but you: ${best.hit.map(nameOf).join(", ")}${best.friends.length ? `, and ${best.friends.map(nameOf).join(", ")} too` : ""}; Manifest it at ${best.sq.x},${best.sq.y}` }); }
             }
             steps.push({ cost, text: `Manifest Eidolon (${cost} action${cost > 1 ? "s" : ""}${instant ? ", Instant Manifestation" : ""}): it appears beside you and takes one action${adj.length ? `, a Strike at ${nameOf(f)}` : f ? `, a Stride toward ${nameOf(f)}` : ""}` });
             if (instant && A > cost) steps.push({ cost: A - cost, text: `Then ${A - cost} action${A - cost > 1 ? "s" : ""} for its Strikes or your spells` });
@@ -163,18 +181,23 @@ function summoner(board, ctx, out) {
     /** The shared multiple attack penalty on the eidolon's attack n (0-based): Nimble Form softens its agile ones. */
     const eMap = (n, agile) => (n <= 0 ? 0 : nimble && agile ? (n === 1 ? -3 : -6) : mapFor(n, agile));
     const frenzy = kind === "anger" && lv >= 7 && !!effect(E.actor, /seething-frenzy/);
-    const boostOf = (s) => (frenzy ? Math.min(12, 3 * (s.dice ?? 1)) : Math.min(8, 2 * (s.dice ?? 1)));
+    // A Boost Eidolon still running (Extend Boost: 3 or 4 rounds) needs no recast: the plans count it and free the action
+    const boostUp = !frenzy && !!effect(E.actor, /boost-eidolon/);
+    /** Boosted without a cast this turn: the frenzy, Eternal Boost's quickened action, or a Boost still running. */
+    const preBoosted = frenzy || eternal || boostUp;
+    /** Boost Eidolon: 2 per weapon die (at most +8); 3 per die only on a Furious Strike in a Seething Frenzy. */
+    const boostOf = (s, furious = false) => (frenzy && furious ? Math.min(12, 3 * (s.dice ?? 1)) : Math.min(8, 2 * (s.dice ?? 1)));
     const boostText = `+${boostOf(primary)}${boostOf(secondary) !== boostOf(primary) ? ` (+${boostOf(secondary)} with its ${secondary.label})` : ""} damage`;
     const speed = allySpeed(E);
     const eReach = (s) => s.reach || reach;
     const canHit = (s, at, f) => (s.ranged ? feetBetween(at, f.rect) <= (s.range ?? 30) : inReach(at, f.rect, eReach(s)));
     /** The eidolon's best Strike at f from `at` with n attacks already made this turn; extra on the damage. */
-    const eBest = (f, n, { extra = 0, acAdj = 0, at = E.rect, bonusAdj = 0, boosted = false } = {}) => {
+    const eBest = (f, n, { extra = 0, acAdj = 0, at = E.rect, bonusAdj = 0, boosted = false, furious = false } = {}) => {
         let best = null;
         for (const s of strikes) {
             if (!canHit(s, at, f)) continue;
             const b = s.bonus + eMap(n, s.agile) + bonusAdj;
-            const e = strikeExpected(b, f.ac + acAdj, s.avg + extra + (boosted ? boostOf(s) : 0), { deadly: s.deadly });
+            const e = strikeExpected(b, f.ac + acAdj, s.avg + extra + (boosted ? boostOf(s, furious) : 0), { deadly: s.deadly });
             if (!best || e.expected > best.e.expected) best = { s, bonus: b, e };
         }
         return best;
@@ -200,19 +223,21 @@ function summoner(board, ctx, out) {
     };
     const ownAction = "a 1-action of your own (Stride, Demoralize, Raise a Shield, Reinforce Eidolon)";
     /** The Boost step: inside Act Together (busy) it costs nothing more; with Eternal Boost it's the quickened action and stands alone (null inside Act Together). */
-    const eternalStep = eternal && !frenzy ? { cost: 0, text: `Boost Eidolon with your quickened action (Eternal Boost): ${boostText} on its Strikes this round` } : null;
-    const boostStep = (busy) => (frenzy || eternal ? null : boostKnown ? { cost: busy ? 0 : 1, text: `${busy ? "you cast " : ""}Boost Eidolon (1 action, cantrip): ${boostText} on its Strikes this round` } : null);
+    const eternalStep = eternal && !frenzy && !boostUp ? { cost: 0, text: `Boost Eidolon with your quickened action (Eternal Boost): ${boostText} on its Strikes this round` } : null;
+    const boostStep = (busy) => (preBoosted ? null : boostKnown ? { cost: busy ? 0 : 1, text: `${busy ? "you cast " : ""}Boost Eidolon (1 action, cantrip): ${boostText} on its Strikes this round` } : null);
     const extendNote = () => {
-        if (!has(actor, "extend-boost") || !(focus > 0) || eternal || frenzy) return null;
+        if (!has(actor, "extend-boost") || !(focus > 0) || eternal || frenzy || boostUp) return null;
         const skill = SKILL_OF[tradition] ?? null;
         const mod = skill ? Number(actor.skills?.[skill]?.mod) : NaN;
-        const want = STANDARD_DC[Math.min(20, lv)] ?? 20;
+        const want = standardDC(lv);
         const c = Number.isFinite(mod) ? degreeChances(mod, want) : null;
         return `Extend Boost (free action, 1 Focus Point of ${focus}) before the Boost: ${skill ? `${skill[0].toUpperCase()}${skill.slice(1)}` : "the tradition's skill"} against DC ${want}${c ? `, about ${pct(c.s + c.cs)} to keep it 3 rounds (${pct(c.cs)} for 4)` : ""}; on a failure it lasts the round and the point isn't spent.`;
     };
     const shared = `You and ${eName} share your ${ctx.actions} action${ctx.actions === 1 ? "" : "s"}, one multiple attack penalty and one pool of Hit Points (${me.hp}/${me.maxHp}).`;
     out.notes.push(`${shared}${fromSheet ? "" : ` The plans use ${eName}'s best Strike from the board and guess an agile second one: open its sheet for the real pair.`}${tandem ? " Act Together is once per round: the plans assume you haven't used it yet." : dedication ? " Your dedication has no Act Together or tandem actions: each of its actions is one of yours, spent plainly." : ""}`);
-    if (frenzy) out.notes.push(`Seething Frenzy is on: ${eName} counts as boosted (3 per die on its Strikes) with temporary HP, at -1 AC, and can't stop for a minute. Don't cast Boost Eidolon.`);
+    if (frenzy) out.notes.push(`Seething Frenzy is on: ${eName} counts as boosted (2 per weapon die on its Strikes, 3 per die on a Furious Strike) with temporary HP, at -1 AC, and can't stop for a minute. Don't cast Boost Eidolon.`);
+    if (boostUp) out.notes.push(`Boost Eidolon is still running on ${eName} (Extend Boost): don't cast it again; the plans count it and spend the action elsewhere.`);
+    if (togetherSpent && has(actor, "act-together") && !dedication) out.notes.push("Act Together is spent this round: each of your eidolon's actions and yours comes out of the shared pool on its own.");
 
     /* ---------------------------------------------------------------- Boost and Strike: Act Together pairs the cantrip with its first Strike */
     for (const f of foes) {
@@ -222,7 +247,7 @@ function summoner(board, ctx, out) {
         const bs = boostStep(true);
         const steps = [];
         let ev = 0, n = made0;
-        const boosted = !!bs || frenzy || eternal;
+        const boosted = !!bs || preBoosted;
         if (tandem) {
             if (A - m < 1) continue;
             if (m) {
@@ -241,7 +266,7 @@ function summoner(board, ctx, out) {
         } else {
             // No Act Together: Boost costs an action of its own; it pays when it adds more than the Strike it displaces
             const withBoost = bs && A - m - 1 >= 1 ? eRun(f, A - m - 1, n, { boosted: true, at: mv.at }) : null;
-            const plain = eRun(f, A - m, n, { boosted: frenzy || eternal, at: mv.at });
+            const plain = eRun(f, A - m, n, { boosted: preBoosted, at: mv.at });
             const pick = withBoost && withBoost.ev > plain.ev ? withBoost : plain;
             if (!pick.used.length) continue;
             if (m) steps.push({ cost: 1, text: `${eName} Strides into reach of ${nameOf(f)}` });
@@ -272,7 +297,7 @@ function summoner(board, ctx, out) {
         for (const f of foes) {
             if (!inReach(me.rect, f.rect, myReach(board)) || !strikes.some((s) => !s.ranged && inReach(E.rect, f.rect, eReach(s)))) continue;
             const bs = A >= 3 ? boostStep(false) : null;
-            const boosted = !!bs || frenzy || eternal;
+            const boosted = !!bs || preBoosted;
             const eb = eBest(f, made0, { boosted });
             const mb = bestStrike(board, f, { made: made0 });
             if (!eb || !mb) continue;
@@ -280,7 +305,7 @@ function summoner(board, ctx, out) {
             if (bs) steps.push(bs); else if (eternalStep) steps.push(eternalStep);
             steps.push({ cost: 2, text: `Tandem Strike: ${eName} Strikes ${nameOf(f)} with its ${eb.s.label} (${signed(eb.bonus)}), then you Strike it with ${mb.s.label} (${signed(mb.bonus)}); both at the same penalty` });
             let ev = eb.e.expected + mb.e.expected;
-            if (!bs && A >= 3) { const r = eRun(f, 1, made0 + 2, { boosted: frenzy || eternal }); if (r.used.length) { steps.push({ cost: 1, text: r.text }); ev += r.ev; } }
+            if (!bs && A >= 3) { const r = eRun(f, 1, made0 + 2, { boosted: preBoosted }); if (r.used.length) { steps.push({ cost: 1, text: r.text }); ev += r.ev; } }
             push({ title: `Tandem Strike on ${nameOf(f)}`, target: f, ev, bias: 0.3, steps, notes: ["If both hit, the damage is combined against its resistances."] });
         }
     }
@@ -300,7 +325,7 @@ function summoner(board, ctx, out) {
             let best = null;
             // (a) Act Together: Boost and a Strike, then the Onslaught with the boosted Strike; (b) the Onslaught first, then a Strike
             for (const sp of spells) {
-                if (A >= 3 && tandem && (boostKnown || frenzy || eternal)) {
+                if (A >= 3 && tandem && (boostKnown || preBoosted)) {
                     const first = eBest(f, made0, { boosted: true });
                     const second = first ? eBest(f, made0 + 1, { boosted: true }) : null;
                     if (first && second) {
@@ -311,11 +336,11 @@ function summoner(board, ctx, out) {
                         if (!best || ev > best.ev) best = { ev, steps, sp };
                     }
                 }
-                const first = eBest(f, made0, { boosted: frenzy || eternal });
+                const first = eBest(f, made0, { boosted: preBoosted });
                 if (first) {
                     let ev = first.e.expected + cast(sp, first.e.hit, made0);
                     const steps = [...(eternalStep ? [eternalStep] : []), { cost: 2, text: `Magical Onslaught: ${eName} Strikes ${nameOf(f)} with its ${first.s.label} (${signed(first.bonus)}), then you cast ${sp.name} on it; on a hit it's ${sp.attack != null ? "off-guard to the spell" : "at -2 to its save"}` }];
-                    if (A >= 3) { const r = eRun(f, 1, made0 + 2, { boosted: frenzy || eternal }); if (r.used.length) { steps.push({ cost: 1, text: r.text }); ev += r.ev; } }
+                    if (A >= 3) { const r = eRun(f, 1, made0 + 2, { boosted: preBoosted }); if (r.used.length) { steps.push({ cost: 1, text: r.text }); ev += r.ev; } }
                     if (!best || ev > best.ev) best = { ev, steps, sp };
                 }
             }
@@ -333,8 +358,10 @@ function summoner(board, ctx, out) {
         if (tandem) {
             if (bs) steps.push({ cost: 2, text: `Act Together: ${bs.text} and ${X.text}` });
             else {
-                const partner = X.target ? eBest(X.target, X.attacks ? n : made0, { boosted: frenzy }) : null;
-                if (partner && X.partnerStrike !== false) { steps.push({ cost: 2, text: `Act Together: ${X.text}, and ${eName} Strikes ${nameOf(X.target)} with its ${partner.s.label} (${signed(partner.bonus)})` }); ev += partner.e.expected; n += 1; }
+                // The eidolon's activity takes Act Together's two actions; the single action is yours (a Strike of your own
+                // when the target is in your reach or range, the penalty shared), never another eidolon Strike
+                const mine = X.target ? myStrikeAt(X.target, n) : null;
+                if (mine) { steps.push({ cost: 2, text: `Act Together: ${X.text}, and you Strike ${nameOf(X.target)} with ${mine.s.label} (${signed(mine.bonus)})` }); ev += mine.e.expected; n += 1; }
                 else steps.push({ cost: 2, text: `Act Together: ${X.text}, and you take ${ownAction}` });
             }
         } else {
@@ -343,8 +370,19 @@ function summoner(board, ctx, out) {
         }
         if (eternalStep && X.boosted) steps.unshift(eternalStep);
         const spent = steps.reduce((t, s) => t + s.cost, 0);
-        if (A - spent >= 1 && X.target && X.after !== false) { const r = eRun(X.target, A - spent, n, { boosted: X.boosted && (!!bs || frenzy || eternal) }); if (r.used.length) { steps.push({ cost: r.used.length, text: r.text }); ev += r.ev; } }
+        if (A - spent >= 1 && X.target && X.after !== false) { const r = eRun(X.target, A - spent, n, { boosted: X.boosted && (!!bs || preBoosted) }); if (r.used.length) { steps.push({ cost: r.used.length, text: r.text }); ev += r.ev; } }
         push({ title: X.title, target: X.target ?? null, ev, bias: X.bias ?? 0.3, steps, notes: X.notes ?? [] });
+    };
+    /** Your own best Strike at f with n attacks already made this turn, if it's in your reach (melee) or first range increment. */
+    const myStrikeAt = (f, n) => {
+        let best = null;
+        for (const s of board.strikes ?? []) {
+            if (s.ranged ? feetBetween(me.rect, f.rect) > (s.range ?? 30) : !inReach(me.rect, f.rect, s.reach || 5)) continue;
+            const b = s.bonus + mapFor(n, s.agile);
+            const e = strikeExpected(b, f.ac, s.avg, { deadly: s.deadly });
+            if (!best || e.expected > best.e.expected) best = { s, bonus: b, e };
+        }
+        return best;
     };
     const inReachOfE = (f) => strikes.some((s) => !s.ranged && inReach(E.rect, f.rect, eReach(s)));
     const dieAvg = (s) => ((Number(String(s.item?.system?.damage?.die ?? "").replace("d", "")) || 8) + 1) / 2;
@@ -352,7 +390,7 @@ function summoner(board, ctx, out) {
     if (kind === "anger") {
         const extraDice = lv >= 18 ? 3 : lv >= 10 ? 2 : 1;
         for (const f of foes.filter(inReachOfE)) {
-            const b = eBest(f, made0, { boosted: boostKnown || frenzy || eternal, extra: extraDice * dieAvg(primary) + extraDice });
+            const b = eBest(f, made0, { boosted: boostKnown || preBoosted, furious: true, extra: extraDice * dieAvg(primary) + extraDice });
             if (!b) continue;
             activity({ title: `Furious Strike on ${nameOf(f)}`, target: f, ev: b.e.expected, attacks: 2, boosted: true, text: `${eName} uses Furious Strike on ${nameOf(f)} (${signed(b.bonus)}): +${extraDice} weapon ${extraDice === 1 ? "die" : "dice"} and +${extraDice} on a hit; it counts as two attacks`, notes: ["One big Strike for the cost of two: better than two Strikes when the second would be at -5 against a high AC."] });
         }
@@ -363,7 +401,7 @@ function summoner(board, ctx, out) {
             const mv = moveTo(f);
             if (!mv || mv.acts === 0 || (mv.acts === 1 && A >= 3)) continue;
             const straight = feetBetween(E.rect, f.rect) >= 20;
-            const b = eBest(f, made0, { boosted: boostKnown || frenzy || eternal, at: mv.at, bonusAdj: straight ? 1 : 0 });
+            const b = eBest(f, made0, { boosted: boostKnown || preBoosted, at: mv.at, bonusAdj: straight ? 1 : 0 });
             if (!b) continue;
             activity({ title: `Beast's Charge at ${nameOf(f)}`, target: f, ev: b.e.expected, attacks: 1, boosted: true, text: `${eName} uses Beast's Charge: Strides twice to ${nameOf(f)} and Strikes with its ${b.s.label} (${signed(b.bonus)}${straight ? ", +1 counted for 20 feet in a straight line" : ""})`, notes: ["The +1 needs 20 feet of movement in a straight line; the plan counts it when the foe is that far."], bias: 0.2 });
         }
@@ -371,7 +409,7 @@ function summoner(board, ctx, out) {
     // Draconic Frenzy (dragon, 7; 2 actions): the primary once and the secondary twice, the penalty climbing
     if (kind === "dragon" && lv >= 7) {
         for (const f of foes.filter(inReachOfE)) {
-            const boosted = boostKnown || frenzy || eternal;
+            const boosted = boostKnown || preBoosted;
             const b1 = strikeExpected(primary.bonus + eMap(made0, primary.agile), f.ac, primary.avg + (boosted ? boostOf(primary) : 0), { deadly: primary.deadly });
             const b2 = strikeExpected(secondary.bonus + eMap(made0 + 1, secondary.agile), f.ac, secondary.avg + (boosted ? boostOf(secondary) : 0), { deadly: secondary.deadly });
             const b3 = strikeExpected(secondary.bonus + eMap(made0 + 2, secondary.agile), f.ac, secondary.avg + (boosted ? boostOf(secondary) : 0), { deadly: secondary.deadly });
@@ -416,7 +454,7 @@ function summoner(board, ctx, out) {
     if (kind === "beast" && lv >= 17) {
         const near = foes.filter(inReachOfE).slice(0, 4);
         if (near.length >= 2) {
-            const boosted = boostKnown || frenzy || eternal;
+            const boosted = boostKnown || preBoosted;
             const bs = near.map((f) => eBest(f, made0, { boosted })).filter(Boolean);
             activity({ title: `Whirlwind Maul on ${bs.length} foes`, target: near[0], ev: bs.reduce((t, b) => t + b.e.expected, 0), attacks: bs.length, boosted: true, text: `${eName} uses Whirlwind Maul: a Strike at ${near.map(nameOf).join(", ")} (${bs.map((b) => signed(b.bonus)).join(", ")}), the penalty climbing only afterward`, bias: 0.4 });
         }
@@ -424,7 +462,7 @@ function summoner(board, ctx, out) {
     // Drain Life (undead, 7; 2 actions): a Strike at a living foe, then a Fortitude save for extra void damage and drained
     if (kind === "undead" && lv >= 7) {
         for (const f of foes.filter(inReachOfE)) {
-            const b = eBest(f, made0, { boosted: boostKnown || frenzy || eternal });
+            const b = eBest(f, made0, { boosted: boostKnown || preBoosted });
             if (!b) continue;
             const c = degreeChances(f.saves?.fortitude ?? lv + 5, dc);
             const rider = b.e.hit * ((c.s + c.f + c.cf) * Math.floor(lv / 2) + c.f * worth(board, "drained") + c.cf * 2 * worth(board, "drained"));
@@ -432,7 +470,8 @@ function summoner(board, ctx, out) {
         }
     }
     // Visions of Sin (demon, 7; 2 actions, once per 10 minutes): Will save or no reactions, slowed 1 on a failure, confused on a critical failure
-    if (kind === "demon" && lv >= 7) {
+    if (kind === "demon" && lv >= 7 && usesLeft(E.actor, "visions-of-sin") === 0) out.notes.push(`Visions of Sin is spent (once per 10 minutes); ${eName}'s Strikes carry the turn.`);
+    else if (kind === "demon" && lv >= 7) {
         const near = foes.filter((f) => feetBetween(E.rect, f.rect) <= 30);
         for (const f of near) {
             const c = degreeChances(f.saves?.will ?? lv + 5, dc);
@@ -446,11 +485,12 @@ function summoner(board, ctx, out) {
         if (near.length >= 2) {
             let ev = 0;
             for (const f of near) { const c = degreeChances(f.saves?.reflex ?? lv + 5, dc); ev += c.cf * primary.avg * 2 + c.f * primary.avg * 0.5 * 2 + (c.s + c.f) * 1 + c.cf * worth(board, "immobilized"); }
-            activity({ title: `Field of Roots on ${near.length} foes`, target: near[0], ev, attacks: 0, boosted: false, after: false, partnerStrike: false, text: `${eName} uses Field of Roots (Reflex DC ${dc}) on ${near.map(nameOf).join(", ")}: its best Strike's damage, again at the end of each of their turns while they stay in its reach`, notes: ["Afterward it is immobilized until it spends an Interact action to detach, which also ends the roots."], bias: 0.4 });
+            activity({ title: `Field of Roots on ${near.length} foes`, target: near[0], ev, attacks: 0, boosted: false, after: false, text: `${eName} uses Field of Roots (Reflex DC ${dc}) on ${near.map(nameOf).join(", ")}: its best Strike's damage, again at the end of each of their turns while they stay in its reach`, notes: ["Afterward it is immobilized until it spends an Interact action to detach, which also ends the roots."], bias: 0.4 });
         }
     }
     // Elemental Burst (elemental, 7; 2 actions, once per 10 minutes): a 20-foot burst within 60 feet for max(6, level-1)d6, at the cost of your level in shared HP
-    if (kind === "elemental" && lv >= 7) {
+    if (kind === "elemental" && lv >= 7 && usesLeft(E.actor, "elemental-burst") === 0) out.notes.push("Elemental Burst is spent (once per 10 minutes).");
+    else if (kind === "elemental" && lv >= 7) {
         const dice = Math.max(6, lv - 1);
         let best = null;
         for (const c of foes) {
@@ -468,7 +508,7 @@ function summoner(board, ctx, out) {
     if (kind === "elemental" && lv >= 17 && A >= 3) {
         const along = foes.filter((f) => feetBetween(E.rect, f.rect) <= speed + reach);
         if (along.length >= 2) {
-            const bs = along.map((f) => eBest(f, made0, { boosted: frenzy || eternal, at: f.rect === E.rect ? E.rect : { ...E.rect, x: f.rect.x - 1, y: f.rect.y } })).filter(Boolean);
+            const bs = along.map((f) => eBest(f, made0, { boosted: preBoosted, at: f.rect === E.rect ? E.rect : { ...E.rect, x: f.rect.x - 1, y: f.rect.y } })).filter(Boolean);
             if (bs.length >= 2) push({ title: `Elemental Maelstrom through ${bs.length} foes`, target: along[0], ev: bs.reduce((t, b) => t + b.e.expected, 0), bias: 0.3, steps: [{ cost: 3, text: `${eName} becomes a maelstrom: a Stride with a Strike at each of ${along.map(nameOf).join(", ")} it passes (${bs.map((b) => signed(b.bonus)).join(", ")})` }], notes: ["Its whole turn; plot the Stride so its reach sweeps each foe once."] });
         }
     }
@@ -478,18 +518,19 @@ function summoner(board, ctx, out) {
         const hit = foes.filter((f) => feetBetween(E.rect, f.rect) <= 20);
         if (hit.length) {
             const avg = (5 + 2 * Math.max(0, rank - 3)) * 3.5;
-            const ev = hit.reduce((t, f) => t + saveExpected(f.saves?.reflex ?? lv + 5, dc, avg).expected, 0);
             const caught = [me, ...board.allies.filter((x) => x !== E)].filter((x) => x.rect && feetBetween(E.rect, x.rect) <= 20);
-            const alt = eRun(hit[0], 2, made0, { boosted: boostKnown || frenzy }).ev;
+            // you (the shared pool) and allies in the emanation take it too: half the dice each, counted against it
+            const ev = hit.reduce((t, f) => t + saveExpected(f.saves?.reflex ?? lv + 5, dc, avg).expected, 0) - caught.length * avg * 0.5;
+            const alt = eRun(hit[0], 2, made0, { boosted: boostKnown || preBoosted }).ev;
             const notes = [`1 Focus Point of ${focus}. ${hit.length >= 2 || ev >= alt + 3 + rank ? "It catches enough to be worth the point." : `Two boosted Strikes on ${nameOf(hit[0])} come to about ${r1(alt)}; keep the point unless the spread matters.`}`];
-            if (caught.length) notes.push(`The emanation also catches ${caught.map(nameOf).join(", ")}.`);
+            if (caught.length) notes.push(`The emanation also catches ${caught.map((x) => (x === me ? "you (your shared Hit Points)" : nameOf(x))).join(", ")}; the value takes that off.`);
             activity({ title: `Eidolon's Wrath on ${hit.length} foe${hit.length > 1 ? "s" : ""}`, target: hit[0], ev, attacks: 0, boosted: false, text: `${eName} casts Eidolon's Wrath (${5 + 2 * Math.max(0, rank - 3)}d6, basic Reflex DC ${dc}, 20 feet around it): ${hit.map(nameOf).join(", ")}`, notes, bias: 0.2 });
         }
     }
     // Piercing Jab (14; 2 actions, a piercing primary): a Strike that grabs, and bleeds when the grab ends
     if (has(actor, "piercing-jab") && (primary.damageTypes ?? []).includes("piercing")) {
         for (const f of foes.filter((x) => inReach(E.rect, x.rect, eReach(primary)))) {
-            const boosted = boostKnown || frenzy || eternal;
+            const boosted = boostKnown || preBoosted;
             const e = strikeExpected(primary.bonus + eMap(made0, primary.agile), f.ac, primary.avg + (boosted ? boostOf(primary) : 0), { deadly: primary.deadly });
             const ev = e.expected + e.hit * (worth(board, "grabbed") + (primary.dice ?? 1) * 1.5);
             activity({ title: `Piercing Jab on ${nameOf(f)}`, target: f, ev, attacks: 1, boosted: true, text: `${eName} uses Piercing Jab on ${nameOf(f)} with its ${primary.label} (${signed(primary.bonus + eMap(made0, primary.agile))}): a hit grabs it until it Escapes, and ${primary.dice ?? 1} persistent bleed when the grab ends`, notes: ["Its next primary Strike releases the grab: follow with the secondary attack."], bias: 0.2 });

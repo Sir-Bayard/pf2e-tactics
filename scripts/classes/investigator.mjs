@@ -9,10 +9,8 @@
  * Stratagem, Strategic Bypass, Known Weaknesses); Pointed Question folded into the devised turn; Just as Planned's second d20.
  * The rest are when-notes.
  */
-import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, slugOf, squareToReach, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, signed } from "./_common.mjs";
+import { bestStrike, canMove, effect, has, level, moveText, myReach, pct, slugOf, squareToReach, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, nameOf, signed } from "./_common.mjs";
 
-/** Foundry's slugs drop apostrophes ("scalpels-point"); the catalog's keep a dash for them ("scalpel-s-point"). Both are tried. */
-const hasAny = (actor, ...slugs) => slugs.some((s) => has(actor, s));
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** Strategic Strike dice: 1d6, +1 at 5, 9, 13 and 17. */
 const strikeDice = (lv) => (lv >= 17 ? 5 : lv >= 13 ? 4 : lv >= 9 ? 3 : lv >= 5 ? 2 : 1);
@@ -27,12 +25,6 @@ function degreeAt(r, bonus, ac) {
     if (r === 20) d = Math.min(3, d + 1);
     if (r === 1) d = Math.max(0, d - 1);
     return d;
-}
-/** Uses left today of a feat or action with a frequency, or null when the sheet doesn't say (the mock, or no frequency). */
-function usesLeft(actor, ...slugs) {
-    const it = actor?.items?.find?.((i) => ["feat", "action"].includes(i.type) && slugs.includes(slugOf(i)));
-    const v = it?.system?.frequency?.value;
-    return v == null ? null : Number(v);
 }
 /** Token ids carrying a PF2e token mark of this slug (the Devise a Stratagem effect marks its target; a lead effect may too). */
 function markedIds(actor, slug) {
@@ -61,8 +53,11 @@ function investigator(board, ctx, out) {
     const me = board.me;
     const lv = level(board);
     const cls = actor?.class?.slug ?? (actor?.class?.name ?? "").toLowerCase();
-    const archetype = !has(actor, "strategic-strike") && hasAny(actor, "investigators-stratagem", "investigator-s-stratagem");
-    if (!(cls === "investigator" || has(actor, "devise-a-stratagem") || archetype)) return;
+    const archetype = !has(actor, "strategic-strike") && has(actor, "investigators-stratagem");
+    // Devise a Stratagem: the class, or the archetype's Investigator's Stratagem; Investigator Dedication alone gives On the Case
+    // (Pursue a Lead, Clue In), so it gets the notes and no stratagem plans
+    const canDevise = cls === "investigator" || has(actor, "devise-a-stratagem") || archetype;
+    if (!canDevise && !has(actor, "investigator-dedication")) return;
     const foes = targets(board);
     const n = (t) => { if (t) out.notes.push(t); };
     const int = abil(actor, "int"), str = abil(actor, "str"), dex = abil(actor, "dex");
@@ -75,7 +70,7 @@ function investigator(board, ctx, out) {
     const certain = has(actor, "certain-stratagem");
     const shared = has(actor, "shared-stratagem");
     const didactic = has(actor, "didactic-strike");
-    const scalpel = hasAny(actor, "scalpels-point", "scalpel-s-point");
+    const scalpel = has(actor, "scalpels-point");
     const bypass = has(actor, "strategic-bypass");
     const athletic = has(actor, "athletic-strategist");
     const pointed = has(actor, "pointed-question") || method === "interrogation-methodology";
@@ -116,7 +111,7 @@ function investigator(board, ctx, out) {
 
     const leads = leadSubjects(actor, foes);
     const leadEffect = effect(actor, /pursue-a-lead/);
-    if (leads.length) n(`Your lead: ${leads.map(nameOf).join(", ")}. Devise a Stratagem against it is a free action, and your +${leadBonus} investigation bonus applies to checks that bear on the case${has(actor, "detective-s-readiness") || has(actor, "detectives-readiness") ? " and to your saves against it (Detective's Readiness)" : ""}.`);
+    if (leads.length) n(`Your lead: ${leads.map(nameOf).join(", ")}. Devise a Stratagem against it is a free action, and your +${leadBonus} investigation bonus applies to checks that bear on the case${has(actor, "detectives-readiness") ? " and to your saves against it (Detective's Readiness)" : ""}.`);
     else if (leadEffect) n(`You're pursuing a lead (+${leadBonus} to checks on the case). The helper can't tell which creature it concerns; if it's a foe here, Devise a Stratagem against it is a free action.`);
 
     const nearAllies = (f) => board.allies.filter((a) => a.canAct !== false && (a.hasMelee === false || inReach(a.rect, f.rect, a.reach ?? 5)));
@@ -134,8 +129,9 @@ function investigator(board, ctx, out) {
     const commitAt = (s, r, f, made, acAdj = 0, at = me.rect) => {
         const b = devBonus(s) + mapFor(made, s.agile) + rangePen(s, at, f);
         const d = degreeAt(r, b, f.ac + acAdj);
-        const dmg = s.avg + prec + resistCut(f, s);
-        let v = d === 3 ? dmg * 2 + (s.deadly || 0) + (scalpel && pierceOrSlash(s) ? 5 : 0) : d === 2 ? dmg : certain && d === 1 ? s.avg / 2 : 0;
+        // Ongoing Strategy's flat precision is on s.avg for the Strikes you didn't devise; the devised one takes the dice instead
+        const dmg = s.avg - (s.ongoingStrategy ? dice : 0) + prec + resistCut(f, s);
+        let v = d === 3 ? dmg * 2 + (s.deadly || 0) + (scalpel && pierceOrSlash(s) ? 5 : 0) : d === 2 ? dmg : certain && d === 1 ? (s.avg - (s.ongoingStrategy ? dice : 0)) / 2 : 0;
         if (d >= 2) v += riderWorth(f);
         return { v, d, b };
     };
@@ -237,7 +233,7 @@ function investigator(board, ctx, out) {
         const kinds = ["strike", "ask", "trip"].map((k) => ({ k, list: gs.filter((g) => g.k === k) })).filter((x) => x.list.length).map((x) => ({ ...x, p: mass(x.list), text: `On ${x.list.map(span).join(" or ")} (about ${pct(mass(x.list))})` }));
         const primary = kinds.slice().sort((a, b) => b.p - a.p)[0] ?? null;
         const lead = primary;
-        const askText = (x, first) => `${x.text}: Pointed Question at ${nameOf(f)} ${first ? "first " : ""}(Diplomacy ${signed(t.q.mod)} against its Will DC, about ${pct(t.q.p)}): it's off-guard to your devised Strike${critOn - 2 <= 20 ? ` (a ${Math.max(2, critOn - 2)} crits then)` : ""}${sweat ? ", and frightened 1" : ""}`;
+        const askText = (x, first) => `${x.text}: Pointed Question at ${nameOf(f)} ${first ? "first " : ""}(Diplomacy ${signed(t.q.mod)} against its Will DC, about ${pct(t.q.p)}; once an hour per creature, so not if you've asked it already): it's off-guard to your devised Strike${critOn - 2 <= 20 ? ` (a ${Math.max(2, critOn - 2)} crits then)` : ""}${sweat ? ", and frightened 1" : ""}`;
         const tripText = (x) => `${x.text}: Trip it with the roll instead (Athletics with Intelligence, Athletic Strategist), then Strike it prone`;
         if (primary?.k === "strike") { steps.push({ cost: 1, text: `${primary.text}: ${strikeText}` }); if (t.after1.used.length) steps.push({ cost: t.after1.used.length, text: t.after1.text }); }
         else if (primary?.k === "ask") { steps.push({ cost: 1, text: askText(primary, true) }); steps.push({ cost: 1, text: `Then ${strikeText}` }); if (t.after2?.used.length) steps.push({ cost: t.after2.used.length, text: t.after2.text }); }
@@ -263,7 +259,7 @@ function investigator(board, ctx, out) {
     const rolled = devised ? Number(devised.system?.badge?.value) || null : null;
     const devisedIds = devised ? markedIds(actor, "devise-a-stratagem") : [];
     const devisedFoe = foes.find((f) => devisedIds.includes(f.id)) ?? null;
-    if (devised && rolled && devisedFoe && ctx.actions >= 1) {
+    if (canDevise && devised && rolled && devisedFoe && ctx.actions >= 1) {
         const f = devisedFoe;
         const fb = fallbackFor(f, ctx.actions);
         let best = null;
@@ -285,7 +281,7 @@ function investigator(board, ctx, out) {
             if (row.k === "else") steps.push({ cost: ctx.actions, text: `Your stratagem's d20 is a ${rolled}: too low to spend on ${nameOf(f)}. ${fb.text.charAt(0).toUpperCase()}${fb.text.slice(1)}` });
             else {
                 if (moveActs) steps.push({ cost: moveActs, text: moveText(sq, f) });
-                if (row.k === "ask") steps.push({ cost: 1, text: `Pointed Question at ${nameOf(f)} (Diplomacy ${signed(t.q.mod)} against its Will DC, about ${pct(t.q.p)}): off-guard to your devised Strike${sweat ? ", frightened 1" : ""}` });
+                if (row.k === "ask") steps.push({ cost: 1, text: `Pointed Question at ${nameOf(f)} (Diplomacy ${signed(t.q.mod)} against its Will DC, about ${pct(t.q.p)}; once an hour per creature, so not if you've asked it already): off-guard to your devised Strike${sweat ? ", frightened 1" : ""}` });
                 if (row.k === "trip") steps.push({ cost: 1, text: `Trip ${nameOf(f)} with the roll (Athletics with Intelligence): a ${rolled} ${row.d >= 2 ? "lands it prone" : "misses"}` });
                 else steps.push({ cost: 1, text: `Strike ${nameOf(f)} with ${s.label}${useInt ? " using Intelligence" : ""} (${signed(t.bonus)}): the ${rolled} ${row.d === 3 ? "is a critical hit" : row.d === 2 ? "hits" : "misses"}${dice && row.d >= 2 ? `, +${dice}d6 precision` : ""}` });
                 const after = row.k === "ask" ? t.after2 : t.after1;
@@ -296,7 +292,7 @@ function investigator(board, ctx, out) {
     } else if (devised && rolled && !devisedFoe) n(`Your stratagem's d20 is a ${rolled}, against a creature you can't target now; a Strike at it before your next turn would use that roll.`);
 
     /* ---- Devise a Stratagem, then decide: the plan is a table on the d20 ---- */
-    if (!devised && foes.length && carry.length) {
+    if (canDevise && !devised && foes.length && carry.length) {
         for (const f of foes) {
             const free = leads.includes(f);
             const poi = !free && poiReady;
@@ -340,7 +336,7 @@ function investigator(board, ctx, out) {
         const left = vials ? Number(vials.value) || 0 : null;
         n(`Quick Tincture (1 action, 1 versatile vial${left != null ? `; ${left} left` : ""}, a free hand): any elixir or tool you know the formula for, at your level or lower, good until the end of this turn, so drinking or throwing it is another action this turn${has(actor, "share-tincture") ? ". Share Tincture (1 action) keeps it until your next turn and lets you hand or throw it to an ally" : ""}.`);
     }
-    if (method === "empiricism-methodology" || has(actor, "expeditious-inspection")) n(`Expeditious Inspection (free action, once per 10 minutes): a Recall Knowledge, Seek or Sense Motive that costs no action${has(actor, "empiricists-eye") || has(actor, "empiricist-s-eye") ? ". Empiricist's Eye: a creature you Point Out is off-guard to your allies until your next turn, and your Point Out needs no voice" : ""}.`);
+    if (method === "empiricism-methodology" || has(actor, "expeditious-inspection")) n(`Expeditious Inspection (free action, once per 10 minutes): a Recall Knowledge, Seek or Sense Motive that costs no action${has(actor, "empiricists-eye") ? ". Empiricist's Eye: a creature you Point Out is off-guard to your allies until your next turn, and your Point Out needs no voice" : ""}.`);
     if (method === "forensic-medicine-methodology") {
         const hurt = board.allies.filter((a) => a.hp != null && a.maxHp && a.hp < a.maxHp * 0.6 && feetBetween(me.rect, a.rect) <= 5);
         n(`Forensic Medicine: your Battle Medicine heals ${lv} more on a success, and the patient is immune for only an hour${hurt.length ? ` (${hurt.map((a) => `${nameOf(a)} ${a.hp}/${a.maxHp}`).join(", ")} next to you)` : ""}.`);
@@ -360,16 +356,16 @@ function investigator(board, ctx, out) {
     if (has(actor, "just-one-more-thing")) n("Just One More Thing (1 action, fortune): reroll a Make an Impression, Coerce or Request that failed without a critical failure; your investigation bonus doubles on it against someone tied to your case.");
     if (has(actor, "reason-rapidly") && ctx.actions >= 1) n("Reason Rapidly (1 action): up to five Recall Knowledge checks at once, without Known Weaknesses or other triggers on them.");
     if (takedown) n("Takedown Expert: any of your Strikes can be nonlethal without the -2, and a one-handed club-group weapon takes the stratagem.");
-    if (has(actor, "strategic-repose")) n(foes.some((f) => (f.traits ?? []).includes("undead")) ? "Strategic Repose: your precision damage can be vitality instead, which undead feel in full." : "Strategic Repose: the precision damage of a devised hit can be vitality instead, for undead.");
+    if (has(actor, "strategic-repose")) n("Strategic Repose: the precision damage of a devised hit can be vitality instead, which undead take in full.");
     if (has(actor, "athletic-strategist") && !foes.some((f) => inReach(me.rect, f.rect, myReach(board)))) n("Athletic Strategist: the Devise roll can go on a Disarm, Grapple, Shove, Trip or Reposition instead of a Strike, with Intelligence for Strength.");
     if (has(actor, "thorough-research")) n("Thorough Research: a Recall Knowledge that succeeds tells you more; a critical success buys a follow-up question.");
     if (has(actor, "predictive-purchase-investigator") || has(actor, "predictive-purchase")) n(`Predictive Purchase: Prescient Planner pulls a common item you could have bought out of your pack as a ${has(actor, "implausible-purchase-investigator") || has(actor, "implausible-purchase") ? "single action, even after shopping, and five times a day it can be a consumable up to six levels below yours (Implausible Purchase)" : "2-action activity"}.`);
     else if (has(actor, "implausible-purchase-investigator") || has(actor, "implausible-purchase")) n("Implausible Purchase: Prescient Planner is one action, and five times a day pulls a common consumable up to six levels below yours.");
-    if (has(actor, "everyones-a-suspect") || has(actor, "everyone-s-a-suspect")) n("Everyone's a Suspect: anyone you've dealt with for a minute is a lead of yours without limit, so Devise a Stratagem against them is free.");
+    if (has(actor, "everyones-a-suspect")) n("Everyone's a Suspect: anyone you've dealt with for a minute is a lead of yours without limit, so Devise a Stratagem against them is free.");
     if (lv >= 19 && has(actor, "master-detective")) n("Master Detective: in a new place the GM tells you a clue to your case exists and what kind, and when you've found it.");
     if (has(actor, "reconstruct-the-scene")) n("Reconstruct the Scene (exploration): a minute in a place tells you what happened there in the last day.");
     const exploration = [];
-    if (has(actor, "thats-odd") || has(actor, "that-s-odd")) exploration.push("That's Odd points out one suspicious thing in each new room, and you may Pursue a Lead on it at once");
+    if (has(actor, "thats-odd")) exploration.push("That's Odd points out one suspicious thing in each new room, and you may Pursue a Lead on it at once");
     if (has(actor, "solid-lead")) exploration.push("Solid Lead: one action returns you to the lead you set aside today");
     if (has(actor, "lie-detector")) exploration.push("Lie Detector: +1 to see through a lie, then +1 (or your investigation bonus +1) to your next social check against the liar within a minute");
     if (exploration.length) n(`Out of combat: ${exploration.join("; ")}.`);

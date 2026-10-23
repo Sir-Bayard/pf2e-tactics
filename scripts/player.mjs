@@ -15,7 +15,7 @@
  */
 import { MODULE_ID, esc, link, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
-import { flankingAlly, nameOf, planTurn, reachableSquares } from "./advisor.mjs";
+import { flankingAlly, isOffGuard, nameOf, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, foldOpen, panel, statusLine, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
@@ -26,22 +26,41 @@ const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 
 /** Reactions each NPC token has used this fight (from its chat cards): combat id -> token id -> Set of names. */
 const SHOWN = new Map();
+/** What each NPC token has been seen to do this fight: combat id -> token id -> Set of "cast", "ranged", "heal". */
+const DID = new Map();
 function shownReactions(combat, tokenId) {
     return SHOWN.get(combat?.id)?.get(tokenId) ?? new Set();
 }
+function shownDoing(combat, tokenId) {
+    return DID.get(combat?.id)?.get(tokenId) ?? new Set();
+}
+const bucket = (map, combatId, tokenId) => {
+    const byCombat = map.get(combatId) ?? map.set(combatId, new Map()).get(combatId);
+    return byCombat.get(tokenId) ?? byCombat.set(tokenId, new Set()).get(tokenId);
+};
+/**
+ * What a chat card shows the table about the NPC that made it: a reaction it used (an item with the reaction glyph, or an
+ * attack roll made outside its own turn, which is a Reactive Strike or the like), a spell it cast, a ranged attack, a heal.
+ * The Turn Helper treats a foe as able to do these only once the party has seen it do them.
+ */
 function noteReaction(message) {
     const combat = game.combat;
     if (!combat?.started) return;
-    const item = message.item;
-    const isReaction = item?.system?.actionType?.value === "reaction"
-        || /<span class="action-glyph[^"]*">\s*[rR]\s*<\/span>/.test(message.flavor ?? "");
-    if (!isReaction) return;
     const tokenId = message.speaker?.token;
     const actor = message.actor;
     if (!tokenId || !actor || actor.hasPlayerOwner) return;
-    const byCombat = SHOWN.get(combat.id) ?? SHOWN.set(combat.id, new Map()).get(combat.id);
-    const set = byCombat.get(tokenId) ?? byCombat.set(tokenId, new Set()).get(tokenId);
-    set.add(item?.name ?? "a reaction");
+    const item = message.item;
+    const ctx = message.flags?.pf2e?.context ?? {};
+    const isAttack = ctx.type === "attack-roll" || ctx.type === "spell-attack-roll";
+    const offTurn = combat.combatant?.tokenId && combat.combatant.tokenId !== tokenId;
+    const isReaction = item?.system?.actionType?.value === "reaction"
+        || /<span class="action-glyph[^"]*">\s*[rR]\s*<\/span>/.test(message.flavor ?? "")
+        || (isAttack && offTurn && !item?.isRanged);
+    if (isReaction) bucket(SHOWN, combat.id, tokenId).add(item?.system?.actionType?.value === "reaction" ? (item?.name ?? "a reaction") : "Reactive Strike");
+    const did = bucket(DID, combat.id, tokenId);
+    if (item?.type === "spell" || ctx.type === "spell-attack-roll" || message.flags?.pf2e?.casting) did.add("cast");
+    if (isAttack && (item?.isRanged || (item?.system?.traits?.value ?? []).some((t) => /^(range|thrown)/.test(t)))) did.add("ranged");
+    if (item?.type === "spell" && (item.system?.traits?.value ?? []).includes("healing")) did.add("heal");
 }
 
 /* ------------------------------------------------------------------ reading the board for a PC */
@@ -59,7 +78,7 @@ function stateOf(board, e) {
     const light = board.lightAt ? board.lightAt(e.rect) : "bright";
     const feet = feetBetween(board.me.rect, e.rect);
     const computed = visibilityOf({ senses: board.me.senses, conditions: board.me.conditions }, e, light, feet);
-    return withVisioner(computed, board.visioner?.get?.(e.id)?.state, true);
+    return withVisioner(computed, board.visioner?.get?.(e.id)?.state, true, e.conditions);
 }
 
 /** The party's knowledge of a foe's AC this fight: bounds from the party's attack rolls against it, or nothing. */
@@ -89,7 +108,10 @@ function waysToReveal(board) {
 async function readHelperBoard(token) {
     // Only reactions the party has seen a foe use count on this board (paths and warnings go round those alone)
     const combat = game.combat;
-    const board = await readBoard(token, combat, { reactionsSeen: (e, r) => shownReactions(combat, e.id).has(r.name) });
+    const board = await readBoard(token, combat, {
+        reactionsSeen: (e, r) => shownReactions(combat, e.id).has(r.name) || (/reactive strike|attack of opportunity/i.test(r.name) && shownReactions(combat, e.id).has("Reactive Strike")),
+        unseen: (e, b) => stateOf(b, e) === "undetected",
+    });
     return board ? annotateBoard(board) : null;
 }
 /** What the character sees of the board: foes by state, cover, what the party knows, what each has shown. */
@@ -139,14 +161,20 @@ function estimateFoe(board, e, known, L) {
         if (!v || typeof v !== "object" || !(v.n > 0)) return fallback;
         const lo = Number.isFinite(v.lo) ? v.lo : null, hi = Number.isFinite(v.hi) ? v.hi : null;
         if (lo !== null && hi !== null) return Math.round((lo + hi) / 2);
-        if (lo !== null) return Math.max(lo + 1, fallback);
-        if (hi !== null) return Math.min(hi - 1, fallback);
+        if (lo !== null) return Math.max(lo, fallback);
+        if (hi !== null) return Math.min(hi, fallback);
         return fallback;
     };
     const bars = barsVisible(e);
+    const did = shownDoing(game.combat, e.id);
     return { ...e,
+        // What the sheet knows and the party doesn't: its senses, languages, class, spell list, ranged attacks and
+        // feats (All-Around Vision, Deny Advantage) are left out; casting, shooting and healing count once seen
+        actor: undefined, cls: null, senses: null, languages: [], flankImmune: null,
+        caster: did.has("cast"), healer: did.has("heal"), rangedReach: did.has("ranged") || did.has("cast") ? 60 : 0,
         level: L,
-        ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0),
+        // the party's bounds are the AC it rolled against; an off-guard foe's estimate drops by 2 like a sheet's would
+        ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0) - (e.conditions && isOffGuard(e) ? 2 : 0),
         saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], MODERATE.save(L))])),
         hp: bars ? e.hp : (e.hp > 0 ? MODERATE.hp(L) : 0), maxHp: bars ? e.maxHp : MODERATE.hp(L),
         iwr: { weak: [], resist: [], immune: [] },
@@ -161,7 +189,7 @@ function estimateFoe(board, e, known, L) {
 const CLASS_HANDLED = new Set([
     "battle-medicine", "quick-draw", "mountaineering-training",
     // fighter
-    "double-slice", "dueling-parry", "vicious-swing", "power-attack", "slam-down", "knockdown", "intimidating-strike", "swipe", "whirlwind-strike", "lunge", "sever-space", "overwhelming-blow", "double-shot", "triple-shot", "exacting-strike", "certain-strike", "brutish-shove", "dragging-strike", "combat-grab", "advantageous-assault", "shatter-defenses", "disarming-twist", "two-weapon-flurry", "brutal-finish", "snagging-strike", "desperate-finisher",
+    "sudden-charge", "double-slice", "dueling-parry", "vicious-swing", "power-attack", "slam-down", "knockdown", "intimidating-strike", "swipe", "whirlwind-strike", "lunge", "sever-space", "overwhelming-blow", "double-shot", "triple-shot", "exacting-strike", "certain-strike", "brutish-shove", "dragging-strike", "combat-grab", "advantageous-assault", "shatter-defenses", "disarming-twist", "two-weapon-flurry", "brutal-finish", "snagging-strike", "desperate-finisher",
     // barbarian
     "rage", "thrash", "spirits-wrath", "terrifying-howl", "giants-stature", "titans-stature", "giants-lunge", "share-rage", "unbalancing-sweep",
     // ranger
@@ -171,11 +199,11 @@ const CLASS_HANDLED = new Set([
     // champion
     "smite", "blessed-counterstrike", "gruesome-strike",
     // commander (tactics carry the tactic trait and are dropped by it)
-    "gather-to-me", "pincer-attack", "double-team", "tactical-takedown", "plant-banner", "set-up-strike", "guiding-shot", "unsteadying-strike", "rallying-banner",
+    "gather-to-me", "pincer-attack", "quickening-banner", "pennant-of-victory", "defiant-banner", "banner-twirl", "banners-inspiration", "confusing-commands", "demand-surrender", "mercenary-reversal", "double-team", "tactical-takedown", "plant-banner", "set-up-strike", "guiding-shot", "unsteadying-strike", "rallying-banner",
     // magus
     "spellstrike", "arcane-cascade", "spell-swipe", "whirlwind-spell", "recharging-flurry", "lunging-spellstrike",
     // thaumaturge
-    "exploit-vulnerability", "intensify-vulnerability", "twin-weakness", "divine-disharmony", "root-to-life", "implements-assault", "fling-magic", "mirrors-reflection",
+    "exploit-vulnerability", "glimpse-vulnerability", "drink-from-the-chalice", "intensify-vulnerability", "twin-weakness", "divine-disharmony", "root-to-life", "implements-assault", "fling-magic", "mirrors-reflection",
     // alchemist
     "quick-alchemy", "quick-bomber", "mega-bomb",
     // cleric
@@ -198,7 +226,7 @@ const CLASS_HANDLED = new Set([
     // psychic
     "psi-burst", "violent-unleash", "brain-drain", "restore-the-mind", "strain-mind", "unleash-psyche",
     // kineticist
-    "channel-elements", "elemental-blast", "extract-element", "chain-infusion", "two-element-infusion", "weapon-infusion", "lightning-rod", "magnetic-pinions", "aerial-boomerang", "flying-flame", "hail-of-splinters", "scorching-column", "shard-strike", "tidal-hands", "tremor", "winters-clutch", "fresh-produce", "oceans-balm", "blazing-wave", "lava-leap", "lightning-dash", "tumbling-lumber", "whirling-grindstone", "ash-strider", "driving-rain", "elemental-artillery", "molten-wire", "rising-hurricane", "roiling-mudslide", "torrent-in-the-blood", "tree-of-duality", "weight-of-stone", "dash-of-herbs", "sand-snatcher", "call-the-hurricane", "conductive-sphere", "retch-rust", "sanguivolent-roots", "solar-detonation", "storm-spiral", "burning-demand", "glacial-prison", "rain-of-razors", "witchwood-seed", "walk-through-the-conflagration", "all-shall-end-in-flames", "hell-of-1000000-needles", "ignite-the-sun", "ride-the-tsunami", "rouse-the-forests-fury", "the-shattered-mountain-weeps", "the-thousand-lashes-of-the-weeping-willow", "geologic-attunement", "air-shroud", "magnetic-field", "ravel-of-thorns", "thermal-nimbus", "winter-sleet", "desert-wind", "steam-knight", "kindle-inner-flames", "drifting-pollen", "drowning-mist", "ghosts-in-the-storm", "sea-glass-guardians", "shattershields", "assume-earths-mantle", "orchards-endurance", "crowned-in-tempests-fury",
+    "channel-elements", "elemental-blast", "extract-element", "chain-infusion", "two-element-infusion", "weapon-infusion", "lightning-rod", "magnetic-pinions", "aerial-boomerang", "flying-flame", "hail-of-splinters", "scorching-column", "shard-strike", "tidal-hands", "tremor", "winters-clutch", "fresh-produce", "oceans-balm", "blazing-wave", "lava-leap", "lightning-dash", "tumbling-lumber", "whirling-grindstone", "ash-strider", "driving-rain", "elemental-artillery", "molten-wire", "rising-hurricane", "roiling-mudslide", "torrent-in-the-blood", "tree-of-duality", "weight-of-stone", "dash-of-herbs", "sand-snatcher", "call-the-hurricane", "conductive-sphere", "retch-rust", "sanguivolent-roots", "solar-detonation", "storm-spiral", "burning-demand", "glacial-prison", "rain-of-razors", "witchwood-seed", "walk-through-the-conflagration", "all-shall-end-in-flames", "hell-of-1-000-000-needles", "ignite-the-sun", "ride-the-tsunami", "rouse-the-forests-fury", "the-shattered-mountain-weeps", "the-thousand-lashes-of-the-weeping-willow", "geologic-attunement", "air-shroud", "magnetic-field", "ravel-of-thorns", "thermal-nimbus", "winter-sleet", "desert-wind", "steam-knight", "kindle-inner-flames", "drifting-pollen", "drowning-mist", "ghosts-in-the-storm", "sea-glass-guardians", "shattershields", "assume-earths-mantle", "orchards-endurance", "crowned-in-tempests-fury",
     // summoner
     "act-together", "manifest-eidolon", "tandem-strike", "magical-onslaught", "seething-frenzy", "furious-strike", "beasts-charge", "draconic-frenzy", "dragon-breath", "primal-roar", "whirlwind-maul", "drain-life", "visions-of-sin", "field-of-roots", "elemental-burst", "elemental-maelstrom", "piercing-jab", "eidolons-trample", "ostentatious-arrival",
     // gunslinger
@@ -206,7 +234,7 @@ const CLASS_HANDLED = new Set([
     // guardian
     "taunt", "taunting-strike", "shielding-taunt", "shoulder-check", "proud-nail", "ring-their-bell", "weakening-assault", "demolish-defenses", "shield-wallop", "clobber", "momentum-strike", "bloody-denial", "belly-flop", "stomp-ground", "flying-tackle", "scattering-charge", "retaliating-rescue", "armor-break", "hampering-stance", "covering-stance", "lock-down", "blanket-defense", "armored-courage", "tough-cookie",
     // animist
-    "grudge-strike", "forests-heart",
+    "grudge-strike", "forests-heart", "circle-of-spirits",
     // necromancer
     "create-thrall", "thrall-charge", "command-a-thrall", "consume-thrall", "draining-strike", "anatomical-quartering", "reclaim-power", "amalgamate", "infuse-void", "skeletal-extension",
     // runesmith
@@ -224,7 +252,7 @@ function adviceBoard(board, ledger) {
     const slug = (n) => String(n ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");  // apostrophes drop, as Foundry's sluggify does ("hunters-aim")
     const profiles = board.profiles.filter((p) => !(p.traits ?? []).includes("tactic") && !CLASS_HANDLED.has(slug(p.name)));
     return { ...board,
-        me: { ...board.me, int: Math.max(3, board.me.int ?? 0) },
+        me: { ...board.me, int: Math.max(3, board.me.int ?? 0), pc: true },
         profiles,
         enemies: seen,
         downEnemies: (board.downEnemies ?? []).map(est),
@@ -238,7 +266,8 @@ function adviceBoard(board, ledger) {
 /* ------------------------------------------------------------------ advice */
 
 /** The advisor's wording is for a creature; this is for the player. */
-const YOU = [[/\bif it can\b/g, "if you can"], [/\bit must\b/g, "you must"], [/\bIts last action/g, "Your last action"], [/\bIts last actions/g, "Your last actions"], [/\bit has\b/g, "you have"], [/\bwhat it has\b/g, "what you have"]];
+const YOU = [[/\bif it can\b/g, "if you can"], [/\bit must\b/g, "you must"], [/\bIts last action/g, "Your last action"], [/\bIts last actions/g, "Your last actions"], [/\bit has\b/g, "you have"], [/\bwhat it has\b/g, "what you have"],
+    [/\bto stay up\b/g, "to stay up"], [/\bTake Cover behind something if it can\b/g, "Take Cover behind something if you can"], [/\bcan't see it there\b/g, "can't see you there"]];
 const forYou = (text) => YOU.reduce((t, [re, to]) => t.replace(re, to), text);
 /** How many actions the character has this turn, less those spent (the advisor's own count, redone here for the class reads). */
 function actionsLeft(board, ledger) {
@@ -246,7 +275,7 @@ function actionsLeft(board, ledger) {
     const mc = board.me.conditions ?? new Set();
     const base = Math.max(0, Math.min(3, 3 - (cv.stunned ? cv.stunned : cv.slowed ?? 0))) + (mc.has("quickened") && !cv.stunned ? 1 : 0);
     const t = ledger ? ledgerTotals(ledger) : null;
-    return { actions: Math.max(0, base - (t?.spent ?? 0)), made: t?.attacks ?? 0 };
+    return { actions: Math.max(0, base - (t?.spent ?? 0)), made: t?.attacks ?? 0, spent: t?.spent ?? 0 };
 }
 /** A hidden foe is a target only when nothing else stands, or the plan is an area or a reveal. */
 function allowedTarget(board, plan) {
@@ -269,8 +298,9 @@ function adviseHelper(board, ledger) {
     let plans = [];
     try { plans = planTurn(b, {}) ?? []; } catch (err) { console.warn(`${MODULE_ID} | couldn't plan the player's turn`, err); }
     plans = plans.filter((p) => !["none"].includes(p.kind) || plans.length === 1).filter((p) => allowedTarget(board, p));
-    const thriftNote = spellThrift(b, plans);
-    const all = [...plans, ...cls.plans.filter((p) => allowedTarget(board, p))].map((p) => ({ ...p, steps: p.steps.map((s) => ({ ...s, text: forYou(s.text) })), notes: (p.notes ?? []).map(forYou) }));
+    const clsPlans = cls.plans.filter((p) => allowedTarget(board, p));
+    const thriftNote = spellThrift(b, [...plans, ...clsPlans]);
+    const all = [...plans, ...clsPlans].map((p) => ({ ...p, steps: p.steps.map((s) => ({ ...s, text: forYou(s.text) })), notes: (p.notes ?? []).map(forYou) }));
     all.sort((a, c) => (c.score ?? c.ev) - (a.score ?? a.ev));
     const estimated = b.enemies.some((e) => e.estimated) || b.enemies.some((e) => !(flagOf(game.combat, "party")?.[e.id]?.ac?.n > 0));
     return { plans: all, notes: [...cls.notes, ...(thriftNote ? [thriftNote] : [])], actions: ctx.actions, estimated };
@@ -562,7 +592,7 @@ function slotsByRank(actor) {
             const rank = Number(key.replace("slot", ""));
             if (!rank || !(slot?.max > 0)) continue;
             const prepared = Array.isArray(slot.prepared) ? slot.prepared : Object.values(slot.prepared ?? {});
-            const left = e.isPrepared ? prepared.filter((p) => p?.id && !p.expended).length : Math.max(0, Number(slot.value) || 0);
+            const left = e.isPrepared && !e.isFlexible ? prepared.filter((p) => p?.id && !p.expended).length : Math.max(0, Number(slot.value) || 0);
             const cur = out[rank] ?? (out[rank] = { left: 0, max: 0 });
             cur.left += left; cur.max += slot.max;
         }
@@ -585,24 +615,32 @@ function spellThrift(board, plans) {
     if (!slotSpells.length) return null;
     const byRank = slotsByRank(board.me.actor);
     const top = Math.max(...slotSpells.map((sp) => sp.rank || 1), ...Object.keys(byRank).map(Number));
+    // A class plan that spends a slot says so with plan.spell (a board spell) or plan.slot ({ rank, name }); one that weighs
+    // its own slot (Spellstrike) sets plan.thrifted. Plans that spend nothing are the baseline when there's no cantrip.
+    const spellOf = (p) => p.spell ?? (p.slot ? { name: p.slot.name, rank: p.slot.rank } : null) ?? (p.kind === "area" ? spells.find((sp) => p.title.startsWith(`${sp.name}:`)) : null);
+    const free = (p) => { const sp = spellOf(p); return !sp || sp.cantrip || sp.focus || sp.isFocus; };
     const cantripPlans = plans.filter((p) => p.spell?.cantrip && p.kind !== "heal");
     const bestCantrip = cantripPlans.reduce((b, p) => (!b || p.ev > b.ev ? p : b), null);
-    const baseline = Math.max(4, bestCantrip?.ev ?? 0);
-    const spellOf = (p) => p.spell ?? (p.kind === "area" ? spells.find((sp) => p.title.startsWith(`${sp.name}:`)) : null);
+    const bestFree = bestCantrip ?? plans.filter((p) => free(p) && !p.thrifted && p.kind !== "none" && p.kind !== "heal").reduce((b, p) => (!b || p.ev > b.ev ? p : b), null);
+    const baseline = Math.max(4, bestFree?.ev ?? 0);
+    const freeName = bestCantrip ? bestCantrip.spell.name : bestFree ? `"${bestFree.title}"` : null;
     let taxed = 0;
     for (const p of plans) {
+        if (p.thrifted) continue;
         const sp = spellOf(p);
         if (!sp || sp.cantrip || sp.consumable || sp.potion || sp.focus || sp.isFocus || p.kind === "heal" || p.kind === "buff" || p.revive) continue;
         const rank = sp.rank || 1;
         const left = byRank[rank]?.left ?? null;
         if (left === 0) continue;   // nothing to spend: the advisor's spell list already dropped it, this is just in case
+        // an innate spell (no slot entry) or one from a staff or wand: no slot at stake
+        if (!byRank[rank] && sp.entry && !(board.me.actor?.spellcasting?.regular ?? []).some((e) => e.name === sp.entry && !e.isFocusPool && !e.isInnate)) continue;
         const scarcity = left === null ? 0.6 : left >= 4 ? 0.3 : [1, 1, 0.7, 0.45][left];
         const decisive = (p.caught?.length ?? 0) >= 2 || (p.target && p.target.hp > 0 && p.ev >= p.target.hp);
         const reserve = Math.round(10 * mult * (0.5 + 1.5 * rank / Math.max(1, top)) * scarcity * baseline * (decisive ? 0.5 : 1)) / 10;
-        const gain = p.ev - (bestCantrip?.ev ?? 0);
+        const gain = p.ev - (bestFree?.ev ?? 0);
         p.score = (p.score ?? p.ev) - reserve;
         p.notes = p.notes ?? [];
-        p.notes.push(`Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}: ${bestCantrip ? `it has to beat ${bestCantrip.spell.name} (about ${Math.round(bestCantrip.ev)}) by about ${Math.round(reserve)} to be worth the slot; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : ", so the cantrip keeps it"}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
+        p.notes.push(`Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}: ${freeName ? `it has to beat ${freeName} (about ${Math.round(bestFree.ev)}) by about ${Math.round(reserve)} to be worth the slot; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : `, so ${bestCantrip ? "the cantrip" : "that"} keeps it`}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
         taxed++;
     }
     if (!taxed) return null;
@@ -633,7 +671,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
     const module = game.modules.get(MODULE_ID);
-    module.api = Object.assign(module.api ?? {}, { helper: openHelper, helperCard: (actor, token) => buildHelper(actor, token) });
+    module.api = Object.assign(module.api ?? {}, { helper: openHelper, helperCard: (actor, token) => (actor?.isOwner || game.user.isGM ? buildHelper(actor, token) : Promise.resolve("")) });
 });
 
 Hooks.on("updateCombat", (combat, changes) => {
@@ -650,7 +688,7 @@ Hooks.on("updateCombat", (combat, changes) => {
     }
     if ("started" in changes || changes.flags?.[MODULE_ID]?.party) refreshHelper(250);
 });
-Hooks.on("deleteCombat", () => { SHOWN.clear(); refreshHelper(100); });
+Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); refreshHelper(100); });
 Hooks.on("createChatMessage", (message) => {
     try { noteReaction(message); } catch { /* not a card we read */ }
     const sp = message.speaker ?? {};
@@ -663,4 +701,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, helperBody, noteReaction, openHelper, readHelperBoard, shownReactions };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, helperBody, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift };

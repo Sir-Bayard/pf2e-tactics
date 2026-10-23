@@ -428,7 +428,7 @@ function boardLine(board, triggers = []) {
     }
     // Light where it stands, and who can't see it there
     const light = board.lightAt?.(me) ?? "bright";
-    const seenAs = (e) => withVisioner(visibilityOf({ senses: e.senses, conditions: e.conditions }, { conditions: board.me.conditions }, light, feetBetween(me, e.rect)), board.visioner?.get?.(e.id)?.seen, true);
+    const seenAs = (e) => withVisioner(visibilityOf({ senses: e.senses, conditions: e.conditions }, { conditions: board.me.conditions }, light, feetBetween(me, e.rect)), board.visioner?.get?.(e.id)?.seen, true, board.me.conditions);
     if (light !== "bright" || board.visioner?.size) {
         const blind = board.enemies.filter((e) => e.senses && seenAs(e) !== "observed");
         if (light !== "bright" || blind.length) rows.push(["Light", `${light === "magical" ? "magical darkness" : light === "dark" ? "darkness" : light === "dim" ? "dim" : "bright"}${blind.length ? `; ${esc(blind.map((e) => `${nameOf(e)} (${seenAs(e)})`).join(", "))} can't see it clearly` : ""}`]);

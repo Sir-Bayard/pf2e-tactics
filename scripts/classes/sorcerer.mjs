@@ -3,9 +3,10 @@
  * See classes/_common.mjs for the shape of a class read.
  * The advisor plans every spell on the board; this read adds the sorcerer's layer: Sorcerous Potency on slot spells,
  * blood magic and when it pays, Focus Points and bloodline spells, slots left by rank, signature spells and when a
- * lower slot does the job, the spellshape feats and the reactions that spend slots.
+ * lower slot does the job, the spellshape feats and the reactions that spend slots. Whether a slot is worth spending
+ * over a cantrip is spell thrift's call (player.mjs); this read doesn't keep a rule of its own.
  */
-import { castable, focusLeft, has, level, pct, targets, degreeChances, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import { castable, focusLeft, has, level, pct, slugKey, targets, degreeChances, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 
 /** Each bloodline: its tradition and what its blood magic does, with the moment it pays (Remaster text). */
 const BLOODLINES = {
@@ -68,7 +69,11 @@ function sorcerer(board, ctx, out) {
     const lv = level(board);
     const blSlug = Object.keys(BLOODLINES).find((k) => has(actor, `bloodline-${k}`)) ?? null;
     const bl = blSlug ? BLOODLINES[blSlug] : null;
-    const trad = bl?.trad ?? "your tradition";
+    // A draconic exemplar picks the tradition (arcane, divine, occult or primal): the bloodline item's ChoiceSet holds it
+    const blItem = blSlug ? actor?.items?.find?.((i) => slugKey(i.slug ?? i.system?.slug ?? "") === `bloodline-${blSlug}`) : null;
+    const dragon = blItem?.flags?.pf2e?.rulesSelections?.dragonBloodline ?? blItem?.flags?.system?.rulesSelections?.dragonBloodline ?? null;
+    const dragonTrad = typeof dragon === "string" ? dragon : dragon?.tradition ?? null;
+    const trad = (blSlug === "draconic" && ["arcane", "divine", "occult", "primal"].includes(dragonTrad) ? dragonTrad : bl?.trad) ?? "your tradition";
     const potency = has(actor, "sorcerous-potency") || has(actor, "dangerous-sorcery");
     const foes = targets(board);
     const spells = castable(board);
@@ -94,35 +99,6 @@ function sorcerer(board, ctx, out) {
         out.notes.push(`Slots left: ${txt}.${empty.length && has(actor, "greater-vital-evolution") ? ` Greater Vital Evolution (twice a day, two different ranks) still casts from an empty rank (${empty.join(", ")}).` : ""}`);
     }
 
-    // Cantrip or slot: against the foe where a slot pays most, say what it buys over the best cantrip
-    if (foes.length) {
-        let pick = null;
-        for (const f of foes) {
-            let cantrip = null, slot = null;
-            for (const sp of spells) {
-                if (!(sp.avg > 0) || sp.heals || !sp.cost || sp.cost > ctx.actions) continue;
-                const e = spellExpected(sp, f, sp.avg, ctx.made);
-                if (!e) continue;
-                const x = { sp, e };
-                if (sp.cantrip) { if (!cantrip || e.expected > cantrip.e.expected) cantrip = x; }
-                else if (isSlot(sp)) { if (!slot || e.expected > slot.e.expected) slot = x; }
-            }
-            if (!slot) continue;
-            const gain = slot.e.expected - (cantrip?.e.expected ?? 0);
-            if (!pick || gain > pick.gain) pick = { f, cantrip, slot, gain };
-        }
-        if (pick) {
-            const { f, cantrip, slot, gain } = pick;
-            const finishes = f.hp > 0 && f.hp <= slot.e.expected && (!cantrip || f.hp > cantrip.e.expected);
-            const bar = 3 + slot.sp.rank;
-            const spend = finishes || gain >= bar;
-            const cText = cantrip ? `${cantrip.sp.name} does about ${Math.round(cantrip.e.expected)}` : "you have no damaging cantrip for it";
-            out.notes.push(spend
-                ? `Spend a slot on ${nameOf(f)}: ${slot.sp.name} (rank ${slot.sp.rank}${potency ? `, +${slot.sp.rank} from Sorcerous Potency` : ""}) does about ${Math.round(slot.e.expected)}${finishes ? `, enough to finish it at ${f.hp} HP` : ` against ${cantrip ? `${cantrip.sp.name}'s about ${Math.round(cantrip.e.expected)}` : "no damaging cantrip"}`}.`
-                : `Keep the slot against ${nameOf(f)}: ${cText}; ${slot.sp.name} (rank ${slot.sp.rank}) adds only about ${Math.round(Math.max(0, gain))}${potency ? " even with Sorcerous Potency" : ""}. A slot earns its place when it adds ${bar} or more, or finishes the foe.`);
-        }
-    }
-
     // Signature spells: heighten freely, so a lower slot often does the job. Say so when a visible foe is low enough.
     const sigs = spells.filter((sp) => isSlot(sp) && isSignature(sp));
     if (sigs.length) {
@@ -137,7 +113,7 @@ function sorcerer(board, ctx, out) {
                 for (const r of lowRanks.filter((r) => r >= base && r < sp.rank)) {
                     const e = spellExpected(sp, f, avgAtRank(sp, r, potency), ctx.made);
                     if (e && e.expected >= f.hp) {
-                        out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.hp} HP) and keep the ${ordinal(sp.rank)}.`);
+                        out.notes.push(`${sp.name} is a signature spell: cast it from a ${ordinal(r)} slot at ${nameOf(f)} (about ${Math.round(e.expected)}, it has ${f.estimated ? `about ${f.hp} HP by the party's guess` : `${f.hp} HP`}) and keep the ${ordinal(sp.rank)}.`);
                         said = true; break;
                     }
                 }
@@ -201,7 +177,8 @@ function sorcerer(board, ctx, out) {
         out.notes.push(`Echoing Spell (1 action) before a rank 4 or lower spell with no duration: cast it again before the end of your next turn for no slot${best ? `; ${best.name} at rank ${best.rank} is your best candidate` : ""}.`);
     }
     if (has(actor, "bloodline-conduit")) out.notes.push("Bloodline Conduit (1 action, once a minute) before a rank 5 or lower spell with no duration: it costs no slot. Spend it on your first slot spell this fight; a signature spell heightened to 5th makes the most of it.");
-    if (has(actor, "metamagic-mastery") || has(actor, "spellshape-mastery")) out.notes.push("Metamagic Mastery: one spellshape a turn costs no action, so add one to every spell you cast.");
+    if (has(actor, "metamagic-mastery") || has(actor, "spellshape-mastery")) out.notes.push("Spellshape Mastery: your spellshape actions are free actions now, so every spell gets one.");
+    if (lv >= 10 && has(actor, "quickened-casting")) out.notes.push(`Quickened Casting (free, once a day): a cantrip or a spell of rank ${Math.max(1, topRank - 2)} or lower costs one action less; with three actions that's two spells this turn.`);
 
     // Slot-fed reactions and the rest that fires on a condition
     if (has(actor, "counterspell-spontaneous") || has(actor, "counterspell")) {
@@ -215,12 +192,12 @@ function sorcerer(board, ctx, out) {
         const t = { arcane: "Recall Knowledge with Arcana", divine: "Step, or Shove a creature in reach with Religion", occult: "Step up to 10 feet", primal: "Demoralize with Nature" }[trad] ?? "a minor trick of your tradition";
         out.notes.push(`Tap into Blood (1 action while a blood magic effect is on you): ${t}.`);
     }
-    if (has(actor, "diverting-vortex") && foes.some((f) => f.ranged || f.hasMelee === false)) out.notes.push("Diverting Vortex (1 action, right after a slot spell): +1 AC against ranged attacks until your next turn; when the archers have you.");
+    if (has(actor, "diverting-vortex") && foes.some((f) => (f.rangedReach ?? 0) > 0)) out.notes.push("Diverting Vortex (1 action, right after a slot spell): +1 AC against ranged attacks until your next turn; when the archers have you.");
     if (has(actor, "energy-ward")) out.notes.push("Energy Ward (free, once a turn, right after a slot spell that dealt energy damage): resistance 4 plus the rank to one energy type until your next turn; pick the type the foes throw.");
     if (has(actor, "divine-evolution")) out.notes.push(`Divine Evolution: one extra ${ordinal(topRank || 1)} slot that only casts Heal or Harm, so a Heal from it costs you nothing else.`);
     if (has(actor, "primal-evolution")) out.notes.push(`Primal Evolution: one extra ${ordinal(topRank || 1)} slot that only casts Summon Animal or Summon Plant or Fungus.`);
     if (has(actor, "greater-physical-evolution")) out.notes.push("Greater Physical Evolution (once a day): a slot casts any common battle form of its rank as a signature spell; for a fight where you'd rather be the front line.");
-    if (has(actor, "bloodline-resistance") && foes.some((f) => f.caster || f.spells?.length)) out.notes.push("Bloodline Resistance: +1 to saves against spells and magic, so a foe caster's DC is one lower for you.");
+    if (has(actor, "bloodline-resistance") && foes.some((f) => f.caster)) out.notes.push("Bloodline Resistance: +1 to saves against spells and magic, so the DC of a foe that has been casting is one lower for you.");
     if (has(actor, "ruby-resurrection")) out.notes.push(`Ruby Resurrection (once a day) fires when you'd drop to 0 HP: back to 30 HP and a rank 6 Fireball on everything around you but you${board.me.hp <= board.me.maxHp * 0.3 ? "; you're low enough that it may fire this round, so stand where the burst catches foes, not allies" : ""}.`);
     if (lv >= 19 && (has(actor, "bloodline-paragon") || has(actor, "bloodline-perfection"))) {
         const tenth = slots.find((s) => s.rank === 10);
