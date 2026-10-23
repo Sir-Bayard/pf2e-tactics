@@ -32,7 +32,7 @@ function markedIds(actor, slug) {
     for (const [uuid, slugs] of marks.entries()) if ((Array.isArray(slugs) ? slugs : [slugs]).includes(slug)) out.push(String(uuid).split(".").pop());
     return out;
 }
-/** The subject of an active lead among the foes: a token mark, or a name in the effect's own name ("Effect: Pursue a Lead (Valeros)"). */
+/** The subject of an active lead among the foes: a token mark, or a name in the effect's own name ("Effect: Pursue a Lead (Vance)"). */
 function leadSubjects(actor, foes) {
     const out = new Set();
     for (const id of markedIds(actor, "pursue-a-lead")) { const f = foes.find((x) => x.id === id); if (f) out.add(f); }

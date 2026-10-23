@@ -5,6 +5,7 @@
 - Show for players: when the recommended turn moves you or aims an area, Show draws the route on your map, as it does on the GM's card. Only you see it. The route goes round only the reactions the party has seen this fight. It clears when the turn passes or the window closes.
 - Each turn starts with only Your Turn open. Worth Knowing, Around You and Foes start folded; one you open stays open for the rest of that turn.
 - Your Turn has a green edge (the GM's card keeps red), and the action pips and bars on the helper match.
+- README: new pictures (including the player's Show), a much shorter "Your class" section, invented names in the examples in place of Paizo's iconic characters, and a short Pathfinder trademark note in place of the Community Use notice.
 
 ## 3.5.1
 
@@ -99,7 +100,7 @@ Checked with every class's own tests (56), all 30 test characters' real sheets, 
 ## 3.0.0
 
 - The module id is now pf2e-tactics (folder and zip too). Settings carry over on first load; flags written under the old id are still read; the old id's API is mirrored while the old folder is installed.
-- Fighter, Barbarian, Ranger and Champion in classes.mjs (YOUR CLASS), each checked against the iconic pregens (Valeros, Amiri, Ekundayo, Seelah) on the live board; a reactions line for every class; Twin Takedown, Double Slice, Smite, Rage and Hunt Prey plans; the advisor's own reading of those actions is set aside.
+- Fighter, Barbarian, Ranger and Champion in classes.mjs (YOUR CLASS), each checked against four pregenerated characters (Vance, Brakka, Corin, Sabine) on the live board; a reactions line for every class; Twin Takedown, Double Slice, Smite, Rage and Hunt Prey plans; the advisor's own reading of those actions is set aside.
 
 ## 2.1.0
 
@@ -246,7 +247,7 @@ Checked with every class's own tests (56), all 30 test characters' real sheets, 
 ## 1.1.0
 
 - Cones and lines count distance like movement (every second diagonal is 10 feet). 1.0.0 measured a straight line, so a cone could seem to reach a creature 20 feet away on two diagonals.
-- When the path goes round someone's reach to avoid a reaction, the step says so ("the long way round, keeping out of Valeros's reach").
+- When the path goes round someone's reach to avoid a reaction, the step says so ("the long way round, keeping out of Vance's reach").
 - Show draws the path on your map, visible only to you.
 
 ## 1.0.0

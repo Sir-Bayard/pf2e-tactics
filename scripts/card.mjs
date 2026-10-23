@@ -13,7 +13,7 @@ import { adjustLedger, editThreat, ledgerFor, ledgerTotals, sustainNow, threatOn
 // ---------------------------------------------------------------------------------------------
 const FRACTIONS = { half: 0.5, "a half": 0.5, "a third": 1 / 3, "one third": 1 / 3, "a quarter": 0.25, "one quarter": 0.25, "a fourth": 0.25, "three quarters": 0.75, "two thirds": 2 / 3 };
 
-/** Text of one line of HTML, entities and all ("Valeros&#39;s" is "Valeros's"). */
+/** Text of one line of HTML, entities and all ("Vance&#39;s" is "Vance's"). */
 function plainLine(html) {
     const ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "\u2019", lsquo: "\u2018", ldquo: "\u201c", rdquo: "\u201d", ndash: "\u2013", mdash: "\u2014" };
     return String(html ?? "").replace(/<[^>]+>/g, " ")
@@ -279,7 +279,7 @@ function statusLine(actor) {
 // --- Panels: a header strip, then cards with a coloured left edge, styled like Campaign Trackers ------
 const ABBREVIATIONS = { hp: "HP", ac: "AC", dc: "DC", gm: "GM", pc: "PC", pcs: "PCs", npc: "NPC" };
 const SMALL_WORDS = new Set(["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "at", "by", "in", "of", "on", "to", "as", "from", "with", "into", "via", "vs"]);
-/** Title case for card titles ("The Board", "Always On", "Close and Strike Valeros"). Only ever raises a first letter. */
+/** Title case for card titles ("The Board", "Always On", "Close and Strike Vance"). Only ever raises a first letter. */
 function titleCase(text) {
     const words = String(text ?? "").split(" ");
     if (words.length > 8) return String(text ?? ""); // a sentence, not a title

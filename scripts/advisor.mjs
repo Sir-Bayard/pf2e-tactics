@@ -263,7 +263,7 @@ let ACT = 3;
 /** Attacks it has already made this turn, for the multiple attack penalty. Set by planTurn from board.turn. */
 let TURN_MADE = 0;
 /** Animals and mindless creatures fight on instinct: closest foe, shortest path, no reading of the board. */
-/** "Stride ×2 into reach of Valeros", or "to a clear line on Valeros" for a ranged attack. */
+/** "Stride ×2 into reach of Vance", or "to a clear line on Vance" for a ranged attack. */
 /** The move part of a step: "Stride ×2", "Stand, then Stride", "Stride, opening a door on the way". */
 const routeText = (route) => {
     const k = Math.max(1, (route.actions ?? 0) - (route.doors ?? 0) - (route.stand ? 1 : 0) - (route.vAct ?? 0));
