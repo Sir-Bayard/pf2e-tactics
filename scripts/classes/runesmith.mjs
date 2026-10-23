@@ -316,7 +316,7 @@ function runesmith(board, ctx, out) {
             if (!pick || pick.ev <= 0) continue;
             if (w && w.cost + 1 <= ctx.actions) {
                 const steps = [{ cost: w.cost, text: `${w.how} ${pick.r.name.split(",")[0]} on ${nameOf(f)}${diaText(pick.dia)}${edifyText(w)}` }, { cost: 1, text: `${invokeWord}: ${pick.r.name.split(",")[0]} on ${nameOf(f)}: ${pick.text}` }];
-                let ev = pick.ev;
+                let ev = pick.ev, dest = null;
                 const left = ctx.actions - w.cost - 1;
                 let title = `Trace ${pick.r.name.split(",")[0]} on ${nameOf(f)}, then invoke it`;
                 if (left >= 1 && w.adjacent) {
@@ -327,8 +327,13 @@ function runesmith(board, ctx, out) {
                         steps[2].text = `${invokeWord}: both runes on ${nameOf(f)}: ${pick.r.name.split(",")[0]} (${pick.text}); ${second.r.name.split(",")[0]} (${second.text})`;
                         ev += second.ev; title = `Trace ${pick.r.name.split(",")[0]} and ${second.r.name.split(",")[0]} on ${nameOf(f)}, then invoke both`;
                     } else if (run.used.length) { steps.push({ cost: run.used.length, text: run.text }); ev += run.ev; }
-                } else if (left >= 1) { const run = strikeRun(board, f, left, { made: ctx.made }); if (run.used.length) { steps.push({ cost: run.used.length, text: run.text }); ev += run.ev; } }
-                cands.push({ title, target: f, ev, steps, dest: null });
+                } else if (left >= 1) { // traced at range: a Strike only once in reach (closing first if the actions allow)
+                    const sq = squareToReach(board, f, myReach(board), left - 1);
+                    const l2 = sq ? left - sq.route.actions : 0;
+                    const run = l2 >= 1 ? strikeRun(board, f, l2, { made: ctx.made }) : { used: [], ev: 0, text: "" };
+                    if (run.used.length) { if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) }); steps.push({ cost: run.used.length, text: run.text }); ev += run.ev; dest = sq.route.actions ? { x: sq.x, y: sq.y } : null; }
+                }
+                cands.push({ title, target: f, ev, steps, dest });
             } else if (!w && canMove(me) && ctx.actions >= 3) { // Stride into reach, Trace (1), Invoke (1)
                 const sq = squareToReach(board, f, 5, 1);
                 if (sq && sq.route.actions === 1) cands.push({ title: `Close on ${nameOf(f)}, Trace ${pick.r.name.split(",")[0]} and invoke it`, target: f, ev: pick.ev, dest: { x: sq.x, y: sq.y }, steps: [{ cost: 1, text: moveText(sq, f) }, { cost: 1, text: `Trace ${pick.r.name.split(",")[0]} on ${nameOf(f)}${diaText(pick.dia)}` }, { cost: 1, text: `${invokeWord}: ${pick.text}` }] });

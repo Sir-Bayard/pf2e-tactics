@@ -87,8 +87,19 @@ function inventor(board, ctx, out) {
     const melee = () => board.strikes.filter((s) => !s.ranged);
 
     // ---- the innovation on the sheet
-    const innovationId = actor?.flags?.pf2e?.innovationId ?? actor?.flags?.system?.innovationId ?? null;
-    const innovation = kind === "weapon" ? (board.strikes.find((s) => s.id && s.id === innovationId) ?? board.strikes.find((s) => s.item?.system?.traits?.rarity === "unique" || s.innovation) ?? board.strikes.filter((s) => !s.traits?.includes("unarmed")).sort((a, b) => b.avg - a.avg)[0] ?? null) : null;
+    // PF2e names the weapon innovation in roll options ("weapon-innovation:id:<item id>", "weapon-innovation:slug:<slug>"); older
+    // data has a flag; failing both, the unique-rarity weapon, then the hardest-hitting weapon Strike (never a shield or unarmed).
+    const roll = Object.keys(actor?.rollOptions?.all ?? {});
+    const innovationId = roll.find((k) => k.startsWith("weapon-innovation:id:"))?.slice("weapon-innovation:id:".length) ?? actor?.flags?.pf2e?.innovationId ?? actor?.flags?.system?.innovationId ?? null;
+    const innovationSlug = roll.find((k) => k.startsWith("weapon-innovation:slug:"))?.slice("weapon-innovation:slug:".length) ?? null;
+    const strikeSlug = (s) => s.item?.slug ?? s.slug ?? null;
+    const named = !!(innovationId || innovationSlug);
+    const innovation = kind !== "weapon" ? null
+        : named ? (board.strikes.find((s) => s.id && s.id === innovationId) ?? (innovationSlug ? board.strikes.find((s) => strikeSlug(s) === innovationSlug) : null) ?? null)
+        : (board.strikes.find((s) => s.item?.system?.traits?.rarity === "unique" || s.innovation)
+            ?? board.strikes.filter((s) => !s.traits?.includes("unarmed") && s.item?.type !== "shield" && !/shield/i.test(s.label ?? "")).sort((a, b) => b.avg - a.avg)[0] ?? null);
+    const innovationItem = kind === "weapon" && named && !innovation ? (actor?.items?.find?.((i) => i.id === innovationId) ?? (innovationSlug ? actor?.items?.find?.((i) => i.type === "weapon" && i.slug === innovationSlug) : null)) ?? null : null;
+    if (innovationItem) out.notes.push(`Your innovation (${innovationItem.name}) isn't in hand, so its boosts and Megaton Strike are off the table; draw it (1 Interact) if you'll be Striking.`);
     const construct = kind === "construct" || has(actor, "prototype-companion") ? findConstruct(board) : null;
     const broken = (kind === "weapon" && innovation?.item?.isBroken) || !!effect(actor, /^effect-broken-innovation/);
     const locked = !!effect(actor, /unstable-check-failure/);

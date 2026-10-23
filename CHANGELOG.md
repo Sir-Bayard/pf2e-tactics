@@ -7,6 +7,9 @@
 - Cantrips heighten from their own base rank (a psychic's unique cantrips start at 3 or 5), and the board marks focus spells as such.
 - The advisor's text reading steps aside for the actions the new reads plan (the finishers and blasts, impulses, deeds, transcendences, grave spells and so on), so nothing is listed twice.
 - Class reads can be turned on by more than one feature slug, so a dedication's own grants (a psychic's conscious mind, a gunslinger's way) reach the read.
+- Firearms and crossbows: a weapon's reload is read from its reload field (PF2e doesn't carry it as a trait), so the advisor no longer plans three shots a turn with a reload 1 gun. With PF2e Ranged Combat 8 the loaded round is read from the weapon's sub-items, and a gun the module knows is empty opens the advisor's own shooting plan with the reload.
+- The inventor's weapon innovation is taken from the sheet's roll options (a shield is never mistaken for it, and an innovation left in the pack is said so); a runesmith who Traces at range only Strikes once in reach, closing first when the actions allow.
+- Checked on the dev world with a scratch character of each of the ten new classes beside five foes (a summoner with its eidolon; a kineticist built through the gate prompts).
 
 ## 3.2.0
 

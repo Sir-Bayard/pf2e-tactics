@@ -918,13 +918,16 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             if (!best) continue;
             const actions = best.sq.route.actions;
             const left = ACT - actions;
-            const n = s.thrown ? 1 : s.reload ? Math.max(1, Math.floor((left + s.reload) / (1 + s.reload))) : left;
+            // a reload weapon is assumed loaded unless a class read marked it empty (s.empty: it has to be loaded before the first shot)
+            const usable = left - (s.empty ? s.reload || 0 : 0);
+            if (usable < 1) continue;
+            const n = s.thrown ? 1 : s.reload ? Math.max(1, Math.floor((usable + s.reload) / (1 + s.reload))) : left;
             const pen = -2 * rangeSteps(best.dist, s.range) + (s.volley && best.dist <= s.volley ? -2 : 0); // range increments, volley
             const run = strikeRun([{ ...s, bonus: s.bonus + pen }], Math.min(n, 3), t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
             const plan = { kind: "ranged", title: `${s.thrown ? "Throw at" : "Shoot"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null };
             if (actions) plan.steps.push({ cost: actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to a clear line on ${nameOf(t)}${best.exp.length ? "" : ", out of reach"}` });
             plan.used = run.used;
-            plan.steps.push({ cost: s.thrown ? 1 : left, text: describeStrikes(run.used, nameOf(t)) + (s.reload ? ` (reload ${s.reload} between shots)` : "") + (s.thrown ? " (thrown)" : "") });
+            plan.steps.push({ cost: s.thrown ? 1 : left, text: (s.empty && s.reload ? `Reload ${s.label} (${s.reload} Interact${s.reload > 1 ? "s" : ""}); ` : "") + describeStrikes(run.used, nameOf(t)) + (s.reload ? ` (reload ${s.reload} between shots)` : "") + (s.thrown ? " (thrown)" : "") });
             if (s.thrown && left > 1) fillLast(board, plan, best.at, left - 1, t, 1);
             if (best.dist > s.range) plan.notes.push(`${rangeSteps(best.dist, s.range) + 1} range increments out: ${-2 * rangeSteps(best.dist, s.range)}`);
             sightNotes(plan, best.at, t);

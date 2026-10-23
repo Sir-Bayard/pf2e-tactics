@@ -48,6 +48,10 @@ function loadedState(actor, s) {
     const mod = globalThis.game?.modules?.get?.("pf2e-ranged-combat");
     if (!mod?.active) return { loaded: true, known: false };
     const id = s.id ?? s.item?.id;
+    // Ranged Combat 8+: the loaded round is a sub-item of the weapon (type ammo, with uses left); earlier versions: a Loaded effect
+    const subs = s.item?.system?.subitems ?? s.item?._source?.system?.subitems ?? [];
+    const rounds = subs.filter((x) => x.type === "ammo" && (Number(x.system?.uses?.value ?? x.system?.quantity ?? 1) || 0) > 0);
+    if (rounds.length) return { loaded: true, known: true };
     const effects = (actor?.items?.contents ?? actor?.items ?? []).filter?.((i) => i.type === "effect") ?? [];
     const mine = effects.filter((i) => { const fl = i.flags?.["pf2e-ranged-combat"]; return fl && (fl.targetId === id || fl.weaponId === id || (fl.name && fl.name === s.label)); });
     if (!mine.length) return { loaded: false, known: true };
@@ -83,6 +87,7 @@ function gunslinger(board, ctx, out) {
     const guns = board.strikes.filter((s) => s.ranged && !s.thrown && ["firearm", "crossbow"].includes(groupOf(s)) || (s.ranged && (s.traits ?? []).some((t) => /^(?:fatal|concussive|scatter|kickback|combination)/.test(t)))).map((s) => {
         const st = loadedState(actor, s);
         if (!st.known) assumed = true;
+        if (st.known && !st.loaded) s.empty = true; // the advisor's own ranged plans then open with the reload
         const fatalDie = traitNum(s, /^fatal-(?:\d+)?d\d+$/) || Number((/^fatal-(?:\d+)?d(\d+)$/.exec((s.traits ?? []).find((t) => /^fatal/.test(t)) ?? "") ?? [])[1]) || 0;
         const group = groupOf(s) || ((s.traits ?? []).some((t) => /^(?:fatal|concussive|scatter|kickback)/.test(t)) ? "firearm" : "crossbow");
         return {

@@ -974,7 +974,8 @@ function strikesOf(actor) {
             }
             if (!Number.isFinite(avg)) avg = 0;
         }
-        const reload = Number(traits.find((t) => /^reload-\d/.test(t))?.split("-")[1] ?? 0);
+        // PF2e keeps a weapon's reload in system.reload.value ("0", "1", "2", "-" for none); older data carried it as a reload-N trait
+        const reload = Number(item.system?.reload?.value) || Number(traits.find((t) => /^reload-\d/.test(t))?.split("-")[1] ?? 0) || 0;
         const thrown = ranged && traits.some((t) => t.startsWith("thrown")) && !traits.includes("returning");
         return {
             id: item.id, label: s.label ?? item.name, item, action: s,
