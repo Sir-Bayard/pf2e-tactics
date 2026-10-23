@@ -54,7 +54,11 @@ function noteOwn(message) {
     if (item?.type === "spell" && traits.includes("magus") && traits.includes("focus") && !/reaction|free/i.test(String(item.system?.time?.value ?? ""))) {
         return save(actor, (r) => ({ ...r, spellstrike: true }));
     }
-    if ((slug === "exploit-vulnerability" || opts.includes("action:exploit-vulnerability")) && targetToken) return save(actor, (r) => ({ ...r, exploited: targetToken }));
+    if ((slug === "exploit-vulnerability" || opts.includes("action:exploit-vulnerability")) && targetToken) {
+        // the foe, which creature it is (its base actor: tokens of the same creature share it) and how the check went
+        const tok = canvas?.scene?.tokens?.get?.(targetToken) ?? null;
+        return save(actor, (r) => ({ ...r, exploited: { id: targetToken, kind: tok?.actorId ?? null, name: tok?.name ?? null, outcome: ctx.outcome ?? null } }));
+    }
     if (slug === "drink-from-the-chalice" && isDamage) return save(actor, (r) => ({ ...r, chaliceDrained: true }));
     if (slug === "fling-magic" && isDamage && (message.rolls ?? []).some((r) => /d6/.test(r?.formula ?? ""))) return save(actor, (r) => ({ ...r, wandBoosted: combat.round ?? 0 }));
     if (opts.includes("action:demoralize") && targetToken) return save(actor, (r) => ({ ...r, demoralized: [...new Set([...(r.demoralized ?? []), targetToken])] }));
@@ -73,7 +77,7 @@ function recordForBoard(actor) {
     const round = game.combat?.round ?? 0;
     return {
         spellstrikeCharged: typeof r.spellstrike === "boolean" ? r.spellstrike : undefined,
-        exploited: r.exploited ? { id: r.exploited } : null,
+        exploited: !r.exploited ? null : typeof r.exploited === "string" ? { id: r.exploited } : { ...r.exploited },
         chaliceDrained: typeof r.chaliceDrained === "boolean" ? r.chaliceDrained : undefined,
         // a boosted wand stays spent until the end of your next turn
         wandBoosted: r.wandBoosted != null ? round - r.wandBoosted <= 1 : undefined,

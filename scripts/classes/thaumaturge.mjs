@@ -56,8 +56,26 @@ function thaumaturge(board, ctx, out) {
     const recId = me.exploited?.id ?? me.exploited ?? null;
     const recTarget = recId ? foes.find((f) => f.id === recId) ?? null : null;
     const upTarget = recTarget ?? (effUp ? foes.find((f) => f.id && (String(effUp.system?.context?.target?.token ?? "").includes(f.id) || String(effUp.system?.context?.target?.actor ?? "").includes(f.actorId ?? "\u0000"))) ?? null : null);
-    // up: true (known), false (the first turn), null (it may be on someone from an earlier turn; the helper can't see it)
-    const up = effUp || recTarget ? true : fresh ? false : null;
+    // The helper's record of your last Exploit (from its chat card): the foe, which creature it is, how the check went.
+    // It lasts until you Exploit again, even after that foe falls. Mortal weakness (a success or better, when the creature
+    // has a weakness) also covers other creatures of the exact same kind; with Sympathetic Vulnerabilities it covers any
+    // creature with that weakness, and personal antithesis covers the same kind too unless it's humanoid.
+    const rec = me.exploited && typeof me.exploited === "object" ? me.exploited : null;
+    const kindOf = (f) => f.token?.document?.actorId ?? f.actorId ?? null;
+    const sympathetic = has(actor, "sympathetic-vulnerabilities");
+    const mortalOk = !rec?.outcome || /success/i.test(rec.outcome) && !/failure/i.test(rec.outcome);
+    const exploitedName = rec?.name ?? "the creature you exploited";
+    /** Does your standing Exploit already reach f? "either": whichever you took; "mortal": only if you took its mortal weakness. */
+    const covers = (f) => {
+        if (!recId || f.id === recId || !rec?.kind || kindOf(f) !== rec.kind) return null;
+        if (sympathetic && !(f.traits ?? []).includes("humanoid") && mortalOk) return "either";
+        if (sympathetic && !(f.traits ?? []).includes("humanoid") && !mortalOk) return "either"; // a failure gives antithesis, which reaches its kind
+        return mortalOk ? "mortal" : null;
+    };
+    // up: true (known), false (the first turn, or the exploited foe is down), null (it may be on someone from an earlier
+    // turn; the helper can't see it)
+    const recGone = !!recId && !recTarget;
+    const up = effUp || recTarget ? true : fresh || recGone ? false : null;
     const intensified = !!effect(actor, /intensify-vulnerability/);
     const lore = actor.skills?.["esoteric-lore"]?.mod ?? actor.skills?.esotericLore?.mod ?? Object.values(actor.skills ?? {}).find((s) => /esoteric/i.test(s.label ?? ""))?.mod ?? lv + 4;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
@@ -84,8 +102,11 @@ function thaumaturge(board, ctx, out) {
     const unsure = (f) => `If your Exploit Vulnerability is already on ${nameOf(f)} from an earlier turn, skip it and Strike: using it again starts over (and can lose a mortal weakness).`;
     if (up === true) out.notes.push(`Exploit Vulnerability is up${upTarget ? ` on ${nameOf(upTarget)}` : ""}: your Strikes against that creature deal +${extra} (personal antithesis), or its weakness if that's higher.${intensified ? " Intensify Vulnerability is up too." : ""}`);
     else if (ctx.actions < 1 + evCost) out.notes.push(`Exploit Vulnerability (${freeEV ? "free action" : "1 action"}, once a round, Esoteric Lore ${signed(lore)}): +${extra} damage on every Strike against that creature until you use it again.`);
-    if (up !== true && ctx.actions >= 1 + evCost) {
+    if (ctx.actions >= 1 + evCost) {
         for (const f of foes) {
+            if (up === true && (!upTarget || f.id === upTarget.id)) continue; // it's already on this one
+            const cov = covers(f);
+            if (cov === "either") continue; // your standing Exploit already reaches it
             const sq = squareToReach(board, f, reach, ctx.actions - 1 - evCost);
             if (!sq) continue;
             const left = ctx.actions - evCost - sq.route.actions;
@@ -102,17 +123,26 @@ function thaumaturge(board, ctx, out) {
             if (has(actor, "breached-defenses") && (f.iwr?.resist ?? []).length) notes.push(`Breached Defenses: on a success you can pick its ${f.iwr.resist.map((r) => r.type).join("/")} resistance for your Strikes to bypass instead of the usual benefit.`);
             if (held.includes("regalia") && canIntensify) notes.push("Regalia (Intensify): a hit on the exploited creature gives an ally you see +1 to attack it until your next turn, +2 on a critical hit.");
             if (has(actor, "diverse-lore")) notes.push("Diverse Lore: a good enough Esoteric Lore result also tells you what a Recall Knowledge check would.");
-            // Exploit lasts until you use it again: the turns after this one get the bonus too. Counted for one more turn
-            // (two Strikes), when the foe looks likely to last that long.
-            const next = (f.hp ?? 0) > run.ev ? exRun(f, 2, { made: 0, weak: extra }).ev - exRun(f, 2, { made: 0 }).ev : 0;
-            if (next > 0) notes.push(`From next turn it keeps paying: about ${Math.round(next)} more a turn on your Strikes against ${nameOf(f)} (+${extra} on each hit) until you Exploit again.`);
+            // Exploit lasts until you use it again: the turns after this one get the bonus too. Counted for up to two more
+            // turns (two Strikes each) by how long the foe looks likely to last; nothing when your standing Exploit may
+            // already reach it.
+            const perTurn = exRun(f, 2, { made: 0, weak: extra }).ev - exRun(f, 2, { made: 0 }).ev;
+            const turns = cov ? 0 : (f.hp ?? 0) > 2 * run.ev ? 2 : (f.hp ?? 0) > run.ev ? 1 : 0;
+            const next = perTurn * turns;
+            if (next > 0) notes.push(`From next turn it keeps paying: about ${Math.round(perTurn)} more a turn on your Strikes against ${nameOf(f)} (+${extra} on each hit) until you Exploit again.`);
+            if (cov === "mortal") notes.unshift(`If you took ${exploitedName}'s mortal weakness, it already covers ${nameOf(f)}, the same kind of creature: skip Exploit and Strike. With personal antithesis, Exploit again.`);
+            else if (up === true && upTarget) notes.push(`This moves your Exploit off ${nameOf(upTarget)}.`);
+            if (!cov && recId && sympathetic && mortalOk) notes.push(`Sympathetic Vulnerabilities: if ${nameOf(f)} has the weakness you exploited on ${exploitedName}, your mortal weakness already applies to it.`);
             out.plans.push({ kind: "class", title: `Exploit ${nameOf(f)}, then Strike`, target: f, ev: run.ev, score: run.ev + next + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
         }
     }
     // --- Exploit is up (or may be, from an earlier turn): Intensify Vulnerability, Twin Weakness, the Strikes with it ---
-    if (up !== false && ctx.actions >= 1) {
+    // Foes your standing Exploit reaches beyond its target (the same kind of creature; see covers)
+    const reached = recId ? foes.filter((f) => covers(f)) : [];
+    if ((up !== false || reached.length) && ctx.actions >= 1) {
         // Known: its target, or every foe when the effect doesn't say. Unknown: the foes in reach now, labelled as the assumption.
-        const tgts = up === true ? (upTarget ? [upTarget] : foes) : foes.filter((f) => inReach(me.rect, f.rect, reach)).slice(0, 2);
+        const base = up === true ? (upTarget ? [upTarget] : foes) : up === null ? foes.filter((f) => inReach(me.rect, f.rect, reach)).slice(0, 2) : [];
+        const tgts = [...base, ...reached.filter((f) => !base.includes(f))];
         for (const f of tgts) {
             const sq = squareToReach(board, f, reach, ctx.actions - 1);
             if (!sq) continue;
@@ -120,7 +150,10 @@ function thaumaturge(board, ctx, out) {
             const steps = [];
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
             let acAdj = 0, ev = 0;
-            const note = up === null ? [`This assumes your Exploit Vulnerability from an earlier turn is still on ${nameOf(f)}; PF2e doesn't record it, so the helper can't tell.`] : [];
+            const cv = covers(f);
+            const note = cv === "mortal" ? [`This assumes you took ${exploitedName}'s mortal weakness, which also covers ${nameOf(f)}, the same kind of creature.`]
+                : cv === "either" ? [`Your Exploit on ${exploitedName} reaches ${nameOf(f)} too, the same kind of creature (Sympathetic Vulnerabilities covers personal antithesis as well).`]
+                : up === null ? [`This assumes your Exploit Vulnerability from an earlier turn is still on ${nameOf(f)}; PF2e doesn't record it, so the helper can't tell.`] : [];
             if (canIntensify && !intensified && left >= 1 + (freeEV ? 0 : 1) && held.length) {
                 const parts = [];
                 if (held.includes("weapon")) { parts.push("weapon: +2 status to your attack rolls against it (the plan takes this one)"); acAdj = -2; }
@@ -154,7 +187,7 @@ function thaumaturge(board, ctx, out) {
             }
             if (has(actor, "cursed-effigy") && left >= 1) note.push(`Cursed Effigy (1 action, right after a Strike that hits with physical damage): ${nameOf(f)} takes -2 to saves against your class DC while it's exploited.`);
             const kind = steps.some((s) => /Intensify/.test(s.text)) ? "Intensify" : steps.some((s) => /Twin/.test(s.text)) ? "Twin Weakness" : "Strike";
-            out.plans.push({ kind: "class", title: `${up === null ? "If Exploit is still on it: " : ""}${kind} ${kind === "Strike" ? "" : "on "}${nameOf(f)}`.replace(/\s+/g, " "), target: f, ev, score: ev + (up === null ? 0.1 : 0.3), dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes: note });
+            out.plans.push({ kind: "class", title: `${cv === "mortal" ? "If mortal weakness covers it: " : !cv && up === null ? "If Exploit is still on it: " : ""}${kind} ${kind === "Strike" ? "" : "on "}${nameOf(f)}`.replace(/\s+/g, " "), target: f, ev, score: ev + (cv === "mortal" || (!cv && up === null) ? 0.1 : 0.3), dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes: note });
         }
     }
 
