@@ -16,9 +16,10 @@
 import { MODULE_ID, esc, link, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, planTurn, reachableSquares } from "./advisor.mjs";
-import { bindCard, foldOpen, panel, statusLine, stepsHtml, titleCase } from "./card.mjs";
+import { bindCard, foldOpen, panel, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
+import { noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 
@@ -28,11 +29,40 @@ const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 const SHOWN = new Map();
 /** What each NPC token has been seen to do this fight: combat id -> token id -> Set of "cast", "ranged", "heal". */
 const DID = new Map();
+/**
+ * The record is kept on the combat by the GM's client (players can't write to it), so every player sees what any of them
+ * saw and it survives a reload: flags["pf2e-tactics"].seen = { tokenId: { r: [reaction names], d: ["cast", "ranged", "heal"] } }.
+ * Each client also keeps its own copy for the moment before the GM's write lands.
+ */
+const seenFlag = (combat, tokenId) => flagOf(combat, "seen")?.[tokenId] ?? null;
 function shownReactions(combat, tokenId) {
-    return SHOWN.get(combat?.id)?.get(tokenId) ?? new Set();
+    const local = SHOWN.get(combat?.id)?.get(tokenId);
+    const kept = seenFlag(combat, tokenId)?.r ?? [];
+    return new Set([...(local ?? []), ...kept]);
 }
 function shownDoing(combat, tokenId) {
-    return DID.get(combat?.id)?.get(tokenId) ?? new Set();
+    const local = DID.get(combat?.id)?.get(tokenId);
+    const kept = seenFlag(combat, tokenId)?.d ?? [];
+    return new Set([...(local ?? []), ...kept]);
+}
+let seenTimer = null;
+/** The GM's client writes what this client has noted into the combat's record (merged, never shrunk). */
+function keepSeen(combat) {
+    if (!combat || !game.users?.activeGM?.isSelf) return;
+    clearTimeout(seenTimer);
+    seenTimer = setTimeout(async () => {
+        try {
+            const cur = foundry.utils.deepClone(flagOf(combat, "seen") ?? {});
+            let changed = false;
+            const merge = (tokenId, key, values) => {
+                const row = cur[tokenId] ?? (cur[tokenId] = { r: [], d: [] });
+                for (const v of values) if (!row[key].includes(v)) { row[key].push(v); changed = true; }
+            };
+            for (const [tokenId, set] of SHOWN.get(combat.id) ?? []) merge(tokenId, "r", set);
+            for (const [tokenId, set] of DID.get(combat.id) ?? []) merge(tokenId, "d", set);
+            if (changed) await combat.setFlag(MODULE_ID, "seen", cur);
+        } catch (err) { console.warn(`${MODULE_ID} | couldn't keep what the party has seen`, err); }
+    }, 400);
 }
 const bucket = (map, combatId, tokenId) => {
     const byCombat = map.get(combatId) ?? map.set(combatId, new Map()).get(combatId);
@@ -61,6 +91,7 @@ function noteReaction(message) {
     if (item?.type === "spell" || ctx.type === "spell-attack-roll" || message.flags?.pf2e?.casting) did.add("cast");
     if (isAttack && (item?.isRanged || (item?.system?.traits?.value ?? []).some((t) => /^(range|thrown)/.test(t)))) did.add("ranged");
     if (item?.type === "spell" && (item.system?.traits?.value ?? []).includes("healing")) did.add("heal");
+    keepSeen(combat);
 }
 
 /* ------------------------------------------------------------------ reading the board for a PC */
@@ -85,7 +116,9 @@ function stateOf(board, e) {
 function knownAc(board, e) {
     const v = flagOf(game.combat, "party")?.[e.id]?.ac;
     if (!v || typeof v !== "object" || !(v.n > 0)) return null;
-    const lo = Number.isFinite(v.lo) ? v.lo : null, hi = Number.isFinite(v.hi) ? v.hi : null;
+    // the bounds are kept net of what shows on it; shown here as they stand now
+    const adj = (e.seenMods?.ac ?? 0) + (e.shieldBonus ?? 0);
+    const lo = Number.isFinite(v.lo) ? v.lo + adj : null, hi = Number.isFinite(v.hi) ? v.hi + adj : null;
     if (lo === null && hi === null) return null;
     const text = lo !== null && hi !== null ? (lo === hi ? `AC ${lo}` : `AC ${lo}–${hi}`) : lo !== null ? `AC ${lo} or more` : `AC ${hi} or less`;
     return `${text} (${v.n} attack${v.n === 1 ? "" : "s"} this fight)`;
@@ -174,8 +207,9 @@ function estimateFoe(board, e, known, L) {
         caster: did.has("cast"), healer: did.has("heal"), rangedReach: did.has("ranged") || did.has("cast") ? 60 : 0,
         level: L,
         // the party's bounds are the AC it rolled against; an off-guard foe's estimate drops by 2 like a sheet's would
-        ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0) - (e.conditions && isOffGuard(e) ? 2 : 0),
-        saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], MODERATE.save(L))])),
+        // plus what the table can see on it now (frightened, off-guard, a shown effect); the party's bounds are kept net of it
+        ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0) + (e.seenMods ? e.seenMods.ac : (e.conditions && isOffGuard(e) ? -2 : 0)),
+        saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], MODERATE.save(L)) + (e.seenMods?.[s] ?? 0)])),
         hp: bars ? e.hp : (e.hp > 0 ? MODERATE.hp(L) : 0), maxHp: bars ? e.maxHp : MODERATE.hp(L),
         iwr: { weak: [], resist: [], immune: [] },
         perception: null, athletics: null,
@@ -252,7 +286,9 @@ function adviceBoard(board, ledger) {
     const slug = (n) => String(n ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");  // apostrophes drop, as Foundry's sluggify does ("hunters-aim")
     const profiles = board.profiles.filter((p) => !(p.traits ?? []).includes("tactic") && !CLASS_HANDLED.has(slug(p.name)));
     return { ...board,
-        me: { ...board.me, int: Math.max(3, board.me.int ?? 0), pc: true },
+        // what this character has done this fight that PF2e doesn't keep (Spellstrike's charge, the foe exploited, who it
+        // has Demoralized...), from its own chat cards
+        me: { ...board.me, int: Math.max(3, board.me.int ?? 0), pc: true, ...recordForBoard(board.me.actor) },
         profiles,
         enemies: seen,
         downEnemies: (board.downEnemies ?? []).map(est),
@@ -322,15 +358,39 @@ function adviceSectionFor(board, adv) {
         alts.push(p);
         if (alts.length >= 3) break;
     }
-    const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", true) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")}${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
-    const foot = `<div class="npt-dim npt-est">${adv.estimated ? "Odds are estimates: a foe's AC and saves come from the party's rolls against it this fight, and until then from a creature of your level. Nothing comes from its sheet." : "Odds use what the party's rolls have shown of each foe this fight."}</div>`;
+    const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", false) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")}${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
+    const foot = `<div class="npt-dim npt-est">${adv.estimated ? "Odds are estimates from the party's rolls this fight (a creature of your level until then) and what you can see on each foe." : "Odds use the party's rolls this fight and what you can see on each foe."}</div>`;
     return panel("Your Turn", { key, open: true, cls: "npt-act", sum: esc(titleCase(best.title)), body: `<div class="npt-plan-title">${esc(titleCase(best.title))}</div>${stepsHtml(best.steps)}${notes}${altHtml}${foot}` });
 }
-function classSection(adv) {
-    if (!adv.notes.length) return "";
-    return panel("Your Class", { key: "h-class", open: true, body: `<ul class="npt-list">${adv.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` });
+/**
+ * The notes worth reading this turn first: a note that names a foe on the board or something in the recommended turn rises;
+ * standing reminders (your reactions, bonuses already counted in the numbers, the thrift summary) sink. Three show, the
+ * rest fold away.
+ */
+function rankNotes(board, adv) {
+    const names = (board.seenFoes ?? []).map((f) => nameOf(f)).filter((n) => n && n !== "?");
+    const best = adv.plans[0];
+    const words = new Set(((best?.title ?? "") + " " + (best?.steps ?? []).map((st) => st.text).join(" ")).toLowerCase().match(/[a-z']{5,}/g) ?? []);
+    const score = (n, i) => {
+        let v = -i * 0.01;
+        if (names.some((nm) => n.includes(nm))) v += 2;
+        const head = n.split(/[:(]/)[0].toLowerCase();
+        if ([...head.matchAll(/[a-z']{5,}/g)].some((m) => words.has(m[0]))) v += 3;
+        if (/^your reactions:/i.test(n)) v -= 4;
+        if (/^spell thrift:/i.test(n)) v -= 3;
+        if (/already (?:in|counted|included)|the sheet (?:carries|already)|the plans count it|is already in your/i.test(n)) v -= 2;
+        if (/^(?:slots left|focus points)/i.test(n)) v -= 1;
+        return v;
+    };
+    return adv.notes.map((n, i) => ({ n, v: score(n, i) })).sort((a, b) => b.v - a.v).map((x) => x.n);
 }
-
+function classSection(board, adv) {
+    if (!adv.notes.length) return "";
+    const notes = rankNotes(board, adv);
+    const top = notes.slice(0, 3), rest = notes.slice(3);
+    const more = rest.length ? `<details class="npt-alts" data-npt-fold="h-class-more"${foldOpen("h-class-more", false) ? " open" : ""}><summary>${rest.length} more</summary><ul class="npt-list">${rest.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : "";
+    return panel("Worth Knowing", { key: "h-class", open: true, body: `<ul class="npt-list">${top.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${more}` });
+}
 /* ------------------------------------------------------------------ the card */
 
 const COVER_NAME = { 1: "lesser cover (+1 AC)", 2: "standard cover (+2 AC)", 4: "greater cover (+4 AC)" };
@@ -343,75 +403,56 @@ function foeLine(f) {
     const bits = [];
     if (f.state !== "observed") bits.push(STATE_NOTE[f.state] ?? f.state);
     if (f.cover) bits.push(COVER_NAME[f.cover] ?? "cover");
-    const conds = [...(f.conditions ?? [])].filter((c) => !["hidden", "undetected", "concealed", "invisible"].includes(c));
+    const cv = f.conditionValues ?? {};
+    const conds = [...(f.conditions ?? [])].filter((c) => !["hidden", "undetected", "concealed", "invisible"].includes(c)).map((c) => (cv[c] > 1 || ["frightened", "slowed", "stunned", "clumsy", "enfeebled", "sickened", "stupefied", "drained", "doomed", "wounded", "dying"].includes(c) ? `${c} ${cv[c] ?? 1}` : c));
     if (conds.length) bits.push(conds.join(", "));
+    const fx = f.seenMods?.effects ?? [];
+    if (fx.length) bits.push(fx.join(", "));
+    const acMod = f.seenMods?.ac ?? 0;
+    if (acMod) bits.push(`${acMod > 0 ? "+" : ""}${acMod} AC from what shows on it`);
     if (f.known) bits.push(f.known);
     if (f.shown?.size) bits.push(`has used ${[...f.shown].join(", ")} this fight`);
     const size = f.sizeRank != null ? ["Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan"][f.sizeRank] ?? "" : "";
     return `<li><strong>${esc(nameOf(f))}</strong>${size ? ` <span class="npt-dim">${size}</span>` : ""}${bits.length ? `: ${esc(bits.join(" · "))}` : ""}</li>`;
 }
 
-function reachSection(board) {
+function aroundSection(board) {
     const me = board.me;
-    const melee = (board.strikes ?? []).filter((s) => !s.ranged);
-    const reach = melee.length ? Math.max(...melee.map((s) => s.reach || 5)) : 0;
     const foes = board.seenFoes;
-    const inMine = reach ? foes.filter((f) => inReach(me.rect, f.rect, reach)) : [];
-    const onMe = foes.filter((f) => inReach(f.rect, me.rect, f.reach || 5));
     const rows = [];
-    rows.push(`<div class="npt-row"><span class="npt-k">In your reach</span>${inMine.length ? esc(inMine.map(nameOf).join(", ")) : reach ? "nobody" : "no melee Strike"}</div>`);
-    rows.push(`<div class="npt-row"><span class="npt-k">Can reach you</span>${onMe.length ? esc(onMe.map((f) => `${nameOf(f)}${(f.reach || 5) > 5 ? ` (reach ${f.reach})` : ""}`).join(", ")) : "nobody"}</div>`);
-    // Where a Step takes you out of everyone's reach
-    const stepOut = [...(board.field?.step?.values() ?? [])].filter((c) => c.end && !(c.x === me.rect.x && c.y === me.rect.y)
-        && !onMe.some((f) => inReach(f.rect, { x: c.x, y: c.y, w: me.rect.w, h: me.rect.h, z: me.rect.z }, f.reach || 5)));
-    if (onMe.length) rows.push(`<div class="npt-row"><span class="npt-k">Step</span>${stepOut.length ? `${stepOut.length} square${stepOut.length === 1 ? "" : "s"} take you out of their reach (a Step never provokes)` : "no Step gets you out of their reach"}</div>`);
-    return panel("Reach", { key: "h-reach", open: true, body: rows.join("") });
+    const onMe = foes.filter((f) => inReach(f.rect, me.rect, f.reach || 5));
+    if (onMe.length) {
+        const stepOut = [...(board.field?.step?.values() ?? [])].filter((c) => c.end && !(c.x === me.rect.x && c.y === me.rect.y)
+            && !onMe.some((f) => inReach(f.rect, { x: c.x, y: c.y, w: me.rect.w, h: me.rect.h, z: me.rect.z }, f.reach || 5)));
+        rows.push(`<li><strong>Can reach you:</strong> ${esc(onMe.map((f) => `${nameOf(f)}${(f.reach || 5) > 5 ? ` (reach ${f.reach})` : ""}`).join(", "))}; ${stepOut.length ? "a Step gets you out of reach" : "no Step gets you out of reach"}.</li>`);
+        const shownMove = onMe.filter((f) => [...(f.shown ?? [])].some((n) => /reactive strike|attack of opportunity|opportunist|stand still/i.test(n)));
+        if (shownMove.length) rows.push(`<li class="npt-warn">Moving away from ${esc(shownMove.map(nameOf).join(", "))} provokes (shown a Reactive Strike this fight); a Step doesn't.</li>`);
+    }
+    rows.push(...flankRows(board));
+    if (foes.length) {
+        const sq = reachableSquares(board, 1).filter((x) => x.route.actions === 1 && !x.route.provokes.length);
+        const covered = sq.filter((x) => foes.every((f) => coverBetween(board, f.rect, { ...me, rect: { x: x.x, y: x.y, w: me.rect.w, h: me.rect.h, z: x.z ?? me.rect.z } }, { ranged: true, fromSize: f.sizeRank ?? 2 }) >= 2)).length;
+        if (covered) rows.push(`<li><strong>Cover:</strong> ${covered} square${covered === 1 ? "" : "s"} one move away ${covered === 1 ? "has" : "have"} standard cover from everyone you can see; Take Cover there for greater.</li>`);
+    }
+    if (!rows.length) return "";
+    return panel("Around You", { key: "h-around", open: true, body: `<ul class="npt-list">${rows.join("")}</ul>` });
 }
 
-function strikesSection(board) {
+/** Flanking chances and threats, as rows for Around You. */
+function flankRows(board) {
     const me = board.me;
-    const strikes = board.strikes ?? [];
-    if (!strikes.length) return "";
-    const foes = board.seenFoes;
-    const squares = reachableSquares(board, 1);
-    const items = strikes.map((s) => {
-        const map = s.agile ? "−4 / −8 after the first" : "−5 / −10 after the first";
-        const here = foes.filter((f) => (s.ranged ? feetBetween(me.rect, f.rect) <= (s.range ?? 30) * 6 : inReach(me.rect, f.rect, s.reach || 5)));
-        const afterMove = s.ranged ? [] : foes.filter((f) => !here.includes(f) && squares.some((sq) => sq.route.actions <= 1 && inReach({ x: sq.x, y: sq.y, w: me.rect.w, h: me.rect.h, z: sq.z ?? me.rect.z }, f.rect, s.reach || 5)));
-        const tgt = (f) => {
-            const extra = [];
-            if (s.ranged) {
-                const d = feetBetween(me.rect, f.rect);
-                const inc = s.range ? Math.max(0, Math.ceil(d / s.range) - 1) : 0;
-                if (inc) extra.push(`${inc} range increment${inc === 1 ? "" : "s"} out: −${2 * inc}`);
-                if (s.volley && d <= s.volley) extra.push(`volley: −2 this close`);
-            }
-            if (f.state === "concealed") extra.push("DC 5 flat check");
-            if (f.state === "hidden") extra.push("DC 11 flat check");
-            if (f.cover) extra.push(COVER_NAME[f.cover] ?? "cover");
-            return `${esc(nameOf(f))}${extra.length ? ` <span class="npt-dim">(${esc(extra.join("; "))})</span>` : ""}`;
-        };
-        const who = here.length ? here.map(tgt).join(", ") : "nobody from here";
-        const later = afterMove.length ? ` · after a Stride: ${afterMove.map((f) => esc(nameOf(f))).join(", ")}` : "";
-        return `<li><strong>${esc(s.label)}</strong> ${signed(s.bonus)}${s.ranged ? ` <span class="npt-dim">(range ${s.range ?? "?"} ft${s.reload ? `, reload ${s.reload}` : ""})</span>` : (s.reach || 5) > 5 ? ` <span class="npt-dim">(reach ${s.reach})</span>` : ""}: ${who}${later}<div class="npt-dim">MAP ${map}${s.traits?.length ? ` · ${esc(s.traits.filter((t) => !/^(?:magical|range-|reload-|thrown-|volley-|attack)/.test(t)).join(", "))}` : ""}</div></li>`;
-    });
-    return panel("Strikes", { key: "h-strikes", open: true, body: `<ul class="npt-list">${items.join("")}</ul>` });
-}
-
-function flankSection(board) {
-    const me = board.me;
-    if (!(board.strikes ?? []).some((s) => !s.ranged)) return "";
+    if (!(board.strikes ?? []).some((s) => !s.ranged)) return [];
     const foes = board.seenFoes.filter((f) => f.state !== "hidden");
     const squares = reachableSquares(board, 2);
     const rows = [];
     for (const f of foes) {
         // Already flanking from where you stand?
         const now = flankingAlly(board, me.rect, f);
-        if (now && inReach(me.rect, f.rect, Math.max(...board.strikes.filter((s) => !s.ranged).map((s) => s.reach || 5)))) { rows.push(`<li><strong>${esc(nameOf(f))}</strong>: you flank with ${esc(nameOf(now))} now (off-guard to your melee Strikes)</li>`); continue; }
+        if (now && inReach(me.rect, f.rect, Math.max(...board.strikes.filter((s) => !s.ranged).map((s) => s.reach || 5)))) { rows.push(`<li><strong>Flanking:</strong> you flank ${esc(nameOf(f))} with ${esc(nameOf(now))} now (off-guard to your melee Strikes)</li>`); continue; }
         const options = squares.filter((sq) => sq.route.actions >= 1 && sq.route.actions <= 2).map((sq) => ({ sq, ally: flankingAlly(board, { x: sq.x, y: sq.y, w: me.rect.w, h: me.rect.h, z: sq.z ?? me.rect.z }, f) })).filter((o) => o.ally);
         if (!options.length) continue;
         const best = options.sort((a, b) => a.sq.route.actions - b.sq.route.actions || a.sq.route.provokes.length - b.sq.route.provokes.length)[0];
-        rows.push(`<li><strong>${esc(nameOf(f))}</strong>: ${best.sq.route.actions === 1 ? "one move" : "two moves"} to flank with ${esc(nameOf(best.ally))}${best.sq.route.via ? ` <span class="npt-dim">(${esc(best.sq.route.via)})</span>` : ""}</li>`);
+        rows.push(`<li><strong>Flanking:</strong> ${best.sq.route.actions === 1 ? "one move" : "two moves"} to flank ${esc(nameOf(f))} with ${esc(nameOf(best.ally))}${best.sq.route.via ? ` <span class="npt-dim">(${esc(best.sq.route.via)})</span>` : ""}</li>`);
     }
     // Who flanks you
     const flankedBy = [];
@@ -420,27 +461,7 @@ function flankSection(board) {
         if (flanks(a.rect, b.rect, me.rect) && !flankedBy.some(([x, y]) => (x === b && y === a))) flankedBy.push([a, b]);
     }
     if (flankedBy.length) rows.push(`<li class="npt-warn">You are flanked by ${esc(flankedBy.map(([a, b]) => `${nameOf(a)} and ${nameOf(b)}`).join("; "))}: off-guard to their melee attacks</li>`);
-    if (!rows.length) return "";
-    return panel("Flanking", { key: "h-flank", open: true, body: `<ul class="npt-list">${rows.join("")}</ul>` });
-}
-
-function moveSection(board) {
-    const me = board.me;
-    const rows = [];
-    const adjacent = board.seenFoes.filter((f) => inReach(f.rect, me.rect, f.reach || 5));
-    const shownMove = adjacent.filter((f) => [...f.shown].some((n) => /reactive strike|attack of opportunity|opportunist|stand still/i.test(n)));
-    if (shownMove.length) rows.push(`<div class="npt-row npt-warn"><span class="npt-k">Provokes</span>moving out of reach of ${esc(shownMove.map(nameOf).join(", "))} (they have shown a Reactive Strike this fight); a Step doesn't</div>`);
-    else if (adjacent.length) rows.push(`<div class="npt-row"><span class="npt-k">Provokes</span>${esc(adjacent.map(nameOf).join(", "))} ${adjacent.length === 1 ? "is" : "are"} in reach of you: moving away may set off a reaction if they have one. A Step never does</div>`);
-    const stride = board.move?.stride;
-    if (stride?.feet) rows.push(`<div class="npt-row"><span class="npt-k">Speed</span>${stride.feet} ft${board.move?.speeds?.fly ? `, fly ${board.move.speeds.fly}` : ""}${board.move?.speeds?.swim ? `, swim ${board.move.speeds.swim}` : ""}${board.move?.speeds?.climb ? `, climb ${board.move.speeds.climb}` : ""}</div>`);
-    // Cover you could take from the foes who can reach or shoot you
-    if (board.seenFoes.length) {
-        const sq = reachableSquares(board, 1).filter((s) => s.route.actions === 1 && !s.route.provokes.length);
-        const covered = sq.filter((s) => board.seenFoes.every((f) => coverBetween(board, f.rect, { ...me, rect: { x: s.x, y: s.y, w: me.rect.w, h: me.rect.h, z: s.z ?? me.rect.z } }, { ranged: true, fromSize: f.sizeRank ?? 2 }) >= 2)).length;
-        if (covered) rows.push(`<div class="npt-row"><span class="npt-k">Cover</span>${covered} square${covered === 1 ? "" : "s"} one move away ${covered === 1 ? "has" : "have"} standard cover from everyone you can see; Take Cover there for greater</div>`);
-    }
-    if (!rows.length) return "";
-    return panel("Moving", { key: "h-move", open: true, body: rows.join("") });
+    return rows;
 }
 
 function foesSection(board) {
@@ -462,9 +483,14 @@ function foesSection(board) {
 }
 
 function helperBody(board) {
-    return reachSection(board) + strikesSection(board) + flankSection(board) + moveSection(board) + foesSection(board);
+    return aroundSection(board) + foesSection(board);
 }
 
+/** What's on you that bears on the turn: your conditions (the sheet has the rest). */
+function selfLine(actor) {
+    const conditions = (actor.conditions?.active ?? []).map((c) => (c.value && !new RegExp(`\\b${c.value}$`).test(c.name) ? `${c.name} ${c.value}` : c.name));
+    return conditions.length ? `<div class="npt-stats npt-dim">${esc(conditions.join(", "))}</div>` : "";
+}
 function turnLine(actor) {
     const combat = game.combat;
     if (!combat?.started) return `<div class="npt-dim">No fight on.</div>`;
@@ -479,19 +505,24 @@ async function buildHelper(actor, token) {
         ?? canvas?.tokens?.placeables?.find((t) => t.actor === actor) ?? null;
     const name = placeable?.name ?? token?.name ?? actor.name;
     const top = `<div class="npt-top">${actor.img ? `<img src="${esc(actor.img)}" alt="">` : ""}
-        <div class="npt-who"><h3>${link(actor, name)}</h3>${statusLine(actor)}</div></div>`;
+        <div class="npt-who"><h3>${link(actor, name)}</h3>${selfLine(actor)}</div></div>`;
     let board = null;
     try { board = placeable ? await readHelperBoard(placeable) : null; } catch (err) { console.error(`${MODULE_ID} | turn helper failed`, err); }
     const ledger = board ? ledgerFor(actor, placeable ?? token) : null;
     let advice = "";
     if (board) {
-        try { const adv = adviseHelper(board, ledger); advice = adviceSectionFor(board, adv) + classSection(adv); }
+        try { const adv = adviseHelper(board, ledger); advice = adviceSectionFor(board, adv) + classSection(board, adv); }
         catch (err) { console.error(`${MODULE_ID} | turn advice failed`, err); advice = panel("Your Turn", { cls: "npt-act", body: `<p class="npt-dim">Couldn't work out a turn from this board.</p>` }); }
     }
     const body = board
         ? advice + helperBody(board)
         : `<div class="npt-dim">${placeable ? "Couldn't read the scene." : "No token of yours on this scene."}</div>`;
-    const buttons = `<div class="npt-foot"><button type="button" data-npt-refresh><i class="fa-solid fa-rotate"></i> Refresh</button></div>`;
+    // Spellstrike's charge, which PF2e doesn't keep: read from your cards, and settable here for a Spellstrike rolled without one
+    const rec = ownRecord(actor);
+    const magus = rec && actor.items?.some?.((i) => i.type === "action" && (i.slug ?? "") === "spellstrike");
+    const ssLabel = rec?.spellstrike === true ? "charged: mark spent" : rec?.spellstrike === false ? "spent: mark charged" : "unknown: mark charged";
+    const ss = magus ? `<button type="button" data-npt-spellstrike="${rec.spellstrike === true ? "0" : "1"}" title="PF2e doesn't track it; the helper reads your Spellstrike and recharge cards, and this sets it by hand"><i class="fa-solid fa-bolt"></i> Spellstrike ${ssLabel}</button>` : "";
+    const buttons = `<div class="npt-foot">${ss}<button type="button" data-npt-refresh><i class="fa-solid fa-rotate"></i> Refresh</button></div>`;
     return `<div class="npt-card npt-helper">${top}${turnLine(actor)}${ledger ? turnHtml(ledger, board) : ""}<div class="npt-body">${body}</div>${buttons}</div>`;
 }
 
@@ -529,6 +560,12 @@ function helperClass() {
             if (titleEl) titleEl.textContent = this.title;
             Object.assign(content.style, { maxHeight: "78vh", overflowY: "auto" });
             bindCard(content, () => this.render());
+            content.querySelectorAll("[data-npt-spellstrike]").forEach((btn) => btn.addEventListener("click", async (ev) => {
+                ev.preventDefault();
+                if (!this.actor?.isOwner) return;
+                await setSpellstrike(this.actor, btn.dataset.nptSpellstrike === "1");
+                this.render();
+            }));
         }
         setPosition(position) {
             const result = super.setPosition(position);
@@ -686,18 +723,19 @@ Hooks.on("updateCombat", (combat, changes) => {
             }
         }
     }
-    if ("started" in changes || changes.flags?.[MODULE_ID]?.party) refreshHelper(250);
+    if ("started" in changes || changes.flags?.[MODULE_ID]?.party || changes.flags?.[MODULE_ID]?.seen) refreshHelper(250);
 });
 Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); refreshHelper(100); });
 Hooks.on("createChatMessage", (message) => {
     try { noteReaction(message); } catch { /* not a card we read */ }
+    try { noteOwn(message); } catch { /* not a card we read */ }
     const sp = message.speaker ?? {};
     if (helperWindow?.rendered && (sp.actor === helperWindow.actor?.id || sp.token === helperWindow.token?.id)) refreshHelper(300);
 });
 const BOARD_FIELDS = ["x", "y", "width", "height", "hidden", "elevation", "disposition", "level"];
 Hooks.on("updateToken", (doc, changes) => { if (doc.parent === canvas?.scene && BOARD_FIELDS.some((k) => k in changes)) refreshHelper(300); });
 for (const hook of ["createToken", "deleteToken"]) Hooks.on(hook, (doc) => { if (doc.parent === canvas?.scene) refreshHelper(300); });
-Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (changes.system?.attributes || changes.system?.traits)) refreshHelper(300); });
+Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (changes.system?.attributes || changes.system?.traits || changes.flags?.[MODULE_ID]?.record)) refreshHelper(300); });
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 

@@ -1872,7 +1872,8 @@ function thirdActionAlternatives(board, target, at) {
     const out = [];
     const smart = !me.mindless && me.int > -4;
     // Demoralize: auditory, 30 feet, -4 without a shared language, nothing on a deafened target
-    if (me.intimidation !== null && smart && !target.conditions.has("frightened") && !target.conditions.has("deafened") && feetBetween(at, target.rect) <= 30) {
+    // (me.demoralized: the foes this character has already Demoralized this fight, immune to it for 10 minutes)
+    if (me.intimidation !== null && smart && !me.demoralized?.has?.(target.id) && !target.conditions.has("frightened") && !target.conditions.has("deafened") && feetBetween(at, target.rect) <= 30) {
         const shared = !me.languages?.length || !target.languages?.length || me.languages.some((l) => target.languages.includes(l));
         const mod = me.intimidation - (shared ? 0 : 4);
         const c = degreeChances(mod, 10 + (target.saves.will ?? 0));

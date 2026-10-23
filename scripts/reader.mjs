@@ -1176,6 +1176,33 @@ function iwrOf(actor) {
     };
 }
 
+/**
+ * What anyone at the table can see changing a creature's defences: the conditions on it and the effects whose icons show on
+ * its token. PF2e tags each AC and save modifier with the item it comes from, so this is the sum of the enabled modifiers
+ * whose item is a condition or a shown effect (frightened 2: -2 to AC and every save; Bane: nothing here). Returns
+ * { ac, fortitude, reflex, will } and the names of the shown effects.
+ */
+function visibleAdjustments(actor) {
+    const out = { ac: 0, fortitude: 0, reflex: 0, will: 0, effects: [] };
+    if (!actor) return out;
+    const shown = (uuid) => {
+        if (!uuid) return false;
+        const id = String(uuid).split(".").pop();
+        const item = actor.items?.get?.(id);
+        if (!item) return false;
+        if (item.type === "condition") return true;
+        return item.type === "effect" && item.system?.tokenIcon?.show !== false;
+    };
+    const sum = (stat) => (stat?.modifiers ?? []).filter((m) => m.enabled && !m.ignored && shown(m.source)).reduce((t, m) => t + (Number(m.modifier) || 0), 0);
+    try {
+        out.ac = sum(actor.armorClass);
+        for (const s of ["fortitude", "reflex", "will"]) out[s] = sum(actor.saves?.[s]);
+    } catch { /* an actor without statistics */ }
+    out.effects = (actor.itemTypes?.effect ?? actor.items?.filter?.((i) => i.type === "effect") ?? [])
+        .filter((i) => i.system?.tokenIcon?.show !== false)
+        .map((i) => String(i.name ?? "").replace(/^(?:spell |aura )?effect:\s*/i, "").trim()).filter(Boolean);
+    return out;
+}
 const conditionValues = (actor) => Object.fromEntries((actor?.conditions?.active ?? []).map((c) => [c.slug, Number(c.value ?? 1) || 1]));
 const CANT_ACT = ["paralyzed", "unconscious", "petrified", "stunned", "restrained", "dying"];
 const hasAbility = (actor, re) => !!actor?.items?.some?.((i) => re.test(i.name ?? ""));
@@ -1198,6 +1225,9 @@ function creatureOf(token, size) {
         saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, a.saves?.[s]?.mod ?? 0])),
         hp: hp.value ?? 0, maxHp: hp.max ?? 1,
         conditions,
+        // what the table can see: condition values (frightened 2) and shown effects, and what they do to AC and saves
+        conditionValues: conditionValues(a),
+        seenMods: visibleAdjustments(a),
         reach: a.getReach?.({ action: "attack" }) ?? 5,
         reactions,
         reactiveStrike: pcStrike ? { bonus: pcStrike.bonus, avg: pcStrike.avg } : { bonus: (a.level ?? 1) + 8, avg: 4 + (a.level ?? 1) * 1.5 },
@@ -1800,4 +1830,4 @@ function rampsOf(scene, field, size, me) {
 }
 // ---------------------------------------------------------------------------------------------
 
-export { HP_AT_TURN, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };
+export { HP_AT_TURN, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };

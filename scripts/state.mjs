@@ -5,7 +5,7 @@
  */
 import { CONDITION_VALUE, NOTICE, actorTier } from "./advisor.mjs";
 import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, setting, flagOf } from "./shared.mjs";
-import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects } from "./reader.mjs";
+import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects, visibleAdjustments } from "./reader.mjs";
 import { refreshSoon, workbenchRecharge } from "./card.mjs";
 
 // --- The turn so far: what the creature whose turn it is has done, read from the board and chat ------
@@ -605,8 +605,18 @@ function onLearnMessage(message) {
             else if (o === "failure") bounds = nat === 20 ? { lo: total + 10 } : nat === 1 ? { lo: total - 9, hi: total } : { lo: total + 1, hi: total + 9 };
             else if (o === "criticalFailure") bounds = { lo: nat === 1 ? total + 1 : total + 10 };
         }
-        // A player's attack on an NPC: what the party has learned of that NPC's AC (the Turn Helper shows it)
-        if (npc.hasPlayerOwner) { if (!foe.hasPlayerOwner) learn(combat, tdoc.id, "ac", message.id, bounds, "party"); return; }
+        // A player's attack on an NPC: what the party has learned of that NPC's AC (the Turn Helper shows it). The bounds
+        // are kept net of what the table could see changing its AC at the time (frightened, an off-guard from flanking,
+        // a shown effect), so they still hold when that wears off; the helper adds back what shows now.
+        if (npc.hasPlayerOwner) {
+            if (foe.hasPlayerOwner) return;
+            let adj = visibleAdjustments(foe).ac;
+            const opts = ctx.options ?? [];
+            if (opts.includes("target:condition:off-guard") && !foe.conditions?.active?.some?.((c) => c.slug === "off-guard")) adj -= 2;
+            const base = bounds ? { lo: bounds.lo !== undefined ? bounds.lo - adj : undefined, hi: bounds.hi !== undefined ? bounds.hi - adj : undefined } : null;
+            learn(combat, tdoc.id, "ac", message.id, base, "party");
+            return;
+        }
         const npcTok = message.token?.id ?? message.speaker?.token ?? tokenOf(npc);
         if (npcTok) LAST_TARGET.set(npcTok, { combatId: combat.id, id: tdoc.id, round: combat.round ?? 0 });
         learn(combat, tdoc.id, "ac", message.id, bounds);
@@ -622,7 +632,8 @@ function onLearnMessage(message) {
             if (foe.hasPlayerOwner) return;
             const roll = message.rolls?.[0];
             const nat = roll?.dice?.find((d) => d.faces === 20)?.results?.find((r) => r.active && !r.discarded)?.result ?? null;
-            const mod = Number.isFinite(Number(roll?.total)) && nat !== null ? Number(roll.total) - nat : null;
+            // net of what shows on it (frightened 2 takes 2 off every save), as with AC
+            const mod = Number.isFinite(Number(roll?.total)) && nat !== null ? Number(roll.total) - nat - (visibleAdjustments(foe)[stat] ?? 0) : null;
             learn(combat, tok, stat, `${message.id}|${stat}`, mod === null ? null : { lo: mod, hi: mod }, "party");
             return;
         }

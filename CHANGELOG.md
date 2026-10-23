@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.0
+
+**The Turn Helper is turn advice, not a second character sheet**
+- The card is shorter: Your Turn (the recommended turn, with the other options folded under it), Worth Knowing (the three class notes that bear most on this turn, the rest folded), Around You (who can reach you, flanking, provoking, nearby cover) and Foes. Your HP, AC, saves, Speed and the Strikes list are left to the sheet.
+
+**What you can see on a foe**
+- The conditions on a foe and the effects showing on its token now count: frightened 2 takes 2 off its estimated AC and every save, off-guard 2 off its AC, and the Foes list shows them with their values ("frightened 2", "Bane", "-2 AC from what shows on it").
+- The party's learned AC and saves are kept net of what showed on the foe when each roll was made (and of the off-guard a flanked roll carried), so they still hold when the condition wears off.
+
+**What the helper remembers**
+- What the party has seen each foe do (a reaction, an attack outside its own turn, a spell, a ranged attack, a heal) is kept on the combat by the GM's client: every player's helper shares it, and a reload no longer loses it.
+- Your own character's fight is remembered from your chat cards: Spellstrike charged or spent (with a button on the helper to set it by hand), the foe your thaumaturge exploited, the chalice drained, the wand boosted, and the foes you've Demoralized or asked a Pointed Question (not offered again for 10 minutes). The magus and thaumaturge plans no longer have to guess.
+
 ## 3.3.1
 
 A second-reader review of 3.3.0: six reviewers who hadn't seen the code checked every class read against the PF2e 8.6.1 compendium text and the shared layers for leaks and logic, then each finding was fixed and re-checked against the packs. 31 High and 62 Medium findings fixed, most Lows too.
