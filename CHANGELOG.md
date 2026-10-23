@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.5.3
+
+- Thaumaturge: Exploit Vulnerability now counts what it's worth after this turn, since it stays on the foe until you use it again. On a turn where Exploit, a Stride and one Strike looked worse than two plain Strikes, the helper now recommends exploiting, and the plan says how much it adds each turn after.
+- An ability whose text gives a bonus to something other than the attack (Instructive Strike's +2 to the Recall Knowledge check after a critical hit) no longer counts as a bonus to hit.
+- Instructive Strike and Cursed Effigy are left to the thaumaturge's own read instead of being planned from their text as well (Cursed Effigy was offered without Exploit Vulnerability up).
+
 ## 3.5.2
 
 - Show for players: when the recommended turn moves you or aims an area, Show draws the route on your map, as it does on the GM's card. Only you see it. The route goes round only the reactions the party has seen this fight. It clears when the turn passes or the window closes.

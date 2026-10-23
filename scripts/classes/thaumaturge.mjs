@@ -102,7 +102,11 @@ function thaumaturge(board, ctx, out) {
             if (has(actor, "breached-defenses") && (f.iwr?.resist ?? []).length) notes.push(`Breached Defenses: on a success you can pick its ${f.iwr.resist.map((r) => r.type).join("/")} resistance for your Strikes to bypass instead of the usual benefit.`);
             if (held.includes("regalia") && canIntensify) notes.push("Regalia (Intensify): a hit on the exploited creature gives an ally you see +1 to attack it until your next turn, +2 on a critical hit.");
             if (has(actor, "diverse-lore")) notes.push("Diverse Lore: a good enough Esoteric Lore result also tells you what a Recall Knowledge check would.");
-            out.plans.push({ kind: "class", title: `Exploit ${nameOf(f)}, then Strike`, target: f, ev: run.ev, score: run.ev + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
+            // Exploit lasts until you use it again: the turns after this one get the bonus too. Counted for one more turn
+            // (two Strikes), when the foe looks likely to last that long.
+            const next = (f.hp ?? 0) > run.ev ? exRun(f, 2, { made: 0, weak: extra }).ev - exRun(f, 2, { made: 0 }).ev : 0;
+            if (next > 0) notes.push(`From next turn it keeps paying: about ${Math.round(next)} more a turn on your Strikes against ${nameOf(f)} (+${extra} on each hit) until you Exploit again.`);
+            out.plans.push({ kind: "class", title: `Exploit ${nameOf(f)}, then Strike`, target: f, ev: run.ev, score: run.ev + next + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
         }
     }
     // --- Exploit is up (or may be, from an earlier turn): Intensify Vulnerability, Twin Weakness, the Strikes with it ---

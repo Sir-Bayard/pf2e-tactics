@@ -1150,8 +1150,9 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         if (!followUp && !variant) continue;
         // Press: only after an attack this turn, so a plain Strike goes first and the press Strike takes the MAP
         const press = variant && p.afterAttack && !TURN_MADE;
-        // "+1 circumstance bonus to the attack roll", or "makes a ranged Strike with a +1 circumstance bonus"
-        const bonus = Number(/\+(\d+) (?:circumstance|status|item) bonus(?! to (?:damage|ac|armor|saving|saves|skill|perception|reflex|fortitude|will))/i.exec(p.text)?.[1] ?? 0);
+        // "+1 circumstance bonus to the attack roll", or "makes a ranged Strike with a +1 circumstance bonus"; a bonus "to"
+        // anything else (damage, AC, a save, "the check to Recall Knowledge") isn't to hit
+        const bonus = Number(/\+(\d+) (?:circumstance|status|item) bonus(?! (?:to|on) (?!(?:the |your |its |that |this )?(?:attack|strike|hit)))/i.exec(p.text)?.[1] ?? 0);
         const named = (s) => new RegExp(`\\b${s.label.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(p.text.toLowerCase());
         // Its last Strike this turn hit: the follow-up can go now, without another Strike first
         // ...as long as the Strike that hit lists it ("a Strike that lists Knockdown"), when the stat block says so

@@ -237,7 +237,7 @@ const CLASS_HANDLED = new Set([
     // magus
     "spellstrike", "arcane-cascade", "spell-swipe", "whirlwind-spell", "recharging-flurry", "lunging-spellstrike",
     // thaumaturge
-    "exploit-vulnerability", "glimpse-vulnerability", "drink-from-the-chalice", "intensify-vulnerability", "twin-weakness", "divine-disharmony", "root-to-life", "implements-assault", "fling-magic", "mirrors-reflection",
+    "exploit-vulnerability", "glimpse-vulnerability", "instructive-strike", "cursed-effigy", "drink-from-the-chalice", "intensify-vulnerability", "twin-weakness", "divine-disharmony", "root-to-life", "implements-assault", "fling-magic", "mirrors-reflection",
     // alchemist
     "quick-alchemy", "quick-bomber", "mega-bomb",
     // cleric
