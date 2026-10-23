@@ -55,7 +55,16 @@ function thaumaturge(board, ctx, out) {
     const effUp = effect(actor, /exploit-vulnerability|personal-antithesis|mortal-weakness/); // a module's or homebrew effect, if any
     const recId = me.exploited?.id ?? me.exploited ?? null;
     const recTarget = recId ? foes.find((f) => f.id === recId) ?? null : null;
-    const upTarget = recTarget ?? (effUp ? foes.find((f) => f.id && (String(effUp.system?.context?.target?.token ?? "").includes(f.id) || String(effUp.system?.context?.target?.actor ?? "").includes(f.actorId ?? "\u0000"))) ?? null : null);
+    // PF2e Exploit Vulnerability (the module): your effect says which you took (Exploit Mortal Weakness or Exploit Personal
+    // Antithesis) and marks its target; every creature it reaches shows "Mortal Weakness Target" or "Personal Antithesis
+    // Target" on its token, with your name. With it the helper knows, instead of assuming.
+    const modMode = effect(actor, /^exploit-mortal-weakness$/) ? "mortal" : effect(actor, /^exploit-personal-antithesis$/) ? "antithesis" : null;
+    const markId = String(effUp?.system?.rules?.find?.((r) => r.key === "TokenMark")?.uuid ?? "").split(".").pop() || null;
+    const modReached = new Set(modMode ? foes.filter((f) => (f.seenMods?.effects ?? []).some((n) => {
+        const m = /^(?:mortal weakness|personal antithesis) target(?:\s*\((.+)\))?$/i.exec(String(n).trim());
+        return m && (!m[1] || m[1] === actor.name);
+    })).map((f) => f.id) : []);
+    const upTarget = recTarget ?? (effUp ? foes.find((f) => f.id && (f.id === markId || String(effUp.system?.context?.target?.token ?? "").includes(f.id) || String(effUp.system?.context?.target?.actor ?? "").includes(f.actorId ?? "\u0000"))) ?? null : null);
     // The helper's record of your last Exploit (from its chat card): the foe, which creature it is, how the check went.
     // It lasts until you Exploit again, even after that foe falls. Mortal weakness (a success or better, when the creature
     // has a weakness) also covers other creatures of the exact same kind; with Sympathetic Vulnerabilities it covers any
@@ -67,6 +76,7 @@ function thaumaturge(board, ctx, out) {
     const exploitedName = rec?.name ?? "the creature you exploited";
     /** Does your standing Exploit already reach f? "either": whichever you took; "mortal": only if you took its mortal weakness. */
     const covers = (f) => {
+        if (modMode) return f.id !== upTarget?.id && modReached.has(f.id) ? "module" : null; // the module says exactly
         if (!recId || f.id === recId || !rec?.kind || kindOf(f) !== rec.kind) return null;
         if (sympathetic && !(f.traits ?? []).includes("humanoid") && mortalOk) return "either";
         if (sympathetic && !(f.traits ?? []).includes("humanoid") && !mortalOk) return "either"; // a failure gives antithesis, which reaches its kind
@@ -75,7 +85,8 @@ function thaumaturge(board, ctx, out) {
     // up: true (known), false (the first turn, or the exploited foe is down), null (it may be on someone from an earlier
     // turn; the helper can't see it)
     const recGone = !!recId && !recTarget;
-    const up = effUp || recTarget ? true : fresh || recGone ? false : null;
+    const markGone = !!effUp && !!markId && !upTarget; // the effect lasts until you Exploit again, but its target is down
+    const up = recTarget || (effUp && !markGone) ? true : fresh || recGone || markGone ? false : null;
     const intensified = !!effect(actor, /intensify-vulnerability/);
     const lore = actor.skills?.["esoteric-lore"]?.mod ?? actor.skills?.esotericLore?.mod ?? Object.values(actor.skills ?? {}).find((s) => /esoteric/i.test(s.label ?? ""))?.mod ?? lv + 4;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
@@ -106,7 +117,7 @@ function thaumaturge(board, ctx, out) {
         for (const f of foes) {
             if (up === true && (!upTarget || f.id === upTarget.id)) continue; // it's already on this one
             const cov = covers(f);
-            if (cov === "either") continue; // your standing Exploit already reaches it
+            if (cov === "either" || cov === "module") continue; // your standing Exploit already reaches it
             const sq = squareToReach(board, f, reach, ctx.actions - 1 - evCost);
             if (!sq) continue;
             const left = ctx.actions - evCost - sq.route.actions;
@@ -132,13 +143,13 @@ function thaumaturge(board, ctx, out) {
             if (next > 0) notes.push(`From next turn it keeps paying: about ${Math.round(perTurn)} more a turn on your Strikes against ${nameOf(f)} (+${extra} on each hit) until you Exploit again.`);
             if (cov === "mortal") notes.unshift(`If you took ${exploitedName}'s mortal weakness, it already covers ${nameOf(f)}, the same kind of creature: skip Exploit and Strike. With personal antithesis, Exploit again.`);
             else if (up === true && upTarget) notes.push(`This moves your Exploit off ${nameOf(upTarget)}.`);
-            if (!cov && recId && sympathetic && mortalOk) notes.push(`Sympathetic Vulnerabilities: if ${nameOf(f)} has the weakness you exploited on ${exploitedName}, your mortal weakness already applies to it.`);
+            if (!cov && !modMode && recId && sympathetic && mortalOk) notes.push(`Sympathetic Vulnerabilities: if ${nameOf(f)} has the weakness you exploited on ${exploitedName}, your mortal weakness already applies to it.`);
             out.plans.push({ kind: "class", title: `Exploit ${nameOf(f)}, then Strike`, target: f, ev: run.ev, score: run.ev + next + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes });
         }
     }
     // --- Exploit is up (or may be, from an earlier turn): Intensify Vulnerability, Twin Weakness, the Strikes with it ---
     // Foes your standing Exploit reaches beyond its target (the same kind of creature; see covers)
-    const reached = recId ? foes.filter((f) => covers(f)) : [];
+    const reached = recId || modMode ? foes.filter((f) => covers(f)) : [];
     if ((up !== false || reached.length) && ctx.actions >= 1) {
         // Known: its target, or every foe when the effect doesn't say. Unknown: the foes in reach now, labelled as the assumption.
         const base = up === true ? (upTarget ? [upTarget] : foes) : up === null ? foes.filter((f) => inReach(me.rect, f.rect, reach)).slice(0, 2) : [];
@@ -153,6 +164,7 @@ function thaumaturge(board, ctx, out) {
             const cv = covers(f);
             const note = cv === "mortal" ? [`This assumes you took ${exploitedName}'s mortal weakness, which also covers ${nameOf(f)}, the same kind of creature.`]
                 : cv === "either" ? [`Your Exploit on ${exploitedName} reaches ${nameOf(f)} too, the same kind of creature (Sympathetic Vulnerabilities covers personal antithesis as well).`]
+                : cv === "module" ? [`Your ${modMode === "mortal" ? "mortal weakness" : "personal antithesis"} reaches ${nameOf(f)} too (it shows your ${modMode === "mortal" ? "Mortal Weakness" : "Personal Antithesis"} Target effect).`]
                 : up === null ? [`This assumes your Exploit Vulnerability from an earlier turn is still on ${nameOf(f)}; PF2e doesn't record it, so the helper can't tell.`] : [];
             if (canIntensify && !intensified && left >= 1 + (freeEV ? 0 : 1) && held.length) {
                 const parts = [];

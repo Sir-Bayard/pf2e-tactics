@@ -151,7 +151,7 @@ function alchemist(board, ctx, out) {
             const formula = !!tb && (free ? evB > evV : evB - evV >= 2);
             const first = formula
                 ? { t: tb, add: addB, what: `a ${tier[1]} bomb from your formula book (alchemist's fire: ${tier[2]}d8 fire, ${tier[3]} persistent, splash ${splash}${addB ? `; ${addB.name}` : ""})${free ? ", a perpetual infusion, no vial spent" : `, spending a versatile vial${vials !== null ? ` (${vials} left)` : ""}`}` }
-                : { t: tv, add: addV, what: `a quick vial (${vialName}${addV ? `; ${addV.name}` : ""}), no vial spent, potent until the end of this turn` };
+                : { t: tv, add: addV, what: `a quick vial (${vialName}${addV ? `; ${addV.name}` : ""}), made fresh by Quick Alchemy without using one of your versatile vials, potent until the end of this turn` };
             let ev = carriedEv + first.t.ev + (first.add?.ev ?? 0) - provoke;
             const steps = [...carriedSteps];
             const throwText = `throw it at ${nameOf(f)} (${signed(first.t.bonus)}, hits about ${pct(first.t.hit)}${first.t.pen ? `, ${first.t.pen} for the range` : ""}${first.t.others.length ? `; the splash also catches ${first.t.others.map(nameOf).join(", ")}` : ""})`;
