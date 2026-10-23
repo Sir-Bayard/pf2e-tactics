@@ -921,14 +921,28 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             // a reload weapon is assumed loaded unless a class read marked it empty (s.empty: it has to be loaded before the first shot)
             const usable = left - (s.empty ? s.reload || 0 : 0);
             if (usable < 1) continue;
-            const n = s.thrown ? 1 : s.reload ? Math.max(1, Math.floor((usable + s.reload) / (1 + s.reload))) : left;
+            // A bomb: as many throws as you carry and the actions allow, each drawn first (an Interact, or part of the Strike
+            // with Quick Bomber); the first is free to throw if one is already in hand
+            const quick = s.bomb && [...(me.actor?.items ?? [])].some((i) => (i.slug ?? i.system?.slug) === "quick-bomber");
+            let bombs = 0, bombActs = 0;
+            if (s.bomb) {
+                while (bombs < Math.min(3, s.quantity ?? 1)) {
+                    const c = quick || (bombs === 0 && s.held) ? 1 : 2;
+                    if (bombActs + c > usable) break;
+                    bombActs += c; bombs++;
+                }
+                if (!bombs) continue;
+            }
+            const n = s.bomb ? bombs : s.thrown ? 1 : s.reload ? Math.max(1, Math.floor((usable + s.reload) / (1 + s.reload))) : left;
             const pen = -2 * rangeSteps(best.dist, s.range) + (s.volley && best.dist <= s.volley ? -2 : 0); // range increments, volley
             const run = strikeRun([{ ...s, bonus: s.bonus + pen }], Math.min(n, 3), t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
-            const plan = { kind: "ranged", title: `${s.thrown ? "Throw at" : "Shoot"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null };
+            const plan = { kind: "ranged", title: `${s.bomb ? `Throw ${s.label} at` : s.thrown ? "Throw at" : "Shoot"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null };
             if (actions) plan.steps.push({ cost: actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to a clear line on ${nameOf(t)}${best.exp.length ? "" : ", out of reach"}` });
             plan.used = run.used;
-            plan.steps.push({ cost: s.thrown ? 1 : left, text: (s.empty && s.reload ? `Reload ${s.label} (${s.reload} Interact${s.reload > 1 ? "s" : ""}); ` : "") + describeStrikes(run.used, nameOf(t)) + (s.reload ? ` (reload ${s.reload} between shots)` : "") + (s.thrown ? " (thrown)" : "") });
-            if (s.thrown && left > 1) fillLast(board, plan, best.at, left - 1, t, 1);
+            const stepCost = s.bomb ? bombActs : s.thrown ? 1 : left;
+            const bombText = s.bomb ? ` (${quick ? "Quick Bomber draws each as part of the Strike" : s.held && bombs === 1 ? "the one in your hand" : `an Interact to draw ${bombs > 1 ? "each" : "it"} first${s.held ? ", except the one in your hand" : ""}`}; ${s.quantity} carried)` : "";
+            plan.steps.push({ cost: stepCost, text: (s.empty && s.reload ? `Reload ${s.label} (${s.reload} Interact${s.reload > 1 ? "s" : ""}); ` : "") + describeStrikes(run.used, nameOf(t)) + (s.reload ? ` (reload ${s.reload} between shots)` : "") + (s.bomb ? bombText : s.thrown ? " (thrown)" : "") });
+            if (s.thrown && left > stepCost) fillLast(board, plan, best.at, left - stepCost, t, run.used.length);
             if (best.dist > s.range) plan.notes.push(`${rangeSteps(best.dist, s.range) + 1} range increments out: ${-2 * rangeSteps(best.dist, s.range)}`);
             sightNotes(plan, best.at, t);
             if (s.volley && best.dist <= s.volley) plan.notes.push(`Within ${s.volley} feet: volley -2`);

@@ -225,7 +225,7 @@ const CLASS_HANDLED = new Set([
     // fighter
     "sudden-charge", "double-slice", "dueling-parry", "vicious-swing", "power-attack", "slam-down", "knockdown", "intimidating-strike", "swipe", "whirlwind-strike", "lunge", "sever-space", "overwhelming-blow", "double-shot", "triple-shot", "exacting-strike", "certain-strike", "brutish-shove", "dragging-strike", "combat-grab", "advantageous-assault", "shatter-defenses", "disarming-twist", "two-weapon-flurry", "brutal-finish", "snagging-strike", "desperate-finisher",
     // barbarian
-    "rage", "thrash", "spirits-wrath", "terrifying-howl", "giants-stature", "titans-stature", "giants-lunge", "share-rage", "unbalancing-sweep",
+    "rage", "furious-finish", "thrash", "spirits-wrath", "terrifying-howl", "giants-stature", "titans-stature", "giants-lunge", "share-rage", "unbalancing-sweep",
     // ranger
     "hunt-prey", "twin-takedown", "hunted-shot", "deadly-aim", "hunters-aim", "impossible-flurry", "impossible-volley", "wardens-boon", "second-sting",
     // rogue
@@ -235,7 +235,7 @@ const CLASS_HANDLED = new Set([
     // commander (tactics carry the tactic trait and are dropped by it)
     "gather-to-me", "pincer-attack", "quickening-banner", "pennant-of-victory", "defiant-banner", "banner-twirl", "banners-inspiration", "confusing-commands", "demand-surrender", "mercenary-reversal", "double-team", "tactical-takedown", "plant-banner", "set-up-strike", "guiding-shot", "unsteadying-strike", "rallying-banner",
     // magus
-    "spellstrike", "arcane-cascade", "spell-swipe", "whirlwind-spell", "recharging-flurry", "lunging-spellstrike",
+    "spellstrike", "arcane-cascade", "spell-swipe", "whirlwind-spell", "recharging-flurry", "lunging-spellstrike", "double-spellstrike", "spell-parry", "devastating-spellstrike", "distracting-spellstrike", "running-recharge", "spell-crash", "cascading-ray", "meteoric-spellstrike", "split-spellstrike", "unsheathing-the-sword-light", "overwhelming-spellstrike", "dispelling-spellstrike",
     // thaumaturge
     "exploit-vulnerability", "glimpse-vulnerability", "instructive-strike", "cursed-effigy", "drink-from-the-chalice", "intensify-vulnerability", "twin-weakness", "divine-disharmony", "root-to-life", "implements-assault", "fling-magic", "mirrors-reflection",
     // alchemist
@@ -264,7 +264,7 @@ const CLASS_HANDLED = new Set([
     // summoner
     "act-together", "manifest-eidolon", "tandem-strike", "magical-onslaught", "seething-frenzy", "furious-strike", "beasts-charge", "draconic-frenzy", "dragon-breath", "primal-roar", "whirlwind-maul", "drain-life", "visions-of-sin", "field-of-roots", "elemental-burst", "elemental-maelstrom", "piercing-jab", "eidolons-trample", "ostentatious-arrival",
     // gunslinger
-    "reloading-strike", "raconteurs-reload", "covered-reload", "thoughtful-reload", "clear-a-path", "touch-and-go", "risky-reload", "paired-shots", "twin-shot-knockdown", "two-weapon-fusillade", "drifters-juke", "bullet-split", "penetrating-fire", "snipers-aim", "called-shot", "headshot", "vital-shot", "ghost-shot", "blast-tackle", "pistol-twirl", "scatter-blast", "alchemical-shot", "final-shot", "pistoleros-challenge", "triggerbrand-salvo", "stab-and-blast", "break-them-down", "wind-them-up", "spinning-crush", "siegebreaker", "drifters-wake", "triggerbrand-blitz", "grim-swagger", "dance-of-thunder", "flesh-wound",
+    "reloading-strike", "cover-fire", "raconteurs-reload", "covered-reload", "thoughtful-reload", "clear-a-path", "touch-and-go", "risky-reload", "paired-shots", "twin-shot-knockdown", "two-weapon-fusillade", "drifters-juke", "bullet-split", "penetrating-fire", "snipers-aim", "called-shot", "headshot", "vital-shot", "ghost-shot", "blast-tackle", "pistol-twirl", "scatter-blast", "alchemical-shot", "final-shot", "pistoleros-challenge", "triggerbrand-salvo", "stab-and-blast", "break-them-down", "wind-them-up", "spinning-crush", "siegebreaker", "drifters-wake", "triggerbrand-blitz", "grim-swagger", "dance-of-thunder", "flesh-wound",
     // guardian
     "taunt", "taunting-strike", "shielding-taunt", "shoulder-check", "proud-nail", "ring-their-bell", "weakening-assault", "demolish-defenses", "shield-wallop", "clobber", "momentum-strike", "bloody-denial", "belly-flop", "stomp-ground", "flying-tackle", "scattering-charge", "retaliating-rescue", "armor-break", "hampering-stance", "covering-stance", "lock-down", "blanket-defense", "armored-courage", "tough-cookie",
     // animist

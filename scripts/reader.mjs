@@ -976,7 +976,9 @@ function strikesOf(actor) {
         }
         // PF2e keeps a weapon's reload in system.reload.value ("0", "1", "2", "-" for none); older data carried it as a reload-N trait
         const reload = Number(item.system?.reload?.value) || Number(traits.find((t) => /^reload-\d/.test(t))?.split("-")[1] ?? 0) || 0;
-        const thrown = ranged && traits.some((t) => t.startsWith("thrown")) && !traits.includes("returning");
+        // A bomb is thrown and used up: one per throw, from however many you carry, each drawn first unless one is in hand
+        const bomb = traits.includes("bomb");
+        const thrown = ranged && ((traits.some((t) => t.startsWith("thrown")) && !traits.includes("returning")) || bomb);
         return {
             id: item.id, label: s.label ?? item.name, item, action: s,
             bonus: s.totalModifier ?? 0,
@@ -985,6 +987,7 @@ function strikesOf(actor) {
             damageTypes: rolls.map((d) => d.damageType).filter(Boolean).concat(rolls.length ? [] : [item.system?.damage?.damageType].filter(Boolean)),
             agile: traits.includes("agile"),
             ranged, reload, thrown,
+            ...(bomb ? { bomb: true, quantity: Math.max(0, Number(item.system?.quantity ?? 1)), held: item.system?.equipped?.carryType === "held" } : {}),
             reach: ranged ? 0 : (actor.getReach?.({ action: "attack", weapon: item }) ?? 5),
             range: ranged ? (item.range?.increment ?? item.system?.range?.increment ?? 30) : null,
             riders: (item.system?.attackEffects?.value ?? []).map((r) => RIDERS[r] ?? null).filter(Boolean),

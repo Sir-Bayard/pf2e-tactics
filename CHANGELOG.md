@@ -2,9 +2,11 @@
 
 ## 3.5.3
 
+- Bombs are used up when thrown. The helper used to throw a bomb you carry again and again ("Alchemist's Fire three times" with one flask); now each throw needs a bomb you have, and each is drawn first (an Interact, or part of the Strike with Quick Bomber).
+- Alchemist: the turn is planned whole, with the bombs you carry first while one beats a free quick vial, then Quick Alchemy for the actions left. Quick Alchemy offers a formula bomb only when your formula book has one; otherwise it makes quick vials and says so.
 - Thaumaturge: Exploit Vulnerability now counts what it's worth after this turn, since it stays on the foe until you use it again. On a turn where Exploit, a Stride and one Strike looked worse than two plain Strikes, the helper now recommends exploiting, and the plan says how much it adds each turn after.
 - An ability whose text gives a bonus to something other than the attack (Instructive Strike's +2 to the Recall Knowledge check after a critical hit) no longer counts as a bonus to hit.
-- Instructive Strike and Cursed Effigy are left to the thaumaturge's own read instead of being planned from their text as well (Cursed Effigy was offered without Exploit Vulnerability up).
+- Feats a class read already covers are no longer also planned from their text: Instructive Strike and Cursed Effigy (thaumaturge; Cursed Effigy was offered without Exploit Vulnerability up), Cascading Ray and Distracting Spellstrike and the other Spellstrike feats (magus; offered after a plain Strike, with no spell), Furious Finish (barbarian; offered without Rage) and Cover Fire (gunslinger; it skipped the reload).
 
 ## 3.5.2
 

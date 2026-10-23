@@ -2,8 +2,8 @@
  * PF2e Tactics: classes/alchemist.mjs
  * See classes/_common.mjs for the shape of a class read.
  * Gate: class alchemist, or alchemist-dedication (Quick Alchemy's benefits, 4 vials).
- * Reads: the research field (bomber, chirurgeon, mutagenist, toxicologist) and its field vials, Quick Alchemy as a plan
- * when no bomb is in hand: a quick vial (the Remaster's free bomb, every turn, no vial spent) or a formula bomb that spends
+ * Reads: the research field (bomber, chirurgeon, mutagenist, toxicologist) and its field vials, the bombs you carry (each
+ * used up, each drawn first) then Quick Alchemy as a plan: a quick vial (the Remaster's free bomb, every turn, no vial spent) or a formula bomb that spends
  * a versatile vial, offered only when it's worth the vial (make one and throw it: 2 actions, 1 with Quick Bomber), the bomb additives (Debilitating,
  * Sticky, Sour, Unstable: the best one on the bomb made), Calculated/Expanded Splash and Directional Bombs, Far Lobber
  * and Uncanny Bombs, Perpetual Infusions/Potency/Perfection (free bombs or elixirs when the vials run out), Double
@@ -57,7 +57,13 @@ function alchemist(board, ctx, out) {
     const perpetualKind = field === "bomber" ? "bomb" : field === "chirurgeon" ? "elixir" : field === "mutagenist" ? "mutagen" : field === "toxicologist" ? "poison" : null;
     const freeBombs = perpetualLevel > 0 && perpetualKind === "bomb";
     const canMake = (vials ?? 1) > 0 || perpetualLevel > 0;
-    const canBomb = (vials ?? 1) > 0 || freeBombs;
+    // Quick Alchemy makes only what's in your formula book. A sheet that lists formulas but no bomb gets quick vials only;
+    // one with no formula list at all (not a PF2e character sheet) is assumed to know alchemist's fire.
+    const formulas = actor.system?.crafting?.formulas;
+    const BOMB_NAME = /bomb|alchemist'?s fire|acid flask|frost vial|bottled lightning|thunderstone|tanglefoot|glue|dread ampoule|ghost charge|grenade|crystal shards/i;
+    const isBombFormula = (f) => { let d = null; try { d = globalThis.fromUuidSync?.(f?.uuid) ?? null; } catch { d = null; } return (d?.system?.traits?.value ?? []).includes("bomb") || BOMB_NAME.test(d?.name ?? f?.name ?? ""); };
+    const bombFormula = !Array.isArray(formulas) || formulas.some(isBombFormula);
+    const canBomb = ((vials ?? 1) > 0 || freeBombs) && bombFormula;
     const makeLevel = (vials ?? 1) > 0 ? lv : perpetualLevel;
     const tier = bombTier(makeLevel);
     const bombAvg = tier[2] * 4.5 + 1.5 * tier[3];
@@ -100,29 +106,58 @@ function alchemist(board, ctx, out) {
         return { bonus: b, hit, ev, others, dist, pen };
     };
 
-    // --- Quick Alchemy then throw: when no bomb is in hand (the advisor throws the ones that are) ------------------
+    // --- Bombs: the ones you carry first, while one beats a quick vial, then Quick Alchemy for the actions left -------
     // Every throw is a quick vial, which costs no vial, unless a formula bomb is worth the versatile vial it spends (or a
     // perpetual infusion makes it free); Double Brew makes two at once, the second thrown for 1 action.
     const vialThrow = (f, made) => throwAt(f, made, { bonus: vialBonus, avg: vialAvg, spl: vialSplash });
     const vialName = `${vt.dice}d6 ${field === "bomber" ? "acid, cold, electricity or fire" : "acid"}, splash ${vialSplash}`;
     const per = quickBomber ? 1 : 2;
-    if (!bombs.length && ctx.actions >= per) {
+    if (ctx.actions >= 1) {
         for (const f of foes) {
-            const tv = vialThrow(f, ctx.made);
-            if (!tv) continue;
-            const tb = canBomb ? throwAt(f, ctx.made) : null;
+            // A carried bomb is used up when thrown and has to be drawn first (an Interact, or part of Quick Bomber's action)
+            const carriedSteps = [];
+            let carriedEv = 0, left0 = ctx.actions, made0 = ctx.made;
+            const usedC = new Map();
+            for (;;) {
+                const vNow = vialThrow(f, made0);
+                let pick = null;
+                for (const s of bombs) {
+                    const n = usedC.get(s) ?? 0;
+                    if (n >= (s.quantity ?? 1)) continue;
+                    const cost = quickBomber || (s.held && !n) ? 1 : 2;
+                    if (cost > left0) continue;
+                    const tc = throwAt(f, made0, { bonus: s.bonus, avg: s.avg, spl: 0 });
+                    if (!tc || tc.hit < 0.25) continue;
+                    if (vNow && tc.ev / cost <= vNow.ev / per) continue; // a free quick vial does as well: keep the bomb
+                    if (!pick || tc.ev / cost > pick.tc.ev / pick.cost) pick = { s, cost, tc };
+                }
+                if (!pick) break;
+                const n = usedC.get(pick.s) ?? 0;
+                carriedSteps.push({ cost: pick.cost, text: `${quickBomber ? "Quick Bomber: draw the" : pick.s.held && !n ? "Throw the" : "Draw (an Interact) and throw the"} ${pick.s.label} you carry at ${nameOf(f)} (${signed(pick.tc.bonus)}, hits about ${pct(pick.tc.hit)}${pick.tc.pen ? `, ${pick.tc.pen} for the range` : ""})` });
+                carriedEv += pick.tc.ev; left0 -= pick.cost; made0 += 1; usedC.set(pick.s, n + 1);
+            }
+            const carriedNote = [
+                ...(carriedSteps.length ? [`Carried bombs are used up as you throw them (${bombs.map((s) => `${s.label} ×${s.quantity ?? 1}`).join(", ")}).`] : []),
+                ...(!bombFormula ? ["Your formula book has no bomb, so Quick Alchemy makes quick vials only; add bomb formulas on the Crafting tab to make them."] : []),
+            ];
+            const tv = left0 >= per ? vialThrow(f, made0) : null;
+            if (!tv) {
+                if (carriedSteps.length) out.plans.push({ kind: "class", title: `Throw your bombs at ${nameOf(f)}`, target: f, ev: carriedEv, score: carriedEv + 0.3, dest: null, steps: carriedSteps, notes: carriedNote });
+                continue;
+            }
+            const tb = canBomb ? throwAt(f, made0) : null;
             const addV = additive(f, tv.hit), addB = tb ? additive(f, tb.hit) : null;
             const evV = tv.ev + (addV?.ev ?? 0), evB = tb ? tb.ev + (addB?.ev ?? 0) : -Infinity;
             const formula = !!tb && (free ? evB > evV : evB - evV >= 2);
             const first = formula
                 ? { t: tb, add: addB, what: `a ${tier[1]} bomb from your formula book (alchemist's fire: ${tier[2]}d8 fire, ${tier[3]} persistent, splash ${splash}${addB ? `; ${addB.name}` : ""})${free ? ", a perpetual infusion, no vial spent" : `, spending a versatile vial${vials !== null ? ` (${vials} left)` : ""}`}` }
                 : { t: tv, add: addV, what: `a quick vial (${vialName}${addV ? `; ${addV.name}` : ""}), no vial spent, potent until the end of this turn` };
-            let ev = first.t.ev + (first.add?.ev ?? 0) - provoke;
-            const steps = [];
+            let ev = carriedEv + first.t.ev + (first.add?.ev ?? 0) - provoke;
+            const steps = [...carriedSteps];
             const throwText = `throw it at ${nameOf(f)} (${signed(first.t.bonus)}, hits about ${pct(first.t.hit)}${first.t.pen ? `, ${first.t.pen} for the range` : ""}${first.t.others.length ? `; the splash also catches ${first.t.others.map(nameOf).join(", ")}` : ""})`;
             if (quickBomber) steps.push({ cost: 1, text: `Quick Bomber: Quick Alchemy ${first.what}, and ${throwText}` });
             else { steps.push({ cost: 1, text: `Quick Alchemy: ${first.what}` }); steps.push({ cost: 1, text: `Strike: ${throwText}` }); }
-            let left = ctx.actions - per, made = ctx.made + 1;
+            let left = left0 - per, made = made0 + 1;
             if (brews > 1 && left >= 1) {
                 const t2 = vialThrow(f, made);
                 if (t2 && t2.hit >= 0.3) { steps.push({ cost: 1, text: `Throw a quick vial made in the same Quick Alchemy (${brews === 3 ? "Alchemical Alacrity" : "Double Brew"}) at ${nameOf(f)} (${signed(t2.bonus)})` }); ev += t2.ev; left -= 1; made += 1; }
@@ -133,13 +168,13 @@ function alchemist(board, ctx, out) {
                 steps.push({ cost: per, text: `${quickBomber ? "Quick Bomber again" : "Quick Alchemy and throw again"}: a quick vial at ${nameOf(f)} (${signed(t3.bonus)})` });
                 ev += t3.ev; left -= per; made += 1;
             }
-            const notes = [];
+            const notes = [...carriedNote];
             if (provoke) notes.push("Quick Alchemy has the manipulate trait: it triggers a reaction from the foe next to you.");
             if (formula && !free) notes.push(`The formula bomb is worth about ${Math.round(evB - evV)} more than a quick vial on that first throw, for one of your versatile vials.`);
             else if (tb && !free && evB - evV >= 0.5) notes.push(`A ${tier[1]} formula bomb instead would add about ${Math.round(evB - evV)}, for one of your versatile vials; the quick vial is free.`);
             if (has(actor, "directional-bombs") && first.t.others.length) notes.push(`Directional Bombs: aim the splash as a ${splashRadius >= 10 ? "30" : "15"}-foot cone to spare an ally next to the target.`);
             if (field === "bomber") notes.push("Bomber: you can also keep the splash to the target alone.");
-            out.plans.push({ kind: "class", title: `Quick Alchemy a bomb for ${nameOf(f)}`, target: f, ev, score: ev + 0.3 - (formula && !free ? 0.3 : 0), dest: null, steps, notes });
+            out.plans.push({ kind: "class", title: carriedSteps.length ? `Throw your bombs at ${nameOf(f)}, then Quick Alchemy` : `Quick Alchemy a bomb for ${nameOf(f)}`, target: f, ev, score: ev + 0.3 - (formula && !free ? 0.3 : 0), dest: null, steps, notes });
         }
     }
     // --- Mega Bomb: Quick Alchemy with the additive (1), then the 2-action throw: a 30-foot burst within 60 feet, basic Reflex ---
