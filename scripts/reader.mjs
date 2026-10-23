@@ -1069,10 +1069,58 @@ async function spellsOf(actor) {
             }
         }
     }
+    out.push(...staffSpellsOf(actor));
     // One per spell name: the highest rank still available
     const best = new Map();
     for (const s of out) if (!best.has(s.name) || best.get(s.name).rank < s.rank) best.set(s.name, s);
     return [...best.values()];
+}
+
+/**
+ * The spells of a staff prepared with PF2e Dailies: its record (flags["pf2e-dailies"].extra.dailies.staves = { charges,
+ * spells, staffId }) holds each spell's data and rank. A spell costs charges equal to its rank (a cantrip none) and is
+ * cast with the staff's own DC and attack (Dailies' casting entry for it); one the charges can't pay for is left out.
+ * Without the staff in hand, casting from it takes an Interact first.
+ */
+function staffSpellsOf(actor) {
+    const st = actor?.flags?.["pf2e-dailies"]?.extra?.dailies?.staves;
+    if (!st?.spells?.length || !st.charges) return [];
+    const charges = Number(st.charges.value) || 0;
+    const staff = actor.items?.get?.(st.staffId) ?? null;
+    if (!staff) return [];
+    const entry = [...(actor.spellcasting ?? [])].find((e) => e.isStaff) ?? null;
+    const regular = actor.spellcasting?.regular ?? [];
+    const out = [];
+    for (const rec of st.spells) {
+        let s;
+        try { s = new CONFIG.Item.documentClass(foundry.utils.deepClone(rec), { parent: actor }); } catch { continue; }
+        const cantrip = !!s.isCantrip;
+        const rank = cantrip ? Math.max(1, Math.ceil((actor.level ?? 1) / 2)) : Number(rec.system?.location?.heightenedLevel ?? rec.system?.level?.value ?? 1) || 1;
+        if (!cantrip && rank > charges) continue;
+        const cost = costOfSpell(s);
+        if (!cost) continue;
+        const trads = s.system?.traits?.traditions ?? [];
+        const own = regular.find((e) => trads.includes(e.tradition ?? e.system?.tradition?.value)) ?? regular[0] ?? null;
+        const dc = entry?.statistic?.dc?.value ?? own?.statistic?.dc?.value ?? null;
+        const attack = entry?.statistic?.check?.mod ?? own?.statistic?.check?.mod ?? null;
+        const held = staff.system?.equipped?.carryType === "held";
+        const traits = s.system?.traits?.value ?? [];
+        const area = s.system?.area ? { shape: s.system.area.type, size: Number(s.system.area.value) } : null;
+        const save = s.system?.defense?.save ?? null;
+        const avg = spellAverage(s, rank);
+        let eff = { inflicts: [], byDegree: null };
+        try { eff = spellEffects(s); } catch { /* text it can't read */ }
+        out.push({
+            id: `${staff.id}-${s.id}-${rank}`, name: `${s.name} from your staff`, spell: s, rank, cantrip, cost: cost + (held ? 0 : 1), drawn: !held,
+            consumable: cantrip ? null : "staff", staffCharges: charges, staffMax: Number(st.charges.max) || charges, staffName: staff.name,
+            area, range: feetOf(s.system?.range?.value) ?? (area?.shape === "emanation" ? 0 : null),
+            save: save ? { stat: save.statistic, basic: !!save.basic } : null, attack: traits.includes("attack") ? attack : null, dc, avg, traits,
+            heals: traits.includes("healing"), damageTypes: Object.values(s.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean),
+            incapacitation: traits.includes("incapacitation"), buff: readBuff(s), vitality: traits.includes("vitality"), void: traits.includes("void"),
+            twoAction: /^(heal|harm)$/i.test(s.name) ? { avg: avg + 8 * rank, range: 30 } : null, ...eff, entry: "staff",
+        });
+    }
+    return out;
 }
 
 /**
@@ -1358,6 +1406,8 @@ function itemSpellsOf(actor) {
             try { eff = spellEffects(sp); } catch { /* text it can't read */ }
             out.push({
                 id: it.id, name: `${sp.name} from ${cat === "wand" ? "its wand" : "a scroll"}`, spell: sp, rank, cantrip: false, cost: cost + (held ? 0 : 1), drawn: !held, consumable: cat,
+                // a scroll made at the day's preparations (Scroll Adept, through PF2e Dailies) is gone tomorrow anyway
+                temporary: !!(it.system?.temporary || it.flags?.["pf2e-dailies"]?.temporary),
                 area, range: feetOf(sp.system?.range?.value) ?? (area?.shape === "emanation" ? 0 : null),
                 save: save ? { stat: save.statistic, basic: !!save.basic } : null, attack: t.includes("attack") ? attack : null, dc, avg, traits: t,
                 heals: t.includes("healing"), damageTypes: Object.values(sp.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean),
@@ -1830,4 +1880,4 @@ function rampsOf(scene, field, size, me) {
 }
 // ---------------------------------------------------------------------------------------------
 
-export { HP_AT_TURN, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };
+export { HP_AT_TURN, staffSpellsOf, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };

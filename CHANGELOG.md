@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.5.1
+
+Finishes the 3.5 coverage work.
+
+- Staves prepared with PF2e Dailies: their spells are read with the staff's DC and attack, cost charges equal to their rank (a staff's cantrips cost none, and a staff not in hand takes an Interact first), and spell thrift weighs each by how many uses of that rank the charges left pay for.
+- A temporary scroll made at the day's preparations (Scroll Adept, through PF2e Dailies) is held back only lightly by spell thrift, since it's gone tomorrow anyway.
+- With no damaging cantrip prepared, spell thrift weighed a slot spell against the best other plan, which could be a focus spell or Untamed Form that spends a Focus Point. It now weighs it against your best turn that spends nothing at all (usually your Strikes), and says so ("no damaging cantrip is prepared").
+
 ## 3.5.0
 
 **Companions and summons, for every class**
