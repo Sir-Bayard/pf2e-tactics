@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.5.4
+
+- The Turn Helper macro's description says what it does now: a recommended turn for your character, from what you can see of the board and what the party has learned. It still said it recommended nothing. A copy of the macro already imported into a world keeps the old text; import it again from the PF2e Tactics Macros compendium to update it.
+
 ## 3.5.3
 
 - Bombs are used up when thrown. The helper used to throw a bomb you carry again and again ("Alchemist's Fire three times" with one flask); now each throw needs a bomb you have, and each is drawn first (an Interact, or part of the Strike with Quick Bomber).
