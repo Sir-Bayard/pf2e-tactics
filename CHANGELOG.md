@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.5.5
+
+- American spelling in the advice: area attacks now read "centered on" (it said "centred"). The same in comments and an older changelog entry. Nothing else changed.
+
 ## 3.5.4
 
 - The Turn Helper macro's description says what it does now: a recommended turn for your character, from what you can see of the board and what the party has learned. It still said it recommended nothing. A copy of the macro already imported into a world keeps the old text; import it again from the PF2e Tactics Macros compendium to update it.
@@ -222,7 +226,7 @@ Checked with every class's own tests (56), all 30 test characters' real sheets, 
 
 ## 1.4.2
 
-- Casting a spell gets every foe's attention, not just the ones it hits (Electric Arc on two wolves now registers with the archer too). Spell casts weren't being recognised at all in 1.4.0 and 1.4.1: PF2e's spell card has a "spell-cast" context, which the check missed, so buffs counted nothing.
+- Casting a spell gets every foe's attention, not just the ones it hits (Electric Arc on two wolves now registers with the archer too). Spell casts weren't being recognized at all in 1.4.0 and 1.4.1: PF2e's spell card has a "spell-cast" context, which the check missed, so buffs counted nothing.
 
 ## 1.4.1
 

@@ -4,7 +4,7 @@
  * Gate: class magus, or magus-dedication (Spellstrike comes with Spellstriker at 4th; without it only the notes run).
  * The Spellstrike charge: PF2e doesn't record it, so the read takes the helper's record when there is one
  * (board.me.spellstrikeCharged), assumes it charged in a fight's first round, and otherwise plans both turns: Spellstrike
- * first (labelled as assuming the charge) and recharge first (a recharge, Magus's Analysis, Running Recharge or a conflux spell).
+ * first (labeled as assuming the charge) and recharge first (a recharge, Magus's Analysis, Running Recharge or a conflux spell).
  * Reads: Spellstrike (cantrip vs slot, melee, or ranged with Starlit Span or Volatile Spark), the ten hybrid studies and their conflux spells
  * (a third action that recharges Spellstrike while Focus Points remain), Arcane Cascade with its specialization steps,
  * Expansive/Devastating/Distracting/Lunging/Overwhelming/Dispelling Spellstrike, Spell Swipe, Whirlwind Spell,

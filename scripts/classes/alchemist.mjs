@@ -187,7 +187,7 @@ function alchemist(board, ctx, out) {
             const ev = inB.reduce((t, o) => t + saveExpected(o.saves?.reflex ?? lv + 5, classDc, avg, { basic: true }).expected, 0);
             if (!best || ev > best.ev) best = { c, inB, ev };
         }
-        if (best && best.inB.length >= 2) out.plans.push({ kind: "class", title: `Mega Bomb on ${best.inB.length} foes`, target: best.c, ev: best.ev, score: best.ev + 0.3, dest: null, steps: [{ cost: 1, text: `Quick Alchemy ${useBomb ? `a ${tier[1]} bomb (a versatile vial)` : "a quick vial"} with the Mega Bomb additive` }, { cost: 2, text: `Mega Bomb: a 30-foot burst centred on ${nameOf(best.c)} (within 60 feet); ${best.inB.map(nameOf).join(", ")} each take the full bomb, basic Reflex against DC ${classDc}` }], notes: ["Mega Bomb isn't a Strike: no attack roll, and no splash beyond the burst."] });
+        if (best && best.inB.length >= 2) out.plans.push({ kind: "class", title: `Mega Bomb on ${best.inB.length} foes`, target: best.c, ev: best.ev, score: best.ev + 0.3, dest: null, steps: [{ cost: 1, text: `Quick Alchemy ${useBomb ? `a ${tier[1]} bomb (a versatile vial)` : "a quick vial"} with the Mega Bomb additive` }, { cost: 2, text: `Mega Bomb: a 30-foot burst centered on ${nameOf(best.c)} (within 60 feet); ${best.inB.map(nameOf).join(", ")} each take the full bomb, basic Reflex against DC ${classDc}` }], notes: ["Mega Bomb isn't a Strike: no attack roll, and no splash beyond the burst."] });
     }
 
     // --- Chirurgeon: heals from vials and elixirs ------------------------------------------------------------------

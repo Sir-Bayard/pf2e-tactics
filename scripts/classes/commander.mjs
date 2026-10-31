@@ -121,7 +121,7 @@ function commander(board, ctx, out) {
             const b = fresh.sort((x, y) => y.hp - x.hp)[0];
             const ev = strikeExpected(f.reactiveStrike?.bonus ?? lv + 8, a.ac ?? 10 + lv + 5, f.reactiveStrike?.avg ?? 4 + lv * 1.5).expected * 0.8;
             const t = tail(null, ctx.actions - 1);
-            plan(`Passage of Lines: ${nameOf(b)} relieves ${nameOf(a)}`, null, ev + t.ev, [{ cost: 1, text: `Passage of Lines: ${nameOf(a)} (${a.hp}/${a.maxHp}) swaps places with ${nameOf(b)} (${b.hp}/${b.maxHp}), out of ${nameOf(f)}'s reach; anyone else in the banner can swap with a neighbour too.` }, ...t.steps], { bias: 0.3 });
+            plan(`Passage of Lines: ${nameOf(b)} relieves ${nameOf(a)}`, null, ev + t.ev, [{ cost: 1, text: `Passage of Lines: ${nameOf(a)} (${a.hp}/${a.maxHp}) swaps places with ${nameOf(b)} (${b.hp}/${b.maxHp}), out of ${nameOf(f)}'s reach; anyone else in the banner can swap with a neighbor too.` }, ...t.steps], { bias: 0.3 });
         }
     }
     // Protective Screen (1): a squadmate Strides to a caster or archer in the banner, who then casts or shoots without provoking
@@ -314,10 +314,10 @@ function commander(board, ctx, out) {
     // comes adjacent to on the way saves or takes 2d6+2d6, plus 2d6+2d6 per squadmate taking part
     if (ok("cry-havoc", "Cry Havoc!") && ctx.actions >= 3 && foes.length) {
         const chargers = inSquadAura.filter((a) => canMove(a));
-        const centre = (r) => ({ x: r.x + (r.w - 1) / 2, y: r.y + (r.h - 1) / 2 });
+        const center = (r) => ({ x: r.x + (r.w - 1) / 2, y: r.y + (r.h - 1) / 2 });
         /** The foes a squadmate comes adjacent to on a straight run toward t, up to twice its Speed (sampled every half square). */
         const passed = (a, t) => {
-            const from = centre(a.rect), to = centre(t.rect);
+            const from = center(a.rect), to = center(t.rect);
             const len = Math.hypot(to.x - from.x, to.y - from.y);
             const run = Math.min(2 * allySpeed(a), Math.max(0, feetBetween(a.rect, t.rect) - 5)) / 5;
             const hit = new Set();

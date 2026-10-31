@@ -274,7 +274,7 @@ function statusLine(actor) {
     return `<div class="npt-stats">${parts.join(" · ")}</div>` + (conditions.length ? `<div class="npt-stats npt-dim">${esc(conditions.join(", "))}</div>` : "");
 }
 
-// --- Panels: a header strip, then cards with a coloured left edge, styled like Campaign Trackers ------
+// --- Panels: a header strip, then cards with a colored left edge, styled like Campaign Trackers ------
 const ABBREVIATIONS = { hp: "HP", ac: "AC", dc: "DC", gm: "GM", pc: "PC", pcs: "PCs", npc: "NPC" };
 const SMALL_WORDS = new Set(["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "at", "by", "in", "of", "on", "to", "as", "from", "with", "into", "via", "vs"]);
 /** Title case for card titles ("The Board", "Always On", "Close and Strike Vance"). Only ever raises a first letter. */

@@ -375,7 +375,7 @@ function kineticist(board, ctx, out) {
                 const k = `${x},${y}`; if (seen.has(k)) continue; seen.add(k);
                 const pt = { x, y, w: 1, h: 1, z: e.rect.z ?? 0 };
                 if (imp.range && feetBetween(at, pt) > imp.range) continue;
-                consider(areaHits(board, "burst", area.size, { origin: { x, y }, originZ: e.rect.z ?? 0, at }), { x, y }, `centred by ${nameOf(e)}`);
+                consider(areaHits(board, "burst", area.size, { origin: { x, y }, originZ: e.rect.z ?? 0, at }), { x, y }, `centered by ${nameOf(e)}`);
             }
         } else for (const e of foes) consider(areaHits(board, area.shape, area.size, { aim: centerOf(e.rect), at }), null, `toward ${nameOf(e)}`);
         return best;

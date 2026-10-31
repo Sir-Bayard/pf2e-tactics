@@ -499,7 +499,7 @@ function summoner(board, ctx, out) {
         }
         if (best && best.hit.length >= 2 && best.ev > 0) {
             const caught = [me, ...board.allies.filter((x) => x !== E)].filter((x) => x.rect && feetBetween(best.c.rect, x.rect) <= 20);
-            activity({ title: `Elemental Burst on ${best.hit.length} foes`, target: best.c, ev: best.ev, attacks: 0, boosted: false, text: `${eName} hurls an Elemental Burst centred on ${nameOf(best.c)} (${dice}d6, basic Reflex DC ${dc}): ${best.hit.map(nameOf).join(", ")}`, notes: [`It costs ${lv} of your shared HP (counted), and it's once per 10 minutes.`, ...(caught.length ? [`It also catches ${caught.map(nameOf).join(", ")}.`] : [])], bias: 0.4 });
+            activity({ title: `Elemental Burst on ${best.hit.length} foes`, target: best.c, ev: best.ev, attacks: 0, boosted: false, text: `${eName} hurls an Elemental Burst centered on ${nameOf(best.c)} (${dice}d6, basic Reflex DC ${dc}): ${best.hit.map(nameOf).join(", ")}`, notes: [`It costs ${lv} of your shared HP (counted), and it's once per 10 minutes.`, ...(caught.length ? [`It also catches ${caught.map(nameOf).join(", ")}.`] : [])], bias: 0.4 });
         }
     }
     // Elemental Maelstrom (elemental, 17; 3 actions): a Stride with a Strike at every foe it passes, the penalty climbing afterward

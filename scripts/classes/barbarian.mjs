@@ -337,7 +337,7 @@ function barbarian(board, ctx, out) {
     if (has(actor, "intimidating-strike")) out.notes.push("Intimidating Strike (2 actions): a melee Strike that leaves the foe frightened 1 (2 on a critical hit) when it damages; not concentrate, so it works while raging.");
     if (has(actor, "cleave")) {
         const low = foes.filter((f) => f.hp != null && f.hp <= (rs[0]?.avg ?? 8) * 1.2 && foes.some((o) => o !== f && inReach(f.rect, o.rect, 5)));
-        out.notes.push(`Cleave (reaction): when your melee Strike drops a foe with another foe adjacent to it, a free melee Strike on that one${has(actor, "great-cleave") ? ", and on again while each drops" : ""}${low.length ? `; ${low.map(nameOf).join(", ")} may go down this turn with a neighbour` : ""}.`);
+        out.notes.push(`Cleave (reaction): when your melee Strike drops a foe with another foe adjacent to it, a free melee Strike on that one${has(actor, "great-cleave") ? ", and on again while each drops" : ""}${low.length ? `; ${low.map(nameOf).join(", ")} may go down this turn with a neighbor` : ""}.`);
     }
     if (hasAny(actor, "dragons-rage-breath", "dragon-s-rage-breath")) {
         const near = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30).length;

@@ -15,15 +15,15 @@ const crafting = (actor, lv) => { const c = actor?.skills?.crafting; return c &&
 /** A Strike's weapon die (faces) and dice count, from the sheet's item or the mock's shorthand. */
 /** The flat check after an unstable action: DC 17, so one roll in five keeps the innovation going; 7 or less is a critical failure. */
 const UNSTABLE_PASS = 0.2, UNSTABLE_CRIT = 0.35;
-/** Rect centres in feet, for the line of a Megavolt. */
-const centre = (r) => ({ x: (r.x + r.w / 2) * 5, y: (r.y + r.h / 2) * 5 });
-/** Foes on a line of the given length from origin o through the centre of foe f (the line is 5 feet wide). */
+/** Rect centers in feet, for the line of a Megavolt. */
+const center = (r) => ({ x: (r.x + r.w / 2) * 5, y: (r.y + r.h / 2) * 5 });
+/** Foes on a line of the given length from origin o through the center of foe f (the line is 5 feet wide). */
 function onLine(o, f, candidates, length) {
-    const O = centre(o), T = centre(f.rect);
+    const O = center(o), T = center(f.rect);
     const dx = T.x - O.x, dy = T.y - O.y, len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;
     return candidates.filter((g) => {
-        const G = centre(g.rect);
+        const G = center(g.rect);
         const t = (G.x - O.x) * ux + (G.y - O.y) * uy;
         if (t <= 0 || t > length + 2.5 * g.rect.w) return false;
         const perp = Math.abs((G.x - O.x) * uy - (G.y - O.y) * ux);

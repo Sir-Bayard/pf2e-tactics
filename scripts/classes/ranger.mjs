@@ -190,7 +190,7 @@ function ranger(board, ctx, out) {
                 for (const f of hit) ev += strikeExpected(bow.bonus - 2 + (preyIds.includes(f.id) ? mapVs(ctx.made, bow.agile) : mapFor(ctx.made, bow.agile)), f.ac, bow.avg, { deadly: bow.deadly }).expected;
                 if (!best || ev > best.ev) best = { c, hit, ev };
             }
-            if (best) push({ title: `Impossible Volley on ${best.hit.length} foes`, target: best.c, ev: best.ev, bias: 0.3, steps: [{ cost: 3, text: `Impossible Volley with ${bow.label} centred on ${nameOf(best.c)}: ${best.hit.map(nameOf).join(", ")} each at ${signed(bow.bonus - 2 + mapFor(ctx.made, bow.agile))}, one damage roll` }], notes: ["The burst must sit at or beyond the weapon's volley range; all the attacks count toward your penalty afterward."] });
+            if (best) push({ title: `Impossible Volley on ${best.hit.length} foes`, target: best.c, ev: best.ev, bias: 0.3, steps: [{ cost: 3, text: `Impossible Volley with ${bow.label} centered on ${nameOf(best.c)}: ${best.hit.map(nameOf).join(", ")} each at ${signed(bow.bonus - 2 + mapFor(ctx.made, bow.agile))}, one damage roll` }], notes: ["The burst must sit at or beyond the weapon's volley range; all the attacks count toward your penalty afterward."] });
         }
     }
 

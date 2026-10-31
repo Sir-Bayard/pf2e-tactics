@@ -151,7 +151,7 @@ function thaumaturge(board, ctx, out) {
     // Foes your standing Exploit reaches beyond its target (the same kind of creature; see covers)
     const reached = recId || modMode ? foes.filter((f) => covers(f)) : [];
     if ((up !== false || reached.length) && ctx.actions >= 1) {
-        // Known: its target, or every foe when the effect doesn't say. Unknown: the foes in reach now, labelled as the assumption.
+        // Known: its target, or every foe when the effect doesn't say. Unknown: the foes in reach now, labeled as the assumption.
         const base = up === true ? (upTarget ? [upTarget] : foes) : up === null ? foes.filter((f) => inReach(me.rect, f.rect, reach)).slice(0, 2) : [];
         const tgts = [...base, ...reached.filter((f) => !base.includes(f))];
         for (const f of tgts) {

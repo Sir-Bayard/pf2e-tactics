@@ -1,6 +1,6 @@
 /* PF2e NPC Tactics: scoped to the card, so other modules' rules don't leak in. Laid out like the other table
-   tools (Campaign Trackers, Campaign Ledger, NPC Attitudes): a header strip, then cards with a coloured left edge.
-   Colours are theme-neutral, so it reads in Foundry's light and dark themes. */
+   tools (Campaign Trackers, Campaign Ledger, NPC Attitudes): a header strip, then cards with a colored left edge.
+   Colors are theme-neutral, so it reads in Foundry's light and dark themes. */
 .npt-card { --npt-act: #b33a3a; --npt-now: #e0452f; --npt-ref: #b08d4a; --npt-line: rgba(127, 127, 127, 0.35); --npt-soft: rgba(127, 127, 127, 0.12);
     font-size: 13px; line-height: 1.35; }
 .npt-card a { text-transform: none; }

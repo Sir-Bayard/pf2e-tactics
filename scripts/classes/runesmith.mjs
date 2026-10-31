@@ -148,7 +148,7 @@ function runesmith(board, ctx, out) {
     const bears = (c) => runesOn(c).length > 0;
     const etchedMax = isClass ? (lv >= 17 ? 6 : lv >= 13 ? 5 : lv >= 9 ? 4 : lv >= 5 ? 3 : 2) : (lv >= 17 ? 3 : lv >= 9 ? 2 : 1);
 
-    // ---- what one invocation is worth against a foe f bearing rune r (bearer-centred areas: the others within reach of it)
+    // ---- what one invocation is worth against a foe f bearing rune r (bearer-centered areas: the others within reach of it)
     const saveOf = (f, s) => Number(f.saves?.[s]) || 8;
     const friends = [me, ...board.allies];
     const edify = effect(actor, /edifying-trace/) ? 1 : 0; // -1 status to saves against your invocations on that target
@@ -171,7 +171,7 @@ function runesmith(board, ctx, out) {
             const main = one(f);
             let ev = main.ev;
             const others = [], caught = [];
-            // bearer-centred areas catch your side too: each friend inside costs about 0.6 x the average (it rolls its own save)
+            // bearer-centered areas catch your side too: each friend inside costs about 0.6 x the average (it rolls its own save)
             if (inv.extraDice?.radius) { for (const t of foes.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) ev += saveExpected(saveOf(t, inv.save), classDC, diceAvg(inv.extraDice.n, inv.extraDice.die), { basic: true }).expected; for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.extraDice.radius)) { ev -= 0.6 * diceAvg(inv.extraDice.n, inv.extraDice.die); caught.push(a); } }
             if (inv.burst) { for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= inv.burst)) { ev += one(t).ev; others.push(t); } for (const a of friends.filter((x) => feetBetween(f.rect, x.rect) <= inv.burst)) { ev -= 0.6 * avg; if (!caught.includes(a)) caught.push(a); } }
             if (en) { if (friends.some((x) => feetBetween(f.rect, x.rect) <= 15)) return null; for (const t of foes.filter((x) => x !== f && feetBetween(f.rect, x.rect) <= 15)) { ev += one(t).ev; others.push(t); } }

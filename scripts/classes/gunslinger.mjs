@@ -324,8 +324,8 @@ function gunslinger(board, ctx, out) {
 
     // ---- Penetrating Fire (2 actions): one shot through a foe into the one behind it
     if (hasAny(actor, "penetrating-fire") && ctx.actions >= 2 && loadedGuns.length) {
-        const centre = (r) => ({ x: r.x + (r.w ?? 1) / 2, y: r.y + (r.h ?? 1) / 2 });
-        const behind = (near, far) => { const o = centre(me.rect), a = centre(near.rect), b = centre(far.rect); const dx = b.x - o.x, dy = b.y - o.y, len = Math.hypot(dx, dy) || 1; const t = ((a.x - o.x) * dx + (a.y - o.y) * dy) / (len * len); if (t <= 0 || t >= 1) return false; const cross = Math.abs((a.x - o.x) * dy - (a.y - o.y) * dx) / len; return cross <= 0.75; };
+        const center = (r) => ({ x: r.x + (r.w ?? 1) / 2, y: r.y + (r.h ?? 1) / 2 });
+        const behind = (near, far) => { const o = center(me.rect), a = center(near.rect), b = center(far.rect); const dx = b.x - o.x, dy = b.y - o.y, len = Math.hypot(dx, dy) || 1; const t = ((a.x - o.x) * dx + (a.y - o.y) * dy) / (len * len); if (t <= 0 || t >= 1) return false; const cross = Math.abs((a.x - o.x) * dy - (a.y - o.y) * dx) / len; return cross <= 0.75; };
         let best = null;
         for (const w of loadedGuns) for (const a of foes) for (const b of foes) {
             if (a === b || !behind(a, b) || !inRange(w, me.rect, b)) continue;

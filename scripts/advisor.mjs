@@ -1823,7 +1823,7 @@ function bestArea(board, squares, rectAt, a) {
         if (key) byPoint.set(key, out);
         return out;
     };
-    // The points a burst can be centred on: the corners of each enemy's space
+    // The points a burst can be centered on: the corners of each enemy's space
     const points = [];
     if (a.area.shape === "burst") {
         const seen = new Set();
