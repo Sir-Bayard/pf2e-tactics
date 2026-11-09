@@ -13,7 +13,7 @@
  * not shown at all, and the only trace of one is a line about Seeking, when the party already knows it is
  * there (its combatant is in the tracker).
  */
-import { MODULE_ID, esc, link, setting, signed, flagOf } from "./shared.mjs";
+import { MODULE_ID, esc, link, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
@@ -531,14 +531,11 @@ async function buildHelper(actor, token) {
 
 /* ------------------------------------------------------------------ the window */
 
-function savedHelperPosition() {
-    try { return JSON.parse(localStorage.getItem(HELPER_POSITION_KEY) ?? "{}") ?? {}; } catch { return {}; }
-}
-
 let HelperWindow = null;
 function helperClass() {
     if (HelperWindow) return HelperWindow;
-    HelperWindow = class extends foundry.applications.api.ApplicationV2 {
+    // Keeps its place and width in this browser; the height fits the card.
+    HelperWindow = class extends rememberWindow(foundry.applications.api.ApplicationV2, HELPER_POSITION_KEY, { size: "width" }) {
         static DEFAULT_OPTIONS = {
             id: `${MODULE_ID}-helper`,
             classes: ["npt-window", "npt-helper-window"],
@@ -546,8 +543,7 @@ function helperClass() {
             position: { width: 440, height: "auto" },
         };
         constructor(options = {}) {
-            const pos = savedHelperPosition();
-            super(foundry.utils.mergeObject(options, { position: Object.fromEntries(Object.entries({ left: pos.left, top: pos.top, width: pos.width }).filter(([, v]) => Number.isFinite(v))) }, { inplace: false }));
+            super(options);
             this.actor = null;
             this.token = null;
         }
@@ -573,11 +569,6 @@ function helperClass() {
         async close(options) {
             clearPath(); // the drawn path goes with the window
             return super.close(options);
-        }
-        setPosition(position) {
-            const result = super.setPosition(position);
-            try { const p = this.position; localStorage.setItem(HELPER_POSITION_KEY, JSON.stringify({ left: p.left, top: p.top, width: p.width })); } catch { /* blocked storage */ }
-            return result;
         }
     };
     return HelperWindow;

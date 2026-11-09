@@ -80,7 +80,7 @@ It began as the NPC turn card of a campaign module (0.9.x); notes and recharge t
 
 Macro: `game.modules.get("pf2e-tactics").api.open()`
 
-Shows the selected token, or whoever's turn it is.
+Shows the selected token, or whoever's turn it is. The window (and the players' Turn Helper) keeps its place and width in each browser; its height fits the card.
 
 ## How it reads abilities
 

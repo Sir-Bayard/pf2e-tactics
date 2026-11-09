@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.6
+
+- Restoring a window from minimized brings it back at its full size; on Foundry 14.370 it came back as a thin strip. The NPC Turn and Turn Helper windows still keep their place and width in each browser, and their height still fits the card.
+- Verified on Foundry 14.370.
+
 ## 3.5.5
 
 - American spelling in the advice: area attacks now read "centered on" (it said "centred"). The same in comments and an older changelog entry. Nothing else changed.

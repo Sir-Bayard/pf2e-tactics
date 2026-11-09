@@ -3,7 +3,7 @@
  * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas.
  * One module, several files: see pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, section, setting, signed, ul, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, rememberWindow, section, setting, signed, ul, flagOf } from "./shared.mjs";
 import { RIDERS, feetBetween, profilesOf, readBoard, round1, stripTags, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { RUN_WORDS, TIER_TEXT, nameOf, planTurn, tierOf } from "./advisor.mjs";
 import { adjustLedger, editThreat, ledgerFor, ledgerTotals, sustainNow, threatOn, turnHtml } from "./state.mjs";
@@ -619,15 +619,12 @@ async function buildCard(actor, token, { header = true, advice = true } = {}) {
 // ---------------------------------------------------------------------------------------------
 // The window, chat cards, notes, hooks and settings
 // ---------------------------------------------------------------------------------------------
-function savedPosition() {
-    try { return JSON.parse(localStorage.getItem(POSITION_KEY) ?? "{}"); } catch { return {}; }
-}
-
 let TurnWindow = null;
 function windowClass() {
     if (TurnWindow) return TurnWindow;
     const { ApplicationV2 } = foundry.applications.api;
-    TurnWindow = class extends ApplicationV2 {
+    // Keeps its place and width in this browser; the height fits the card.
+    TurnWindow = class extends rememberWindow(ApplicationV2, POSITION_KEY, { size: "width" }) {
         static DEFAULT_OPTIONS = {
             id: MODULE_ID,
             classes: ["npt-window"],
@@ -636,10 +633,7 @@ function windowClass() {
         };
 
         constructor(options = {}) {
-            const pos = savedPosition();
-            super(foundry.utils.mergeObject(options, {
-                position: Object.fromEntries(Object.entries({ left: pos.left, top: pos.top, width: pos.width }).filter(([, v]) => Number.isFinite(v))),
-            }, { inplace: false }));
+            super(options);
             this.actor = null;
             this.token = null;
         }
@@ -667,15 +661,6 @@ function windowClass() {
         async close(options) {
             clearPath(); // the drawn path goes with the window
             return super.close(options);
-        }
-
-        setPosition(position) {
-            const result = super.setPosition(position);
-            try {
-                const p = this.position;
-                localStorage.setItem(POSITION_KEY, JSON.stringify({ left: p.left, top: p.top, width: p.width }));
-            } catch { /* private window or blocked storage */ }
-            return result;
         }
     };
     return TurnWindow;
