@@ -235,7 +235,7 @@ function exemplar(board, ctx, out) {
         for (const s of board.strikes) { if (s.formula || s.spiritStruck) continue; s.avg += ss; s.spiritStruck = true; added.push(s.label); }
         spiritStriking = { ss, added };
     }
-    // ---- the spark now; a weapon ikon's immanence marked on its Strike when the sheet's formula doesn't carry it
+    // ---- where the spark is; a weapon ikon's immanence goes on its Strike when the sheet's formula lacks it
     let sparkLine = "";
     if (spark && !away && spark.kind === "weapon") {
         const found = strikeOfIkon(board, spark);

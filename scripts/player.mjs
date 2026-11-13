@@ -1,17 +1,18 @@
 /**
- * PF2e NPC Tactics: player.mjs
- * The Turn Helper: a window for one player character, showing what that character can see of the board on
- * its turn. Reach, Strikes and their targets, flanks, the way squares provoke, cover, and what the party has
- * learned of each foe this fight. Nothing an NPC's sheet knows and the party doesn't: no HP, no saves, no
- * threat, no tactics, no notes. Opened from the "PF2e Tactics: Turn Helper" macro, or on the player's turn
- * when they turn that on for themselves. Its advice (Your Turn) is the advisor run on what the party can judge of
- * each foe (see adviceBoard), plus what the character's class adds (classes.mjs).
+ * PF2e Tactics: player.mjs
  *
- * What a foe's state means here (PF2e detection): observed and concealed foes are shown in full; a hidden foe
- * (the square is known, the creature isn't seen) is shown in its square with the flat check it takes to
- * target it, and the ways round that the character has (Seek, a reveal spell, an area); an undetected foe is
- * not shown at all, and the only trace of one is a line about Seeking, when the party already knows it is
- * there (its combatant is in the tracker).
+ * The Turn Helper: a window for one player character, showing what that character can see of the board on its turn.
+ * Reach, Strikes and their targets, flanks, the way squares provoke, cover, and what the party has learned of each
+ * foe this fight. Nothing an NPC's sheet knows and the party doesn't: no HP, no saves, no threat, no tactics, no
+ * notes. Opened from the "PF2e Tactics: Turn Helper" macro, or on the player's turn when they turn that on for
+ * themselves. Its advice (Your Turn) is the advisor run on what the party can judge of each foe (see adviceBoard),
+ * plus what the character's class adds (classes.mjs).
+ *
+ * What a foe's state means here (PF2e detection): observed and concealed foes are shown in full; a hidden foe (the
+ * square is known, the creature isn't seen) is shown in its square with the flat check it takes to target it, and the
+ * ways round that the character has (Seek, a reveal spell, an area); an undetected foe is not shown at all, and the
+ * only trace of one is a line about Seeking, when the party already knows it is there (its combatant is in the
+ * tracker).
  */
 import { MODULE_ID, esc, link, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
@@ -69,9 +70,9 @@ const bucket = (map, combatId, tokenId) => {
     return byCombat.get(tokenId) ?? byCombat.set(tokenId, new Set()).get(tokenId);
 };
 /**
- * What a chat card shows the table about the NPC that made it: a reaction it used (an item with the reaction glyph, or an
- * attack roll made outside its own turn, which is a Reactive Strike or the like), a spell it cast, a ranged attack, a heal.
- * The Turn Helper treats a foe as able to do these only once the party has seen it do them.
+ * What a chat card shows the table about the NPC that made it: a reaction it used (an item with the reaction glyph,
+ * or a melee attack roll made outside its own turn, which is a Reactive Strike or the like), a spell it cast, a
+ * ranged attack, a heal. The Turn Helper treats a foe as able to do these only once the party has seen it do them.
  */
 function noteReaction(message) {
     const combat = game.combat;
@@ -184,9 +185,9 @@ function barsVisible(e) {
     return mode === (M.ALWAYS ?? 50) || mode === (M.HOVER ?? 30);
 }
 /**
- * A foe as the party can judge it: AC from the party's hits and misses this fight (the middle of the bounds),
- * saves from the rolls it has made, HP from its bar when players can see it, otherwise a creature of the party's
- * level. Nothing from its sheet: no weaknesses, no skills, no level.
+ * A foe as the party can judge it: AC from the party's hits and misses this fight (the middle of the bounds), saves
+ * from the rolls it has made, HP from its bar when players can see it, otherwise a creature of level L (the party's,
+ * unless the helperKnowsLevel setting is on). Nothing from its sheet: no weaknesses, no skills.
  */
 function estimateFoe(board, e, known, L) {
     const k = known?.[e.id] ?? {};
@@ -206,20 +207,19 @@ function estimateFoe(board, e, known, L) {
         actor: undefined, cls: null, senses: null, languages: [], flankImmune: null,
         caster: did.has("cast"), healer: did.has("heal"), rangedReach: did.has("ranged") || did.has("cast") ? 60 : 0,
         level: L,
-        // the party's bounds are the AC it rolled against; an off-guard foe's estimate drops by 2 like a sheet's would
-        // plus what the table can see on it now (frightened, off-guard, a shown effect); the party's bounds are kept net of it
+        // the middle of the party's bounds (kept net of what shows) plus what the table can see on it now
+        // (frightened, off-guard, a shown effect); without that read, -2 if it's off-guard
         ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0) + (e.seenMods ? e.seenMods.ac : (e.conditions && isOffGuard(e) ? -2 : 0)),
         saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], MODERATE.save(L)) + (e.seenMods?.[s] ?? 0)])),
         hp: bars ? e.hp : (e.hp > 0 ? MODERATE.hp(L) : 0), maxHp: bars ? e.maxHp : MODERATE.hp(L),
         iwr: { weak: [], resist: [], immune: [] },
         perception: null, athletics: null,
-        // What its attacks are worth when weighing a square's risk: a creature of level L
+        // Its Reactive Strike, for weighing a square's risk: a creature of level L's
         reactiveStrike: { bonus: L + 8, avg: 4 + L * 1.5 },
         estimated: !bars,
     };
 }
-/** Abilities classes.mjs plans itself (the advisor's generic reading of them is dropped). */
-/** Actions a class read plans itself (3.1.1: one list per class), so the advisor's own text reading of them is set aside. */
+/** Actions a class read plans itself (one list per class), so the advisor's own text reading of them is set aside. */
 const CLASS_HANDLED = new Set([
     "battle-medicine", "quick-draw", "mountaineering-training",
     // fighter
@@ -366,9 +366,8 @@ function adviceSectionFor(board, adv) {
     return panel("Your Turn", { key, open: true, cls: "npt-act", sum: esc(titleCase(best.title)), tools: showButton(best), body: `<div class="npt-plan-title">${esc(titleCase(best.title))}</div>${stepsHtml(best.steps)}${notes}${altHtml}${foot}` });
 }
 /**
- * The notes worth reading this turn first: a note that names a foe on the board or something in the recommended turn rises;
- * standing reminders (your reactions, bonuses already counted in the numbers, the thrift summary) sink. Three show, the
- * rest fold away.
+ * Orders the notes worth reading first: one that names a foe on the board or something in the recommended turn rises;
+ * standing reminders (your reactions, bonuses already counted in the numbers, the thrift summary) sink.
  */
 function rankNotes(board, adv) {
     const names = (board.seenFoes ?? []).map((f) => nameOf(f)).filter((n) => n && n !== "?");
@@ -584,7 +583,10 @@ async function showHelper(actor, token) {
     await helperWindow.render({ force: true });
 }
 
-/** The character to help: a selected token the user owns, else their assigned character's token on the scene. */
+/**
+ * The character to help: a selected token the user owns, else their assigned character (and its token on the scene,
+ * if any), else any character token they own on the scene.
+ */
 function helperTarget() {
     const owned = (canvas?.tokens?.controlled ?? []).filter((t) => t.actor?.isOwner && t.actor.type === "character");
     if (owned.length) return [owned[0].actor, owned[0]];
@@ -638,10 +640,11 @@ function slotsByRank(actor) {
 const THRIFT = { frugal: 1.5, normal: 1, free: 0 };
 /**
  * A slot spent now is a slot gone for the day's later fights, so a slot spell has to beat the best cantrip by a clear
- * margin to be the recommended turn. Each slot plan's score drops by a reserve that grows with the slot's rank (the top
- * ranks are the day's decisive spells), shrinks as more slots of that rank remain, and halves when the spell is decisive
- * here (two or more foes caught, or a foe it can drop). Cantrips, focus spells, heals and buffs are never taxed. The
- * plan's own note says the numbers, so the player sees why the cantrip came first. Returns a one-line class note.
+ * margin to be the recommended turn. Each slot plan's score drops by a reserve that grows with the slot's rank (the
+ * top ranks are the day's decisive spells), shrinks as more slots of that rank remain, halves when the spell is
+ * decisive here (two or more foes caught, or a foe it can drop), and scales with the helperThrift setting. Cantrips,
+ * focus spells, potions, heals and buffs are never taxed. The plan's own note says the numbers, so the player sees
+ * why the cantrip came first. Returns a one-line class note, or null when nothing was taxed.
  */
 function spellThrift(board, plans) {
     const mult = THRIFT[setting("helperThrift", "normal")] ?? 1;

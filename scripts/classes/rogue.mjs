@@ -101,7 +101,10 @@ function rogue(board, ctx, out) {
         }
         return b;
     };
-    /** n Strikes at f, the target off-guard with probability p (its AC down by 2p, the dice with chance p). */
+    /**
+     * A run of nStrikes Strikes at f, the target off-guard with probability p (its AC down by 2p, the dice with
+     * chance p).
+     */
     const sneakRun = (f, nStrikes, made, p, extra = 0, opts = {}) => {
         const used = [];
         let ev = 0;

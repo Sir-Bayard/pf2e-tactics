@@ -12,7 +12,6 @@ import { choiceOf, effect, has, hasAny, level, pct, squareToReach, standardDC, s
 import { averageOf } from "../reader.mjs";
 
 const crafting = (actor, lv) => { const c = actor?.skills?.crafting; return c && c.mod != null ? Number(c.mod) || 0 : lv + abil(actor, "int") + (lv >= 15 ? 8 : lv >= 7 ? 6 : lv >= 3 ? 4 : 2); };
-/** A Strike's weapon die (faces) and dice count, from the sheet's item or the mock's shorthand. */
 /** The flat check after an unstable action: DC 17, so one roll in five keeps the innovation going; 7 or less is a critical failure. */
 const UNSTABLE_PASS = 0.2, UNSTABLE_CRIT = 0.35;
 /** Rect centers in feet, for the line of a Megavolt. */
@@ -78,8 +77,8 @@ function inventor(board, ctx, out) {
     const melee = () => board.strikes.filter((s) => !s.ranged);
 
     // ---- the innovation on the sheet
-    // PF2e names the weapon innovation in roll options ("weapon-innovation:id:<item id>", "weapon-innovation:slug:<slug>"); older
-    // data has a flag; failing both, the unique-rarity weapon, then the hardest-hitting weapon Strike (never a shield or unarmed).
+    // PF2e names the weapon innovation in roll options ("weapon-innovation:id:<item id>", "weapon-innovation:slug:<slug>"),
+    // else a flag; failing both, the unique-rarity weapon, then the hardest-hitting weapon Strike (never a shield or unarmed).
     const roll = Object.keys(actor?.rollOptions?.all ?? {});
     const innovationId = roll.find((k) => k.startsWith("weapon-innovation:id:"))?.slice("weapon-innovation:id:".length) ?? actor?.flags?.pf2e?.innovationId ?? actor?.flags?.system?.innovationId ?? null;
     const innovationSlug = roll.find((k) => k.startsWith("weapon-innovation:slug:"))?.slice("weapon-innovation:slug:".length) ?? null;

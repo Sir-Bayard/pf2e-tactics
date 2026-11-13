@@ -38,13 +38,17 @@ function wayOf(actor) {
 const WAY_RELOAD = { drifter: "reloading-strike", pistolero: "raconteurs-reload", sniper: "covered-reload", spellshot: "thoughtful-reload", vanguard: "clear-a-path", triggerbrand: "touch-and-go" };
 const WAY_RELOAD_NAME = { drifter: "Reloading Strike", pistolero: "Raconteur's Reload", sniper: "Covered Reload", spellshot: "Thoughtful Reload", vanguard: "Clear a Path", triggerbrand: "Touch and Go" };
 
-/** Whether this weapon is loaded: the PF2e Ranged Combat module's effects when it runs, the strike's own flag, else assumed. */
+/**
+ * Whether this weapon is loaded, and whether that's known: the strike's own flag, else the PF2e Ranged Combat
+ * module's state when it runs, else assumed loaded.
+ */
 function loadedState(actor, s) {
     if (typeof s.loaded === "boolean") return { loaded: s.loaded, known: true };
     const mod = globalThis.game?.modules?.get?.("pf2e-ranged-combat");
     if (!mod?.active) return { loaded: true, known: false };
     const id = s.id ?? s.item?.id;
-    // Ranged Combat 8+: the loaded round is a sub-item of the weapon (type ammo, with uses left); earlier versions: a Loaded effect
+    // Ranged Combat 8+ keeps the loaded round as a sub-item of the weapon (ammo with uses left); older releases of it
+    // use a Loaded effect
     const subs = s.item?.system?.subitems ?? s.item?._source?.system?.subitems ?? [];
     const rounds = subs.filter((x) => x.type === "ammo" && (Number(x.system?.uses?.value ?? x.system?.quantity ?? 1) || 0) > 0);
     if (rounds.length) return { loaded: true, known: true };

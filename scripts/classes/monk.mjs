@@ -15,9 +15,9 @@ import { round1 as r1 } from "../reader.mjs";
 
 /**
  * The stances and the Strikes they give. die: the damage die; agile/finesse; only: the stance allows no other Strike
- * (the sheet replaces them all while it's up); reach 10 for a reach attack; range for a ranged one; deadly/fatal dice;
- * spell: entered by casting a qi spell (1 Focus Point); def: a rough worth of the stance's defence, in damage per level/5.
- * benefit: what entering it gives, for the step text.
+ * (the sheet replaces them all while it's up); reach 10 for a reach attack; range for a ranged one; deadly/fatal
+ * dice; spell: entered by casting a qi spell (1 Focus Point); def: a rough worth of the stance's defense, in damage
+ * per level/5. benefit: what entering it gives, for the step text.
  */
 const STANCES = {
     "crane-stance": { name: "Crane Stance", label: "Crane wing", die: 6, agile: true, finesse: true, only: true, def: 1.5, benefit: "+1 circumstance bonus to AC; crane wing 1d6, agile, finesse" },

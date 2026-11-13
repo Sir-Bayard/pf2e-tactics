@@ -1,12 +1,13 @@
 /**
  * PF2e Tactics: classes/witch.mjs
  * See classes/_common.mjs for the shape of a class read.
- * The witch's layer over the advisor's spell plans: hexes (one a turn; the patron's hex cantrip at will, the lesson hexes
- * for a Focus Point), what to Sustain and how (Cackle for a Focus Point as a free action, or the Sustain action; Hex
- * Master at 20), the familiar (the patron's "when you Cast or Sustain a hex" trick, Patron's Puppet, Phase Familiar,
- * Shed Spirit and the other familiar activities as plans), Sympathetic Strike and Split Hex as composed turns, Siphon
- * Power, Quickened Casting, the spellshape feats as "when" notes, and slots left by rank. A plan that casts a slot spell
- * says so (spendsSlot) and spell thrift weighs the slot against the cantrip; the read keeps no cantrip-or-slot rule of its own.
+ * The witch's layer over the advisor's spell plans: hexes (one a turn; the patron's hex cantrip at will, the lesson
+ * hexes for a Focus Point), what to Sustain and how (Cackle for a Focus Point as a free action, or the Sustain
+ * action; Hex Master at 20), the familiar (the patron's trick on casting or sustaining a hex, Patron's Puppet, Phase
+ * Familiar, Shed Spirit and the other familiar activities as plans), Sympathetic Strike and Split Hex as composed
+ * turns, Siphon Power, Quickened Casting, the spellshape feats as "when" notes, and slots left by rank. A plan that
+ * casts a slot spell says so (spendsSlot) and spell thrift weighs the slot against the cantrip; the read keeps no
+ * cantrip-or-slot rule of its own.
  * Hexes are planned here, so they're taken off board.spells before the advisor runs (nothing is listed twice).
  */
 import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed, ordinal, lc } from "./_common.mjs";
@@ -16,7 +17,7 @@ const isHex = (sp) => !!sp.traits?.includes("hex");
 const isFocus = (sp) => !!sp.traits?.includes("focus");
 const points = (n) => `${n} Focus Point${n === 1 ? "" : "s"}`;
 
-/** The patrons: tradition, hex cantrip, and the familiar's trick when you Cast or Sustain a hex (Remaster text). */
+/** The patrons: tradition, hex cantrip, and the familiar's trick when you cast or sustain a hex (Remaster). */
 const PATRONS = {
     "the-resentment": { name: "The Resentment", trad: "occult", hex: "evil eye", familiar: "Ongoing Misery", reach: 15, trick: "prolongs the timed conditions on a creature within 15 feet of it by a round" },
     "faiths-flamekeeper": { name: "Faith's Flamekeeper", trad: "divine", hex: "stoke the heart", familiar: "Restored Spirit", reach: 15, trick: "gives a willing creature within 15 feet of it temporary HP until your next turn" },
@@ -105,8 +106,9 @@ function followUps(board, t, actions, made) {
     return [cantrip, slot && (!cantrip || slot.e.expected > cantrip.e.expected) ? slot : null];
 }
 /**
- * What to do with the actions a hex turn leaves at t: a cantrip (or, with slot, the slot spell when it does more; one slot
- * a turn at most), then a 1-action spell or a Strike. spent: the slot spell it casts, if any.
+ * What to do with the actions a hex turn leaves at t: a cantrip (or, with slot, the slot spell when it does more; one
+ * slot a turn at most), then a 1-action spell or a Strike. Returns { steps, ev, rest, spent }; spent: the slot spell
+ * cast, if any.
  */
 function fillRest(board, t, rest, made, { slot = false } = {}) {
     const steps = [];

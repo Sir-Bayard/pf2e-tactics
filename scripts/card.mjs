@@ -1,7 +1,8 @@
 /**
- * PF2e NPC Tactics: card.mjs
- * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas.
- * One module, several files: see pf2e-tactics.mjs for the whole.
+ * PF2e Tactics: card.mjs
+ *
+ * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas. One module, several
+ * files: see pf2e-tactics.mjs for the whole.
  */
 import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, rememberWindow, section, setting, signed, ul, flagOf } from "./shared.mjs";
 import { RIDERS, feetBetween, profilesOf, readBoard, round1, stripTags, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
@@ -23,7 +24,11 @@ function plainLine(html) {
         .replace(/\s+/g, " ").trim();
 }
 
-/** Trigger lines from HTML or plain text. */
+/**
+ * Trigger lines from HTML or plain text. Conditions understood: below N HP; below half (a third, a quarter, N%) of
+ * its HP; another creature below N HP or a share of its HP; <name> is down or dead; half (most, two, three, all) of
+ * its allies down; round N; alone. Anything else is "manual": shown as a reminder for the GM to watch for.
+ */
 function parseTriggers(source) {
     const html = String(source ?? "");
     const lines = html.split(/<\/p>|<br\s*\/?>|<\/li>|\n/i).map(plainLine).filter(Boolean);
@@ -91,7 +96,7 @@ function nameMatches(who, names) {
     const words = (t) => ` ${t.replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim().split(" ").map(one).join(" ")} `;
     return names.filter(Boolean).map(lc).some((n) => n === w || words(n).includes(words(w)) || w.startsWith(n));
 }
-/** Every name a creature goes by: its token's, its own, and (for an unlinked token) its world actor's. */
+/** Every name a creature goes by: its token's, its own, its prototype's, and (if unlinked) its world actor's. */
 function namesOf(actor, token) {
     const base = actor?.isToken ? game.actors?.get?.(actor.id) : null;
     return [token?.name, actor?.name, actor?.prototypeToken?.name, base?.name, base?.prototypeToken?.name];
@@ -173,7 +178,7 @@ function intentFrom(allLive) {
 // ---------------------------------------------------------------------------------------------
 const SOURCES = [];
 
-/** Another module can supply tactics text for an actor: get(actor, token) -> [{ title, html }]. */
+/** Another module can supply tactics text for an actor: { id, label?, get(actor, token) -> [{ title, html }] }. */
 function registerSource(source) {
     if (!source?.id || typeof source.get !== "function") throw new Error(`${MODULE_ID} | registerSource needs { id, get }`);
     const i = SOURCES.findIndex((s) => s.id === source.id);
@@ -245,7 +250,7 @@ function usedEffects(actor, item) {
     });
 }
 
-/** PF2e Workbench rolls recharges itself ("Recharge reminder"): then NPC Tactics reads its effect instead of rolling too. */
+/** With PF2e Workbench's "Recharge reminder" on, Workbench rolls recharges and this module reads its effect. */
 const workbenchRecharge = () => {
     try { return !!game.modules.get("xdy-pf2e-workbench")?.active && !!game.settings.get("xdy-pf2e-workbench", "reminderBreathWeapon"); } catch { return false; }
 };
@@ -274,7 +279,7 @@ function statusLine(actor) {
     return `<div class="npt-stats">${parts.join(" · ")}</div>` + (conditions.length ? `<div class="npt-stats npt-dim">${esc(conditions.join(", "))}</div>` : "");
 }
 
-// --- Panels: a header strip, then cards with a colored left edge, styled like Campaign Trackers ------
+// --- Panels: a header strip, then cards with a colored left edge ---------------------------------
 const ABBREVIATIONS = { hp: "HP", ac: "AC", dc: "DC", gm: "GM", pc: "PC", pcs: "PCs", npc: "NPC" };
 const SMALL_WORDS = new Set(["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "at", "by", "in", "of", "on", "to", "as", "from", "with", "into", "via", "vs"]);
 /** Title case for card titles ("The Board", "Always On", "Close and Strike Vance"). Only ever raises a first letter. */
@@ -405,7 +410,7 @@ function adviceSection(plans, board, intent) {
     return panel(esc(titleCase(best.title)), { cls: "npt-act", sum: adviceSum(best), body, tools: sustainBtn + showBtn });
 }
 
-/** The board: who's near, the threat table, the softest save, the light, what's being watched. */
+/** The board: who's near, the threat table, the softest save, the light, Visioner's sight, what's watched. */
 function boardLine(board, triggers = []) {
     if (!board?.enemies?.length) return "";
     const me = board.me.rect;
@@ -463,7 +468,6 @@ function tacticsHtml(actor, token) {
         html += panel("Tactics", { key: `tactics:${t.title}`, sum: esc(`${t.title}${first ? ` · ${first}` : ""}`), body });
     }
     const notes = notesOf(base);
-    // The Add or Edit button sits on the card itself, like Show and Threat
     const tools = `<button type="button" data-npt-notes="${esc(base?.uuid ?? actor.uuid)}" data-tooltip="How this creature fights, shared by all its tokens"><i class="fa-solid fa-pen"></i> ${notes ? "Edit" : "Add"}</button>`;
     if (notes) {
         const body = notes.split(/\n{2,}/)
@@ -488,7 +492,7 @@ function strikeLines(actor) {
             + (traits ? ` <span class="npt-dim">${esc(traits)}</span>` : "") };
     });
 }
-/** Kept for the macro and older callers: the Strikes as a plain list. */
+/** The Strikes as a plain list. Nothing calls or exports it. */
 function strikesHtml(actor) {
     const lines = strikeLines(actor);
     return lines.length ? section("Strikes", ul(lines.map((l) => l.html))) : "";
@@ -692,10 +696,12 @@ function refreshIfShowing(actor) {
     refreshSoon(150);
 }
 
-/** Buttons on the card: notes, refresh, and Show (pings the square on the canvas). */
+/**
+ * Wires up the card's buttons: folds, Threat, notes, the turn ledger's adjust buttons, Refresh, Sustain and Show
+ * (draws the path, or pings an area's aim point, on this client only).
+ */
 function bindCard(root, rerender) {
-    // Folding cards stay the way they were left
-    // (Chat cards keep the state they were posted with, so only the window remembers.)
+    // Only the window remembers folds; chat cards keep the state they were posted with.
     if (rerender) {
         root.querySelectorAll("details[data-npt-fold]").forEach((d) => {
             let last = d.open;
@@ -766,9 +772,9 @@ function bindCard(root, rerender) {
     });
 }
 
-// --- The suggested path, drawn on this GM's canvas only ---------------------------------------------
+// --- The suggested path, drawn on this client's canvas only ------------------------------------------
 // A plain PIXI drawing on the canvas interface: not a Drawing or Region, so it isn't saved to the scene and
-// never reaches anyone else's screen. Cleared by a second click, the next turn, or leaving the scene.
+// never reaches anyone else's screen. Cleared by a second click, the next turn, closing the window or leaving the scene.
 let pathShown = null;
 function clearPath() {
     if (pathShown?.g) { pathShown.g.parent?.removeChild(pathShown.g); pathShown.g.destroy({ children: true }); }

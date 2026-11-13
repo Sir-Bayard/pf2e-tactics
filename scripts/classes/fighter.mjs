@@ -54,7 +54,10 @@ function fighter(board, ctx, out) {
     const extraVs = (f) => fearsome * frightOf(f);
     const offGuardTo = (f) => !!f.conditions?.has?.("off-guard");
     const athletics = me.athletics ?? actor.skills?.athletics?.mod ?? lv + 5;
-    /** The best Strike at f with n attacks made, by this read's penalty. extra: flat or per-Strike function; pick: a weapon filter. */
+    /**
+     * The best Strike at f after `made` attacks, by this read's penalty (countMap: false leaves it off). extra: flat
+     * or per-Strike function; pick: a weapon filter.
+     */
     const best = (f, made, { extra = 0, acAdj = 0, pick = () => true, ranged = false, penalty = 0, countMap = true } = {}) => {
         let b = null;
         for (const s of board.strikes.filter((s) => !!s.ranged === ranged && pick(s))) {
@@ -293,8 +296,7 @@ function fighter(board, ctx, out) {
         }
     }
 
-    /* ---- The press plan: a first Strike, then the best press each action (Exacting, Certain, Brutish Shove, Combat Grab,
-            Advantageous Assault, Shatter Defenses, Disarming Twist, Brutal Finish, Two-Weapon Flurry), Desperate Finisher after ---- */
+    /* ---- The press plan: a first Strike, then the best of the presses below each action; Desperate Finisher after ---- */
     const presses = ["exacting-strike", "certain-strike", "brutish-shove", "dragging-strike", "combat-grab", "advantageous-assault", "shatter-defenses", "disarming-twist", "brutal-finish", "two-weapon-flurry", "snagging-strike"].filter((s) => has(actor, s));
     if (melee.length && acts >= 1 && (presses.length || agileGrace || hasSupremacy)) {
         const finisher = has(actor, "desperate-finisher");

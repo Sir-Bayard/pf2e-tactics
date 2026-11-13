@@ -8,7 +8,10 @@
  */
 import { bestStrike, canMove, castable, effect, focusLeft, has, hasAny, standardDC, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, abil, strikeText } from "./_common.mjs";
 
-/** Weapon specialization damage for a ranger: expert at 5, master at 13; greater at 15. */
+/**
+ * Weapon specialization damage for a ranger: 2 from 7th, 3 at master (13th), 6 with greater weapon specialization
+ * (15th).
+ */
 const weaponSpec = (lv) => (lv >= 15 ? 6 : lv >= 13 ? 3 : lv >= 7 ? 2 : 0);
 
 /** The hunted prey's token ids, from PF2e's token marks (two with Double Prey, three with Triple Threat). */
@@ -140,7 +143,7 @@ function ranger(board, ctx, out) {
             for (const s of w) for (let i = 0; i < 3; i++) { const b = s.bonus + mapVs(i === 0 ? 1 : 2, s.agile); const e = strikeExpected(b, prey.ac, s.avg + precisionOn(hits), { deadly: s.deadly }); ev += e.expected; if (e.hit >= 0.5) hits += 1; if (i === 0) shown.push(`${s.label} ${signed(b)} then ${signed(s.bonus + mapVs(2, s.agile))} twice`); }
             push({ title: `Impossible Flurry on ${nameOf(prey)}`, target: prey, ev, bias: 0.3, steps: [{ cost: 3, text: `Impossible Flurry at ${nameOf(prey)}: six Strikes, ${shown.join("; ")}` }], notes: [edge === "flurry" ? "Flurry keeps the penalties low: this is your best turn against a prey you can reach." : "Without the flurry edge most of these land at -10; only against a prey with a low AC."] });
         }
-        // Time Dilation Cascade (3 actions): six Strikes now, one action next turn
+        // Time Dilation Cascade (3 actions): six Strikes this turn, only one action next turn
         if (has(actor, "time-dilation-cascade") && ctx.actions === 3 && ctx.made === 0) for (const prey of preys) {
             const r = run(prey, 6, 0, { hunted: true, flourish: false });
             if (!r.steps.length) continue;

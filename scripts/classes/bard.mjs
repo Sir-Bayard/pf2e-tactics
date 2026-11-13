@@ -59,8 +59,11 @@ function bard(board, ctx, out) {
     const inRange = (a, ft) => a.hp > 0 && a.canAct !== false && feetBetween(me.rect, a.rect) <= ft;
     const allies = (board.allies ?? []).filter((a) => inRange(a, 60));
     const discordant = has(actor, "discordant-voice");
-    /** What a +bonus status to attack and damage is worth over one round to this ally: a tenth of a Strike's damage and
-     *  0.6 a point per +1 per Strike, two Strikes a round for a striker, one for a caster; a foe to swing at, or nothing. */
+    /**
+     * What a +bonus status to attack and damage is worth over one round to this ally: per Strike, bonus x (a tenth of
+     * its expected damage + 0.6 x its hit chance), plus Discordant Voice's 3.5 a hit; two Strikes for a striker, one
+     * for a caster out of reach; 0 with no foe close enough.
+     */
     const anthemFor = (a, bonus) => {
         const f = near(a);
         if (!f) return 0;
@@ -72,8 +75,10 @@ function bard(board, ctx, out) {
         return strikes * (bonus * (0.1 * e.expected + 0.6 * e.hit) + (discordant ? 3.5 * e.hit : 0));
     };
     const anthemRound = (bonus) => allies.reduce((s, a) => s + anthemFor(a, bonus), 0);
-    /** The rest of the turn after a composition: Strikes at a foe in reach (with the anthem's own bonus on them), or the best
-     *  damaging cantrip with two actions left, or nothing it can reach. */
+    /**
+     * The rest of the turn after a composition: Strikes at a foe in reach (with the anthem's own bonus on them), or
+     * the best damaging cantrip with two actions left, or nothing it can reach.
+     */
     const rest = (left, made, selfBonus = 0) => {
         if (left < 1) return { steps: [], ev: 0, strikeHit: 0 };
         const inReachFoe = foes.find((f) => board.strikes.some((s) => s.ranged ? feetBetween(me.rect, f.rect) <= (s.range ?? 30) : inReach(me.rect, f.rect, s.reach || 5)));
@@ -296,7 +301,7 @@ function bard(board, ctx, out) {
         const held = [me, ...(board.allies ?? [])].map((c) => ({ c, cond: conds.find((k) => c.conditions?.has?.(k)) })).filter((x) => x.cond && x.c.hp > 0 && feetBetween(me.rect, x.c.rect) <= 30).sort((x, y) => worth(board, y.cond) - worth(board, x.cond));
         const top = held.slice(0, lv >= 17 ? 4 : 1);
         if (top.length) {
-            // The effect's DC isn't known: a hard DC for a creature of your level is the guess (a foe's level is never read)
+            // The effect's DC isn't known: guess a hard DC for a creature of your level
             const dc = standardDC(lv) + 2;
             const c = degreeChances(perf, dc);
             const odds = c.s + c.cs;

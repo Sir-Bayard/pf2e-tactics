@@ -1,7 +1,11 @@
 /**
- * PF2e NPC Tactics: reader.mjs
- * Reading abilities, dice math, grid geometry and the live scene into plain data the advisor plans on. Pure functions where possible, so they run outside Foundry for testing.
- * One module, several files: see pf2e-tactics.mjs for the whole.
+ * PF2e Tactics: reader.mjs
+ *
+ * Reading abilities, dice math, grid geometry and the live scene into plain data the advisor plans on. Abilities are
+ * read from PF2e's data first (action costs, traits, links to basic actions, checks, damage and templates) and from
+ * the wording second, so an ability like "Step 5 feet twice" replaces a plain Step wherever a turn needs one. Pure
+ * functions where possible, so they run outside Foundry for testing. One module, several files: see pf2e-tactics.mjs
+ * for the whole.
  */
 import { CONDITION_VALUE } from "./advisor.mjs";
 import { FLAG_SCOPE, MODULE_ID, baseActorOf, cap, esc, flagOf } from "./shared.mjs";
@@ -327,7 +331,7 @@ function readMovementPassive(text, name) {
     const t = text.toLowerCase();
     const p = {};
     if (/\b(movement|moves?|strides?|steps?)\b[^.]{0,40}\b(doesn'?t|does not|don'?t|do not|never) (?:trigger|provoke) reactions\b/.test(t)) {
-        // NPC Core's Mobility: "moves half its Speed or less, that movement does not trigger reactions"
+        // Mobility (NPC Core): a move of half its Speed or less doesn't trigger reactions
         if (/\bhalf (?:its|their|his|her) speed\b/.test(t)) p.noReactionsHalf = true;
         else p.noReactions = true;
     }
@@ -423,9 +427,9 @@ function roleOf(p) {
 // The creature's movement options, per action
 // ---------------------------------------------------------------------------------------------
 /**
- * Best ways to move for one action. speeds: { land, fly, burrow, climb, swim } in feet.
- * Returns { step: {feet, by, noReactions}, stride: {feet, by, noReactions, speed}, notes[] }.
- * "by" is the ability name, or null for the basic action.
+ * Best ways to move for one action. speeds: { land, fly, burrow, climb, swim } in feet. Returns { step: {feet, by,
+ * noReactions}, stride: {feet, by, noReactions, speed}, extra: [every ability move], ignoresDifficult, extraMove,
+ * noReactions, noReactionsUpTo, speeds }. "by" is the ability name, or null for the basic action.
  */
 function movementOptions(profiles, speeds) {
     const land = Number(speeds.land) || 0;
@@ -445,7 +449,8 @@ function movementOptions(profiles, speeds) {
     const extra = [];
     for (const p of profiles) {
         if (p.kind !== "action" || !p.moves.length || p.strikes) continue;
-        // Abilities with limits we can't check (only in darkness, within dragonmist...) still count, with their name shown
+        // Abilities with limits we can't check (only in darkness, within dragonmist...) go in extra, named, but never
+        // replace Step or Stride
         for (const m of p.moves) {
             const per = (m.feet ?? (m.speedMult ? m.speedMult * (Number(speeds[m.speed]) || land) : (Number(speeds[m.speed]) || land))) * (m.verb === "step" && !m.feet ? 1 : 1);
             const total = m.verb === "step" ? (m.feet ?? 5) * m.times : per * (m.speedMult ? 1 : m.times);
@@ -648,9 +653,12 @@ function flanks(att, ally, target) {
  *   canEnd(x, y)           footprint at x,y is a legal place to stop (no other creature)
  *   blocked(x1, y1, x2, y2) a wall between the two footprint positions
  *   costAt(x, y)           terrain for entering: 1 normal, 2 difficult (+5 ft), 3 greater difficult (+10 ft)
+ *   edgeFeet(x1, y1, x2, y2, feet) extra feet for crossing between two positions (a door to open)
  *   threats(x, y)          ids of enemies whose movement reactions cover the footprint at x,y
  *   noReactions            this movement doesn't trigger reactions
+ *   noReactionsUpTo        feet of movement that trigger no reactions (Mobility), or null
  *   avoid                  "safe": fewest reactions provoked first, then feet; "fast": feet only
+ *   flatDiagonals          every diagonal costs 5 feet (a Step)
  * Returns Map "x,y" -> { x, y, feet, provokes: [ids], end: bool, prev: "x,y"|null }.
  */
 function movementField(opts) {
@@ -929,7 +937,7 @@ function profilesOf(actor) {
 }
 
 function speedsOf(actor) {
-    // PF2e 8: system.movement.speeds.<type>.value; older: system.attributes.speed (+ otherSpeeds)
+    // system.movement.speeds.<type>.value on PF2e 8; system.attributes.speed (+ otherSpeeds) on older data
     const out = { land: 0 };
     const speeds = actor?.system?.movement?.speeds;
     if (speeds) {
@@ -1228,10 +1236,10 @@ function iwrOf(actor) {
 }
 
 /**
- * What anyone at the table can see changing a creature's defences: the conditions on it and the effects whose icons show on
- * its token. PF2e tags each AC and save modifier with the item it comes from, so this is the sum of the enabled modifiers
- * whose item is a condition or a shown effect (frightened 2: -2 to AC and every save; Bane: nothing here). Returns
- * { ac, fortitude, reflex, will } and the names of the shown effects.
+ * What anyone at the table can see changing a creature's defenses: the conditions on it and the effects whose icons
+ * show on its token. PF2e tags each AC and save modifier with the item it comes from, so this is the sum of the
+ * enabled modifiers whose item is a condition or a shown effect (frightened 2: -2 to AC and every save; Bane: nothing
+ * here). Returns { ac, fortitude, reflex, will } and the names of the shown effects.
  */
 function visibleAdjustments(actor) {
     const out = { ac: 0, fortitude: 0, reflex: 0, will: 0, effects: [] };
@@ -1258,7 +1266,7 @@ const conditionValues = (actor) => Object.fromEntries((actor?.conditions?.active
 const CANT_ACT = ["paralyzed", "unconscious", "petrified", "stunned", "restrained", "dying"];
 const hasAbility = (actor, re) => !!actor?.items?.some?.((i) => re.test(i.name ?? ""));
 
-/** The creatures on the scene, as the advisor sees them. */
+/** One creature on the scene (from its token), as the advisor sees it. */
 function creatureOf(token, size) {
     const a = token.actor;
     const cls = a.class?.slug ?? a.class?.name?.toLowerCase() ?? null;
@@ -1294,7 +1302,7 @@ function creatureOf(token, size) {
         hasMelee: a.type === "character" || strikesOf(a).some((s) => !s.ranged),
         flankImmune: hasAbility(a, /^all-around vision$/i) ? "all" : hasAbility(a, /^deny advantage$/i) ? "deny" : null,
         takingCover: !!a.items?.some?.((i) => i.type === "effect" && /take cover|^effect: cover/i.test(i.name ?? "")),
-        // What anyone can see of its defences: the armor it wears (characters only) and a raised shield
+        // What anyone can see of its defenses: the armor it wears (characters only) and a raised shield
         armor: a.type === "character" ? (a.wornArmor?.category ?? "unarmored") : null,
         shieldRaised: !!a.heldShield?.isRaised,
         shieldBonus: a.heldShield?.isRaised ? Number(a.heldShield?.system?.acBonus ?? 2) || 2 : 0,
@@ -1372,9 +1380,6 @@ function terrainNotes(scene, size, z = 0) {
 }
 
 /**
- * Read the scene around an acting token. Returns null when there's no scene or token.
- */
-/**
  * Scrolls and wands it carries (only with spellcasting of its own: it casts them with its first entry's DC and attack),
  * and healing potions and elixirs. Each comes out like a spell: a scroll or wand costs an Interact more to draw unless
  * it's already in hand; a potion is drawn and drunk (or fed to someone beside it).
@@ -1438,12 +1443,15 @@ function healUse(sp, who, actions = null) {
     return `Cast ${sp.name}${actions && actions !== sp.cost ? ` with ${actions} actions` : ""} on ${who}`;
 }
 
-/** What its side has seen of each foe this fight: { tokenId: { ac: attacks, fortitude: saves, ... } }. */
+/** What its side has seen of each foe this fight: { tokenId: { ac: { n, lo, hi }, fortitude: { n }, ... } }. */
 function learnedFor(combat) {
     const f = flagOf(combat, "learned");
     return f && typeof f === "object" ? f : {};
 }
-/** How far it trusts what it has seen over its guess: a third per look, sure after three. Animals don't learn; Sharp creatures read it outright. */
+/**
+ * How many looks its side has had at a foe's defense. learnK turns it into trust over the guess: a third per look,
+ * sure after three; animals don't learn, and Sharp creatures read it outright.
+ */
 const learnedN = (v) => (v && typeof v === "object" ? Number(v.n) || 0 : Number(v) || 0);
 const learnK = (board, t, what, tier) => (tier >= 1 && tier < 4 ? Math.min(1, 0.34 * learnedN(board.learned?.[t?.id]?.[what])) : 0);
 /** AC bounds the attacks so far have shown: { lo, hi } with lo <= AC <= hi, or null. */
@@ -1486,10 +1494,13 @@ function sustainOf(actor, combat) {
 const VICIOUS_WORDS = /\b(?:vicious|merciless|coup de grace|finish(?:es|ing)? off (?:the |any )?(?:fallen|downed|dying|wounded|helpless)|(?:kills?|savages?|mauls?) (?:the |any )?(?:fallen|downed|dying|helpless)|keeps? (?:attacking|hitting|savaging|mauling) (?:the |a )?(?:fallen|downed|dying))\b/gi;
 /** Vicious, unless the words are denied ("never finishes off the fallen", "not vicious"). */
 const viciousIn = (text) => [...String(text ?? "").matchAll(VICIOUS_WORDS)].some((m) => !/\b(?:never|not|no|doesn'?t|don'?t|won'?t|isn'?t|aren'?t|rarely|seldom|nor)\b[\w\s,'-]{0,25}$/i.test(String(text).slice(Math.max(0, m.index - 40), m.index)));
-/** Damage taken since its last turn (token id -> { round, dmg }), and the HP it had when that turn began. */
+/**
+ * Damage taken since its last turn (token id -> { combatId, round, dmg }); HP_AT_TURN holds the HP it had when that
+ * turn began.
+ */
 const RECENT = new Map();
 const HP_AT_TURN = new Map();
-/** Whom each NPC last attacked (token id -> { id, round }). */
+/** Whom each NPC last attacked (token id -> { combatId, id, round }). */
 const LAST_TARGET = new Map();
 /** A token on another level of the scene has no object on the canvas: stand in for it with its document. */
 const tokenStandIn = (doc) => ({ id: doc.id, name: doc.name, actor: doc.actor, document: doc });
@@ -1534,6 +1545,7 @@ function withVisioner(computed, visionerState, fromOwnSquare, targetConditions =
 }
 
 /**
+ * Read the scene around an acting token into the board the advisor plans on; null when there's no scene or token.
  * reactionsSeen: for the player's Turn Helper, a test (enemy, reaction) => boolean: reactions it rejects are dropped
  * from the board, so paths and warnings only go round reactions the party has seen. The GM's card passes nothing.
  */
@@ -1600,7 +1612,7 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
         const m = /\bextra (\d+d\d+(?:\s*[+-]\s*\d+)?)\s*(?:precision )?damage\b/i.exec(p.text) ?? /\b(\d+d\d+)\s*(?:extra )?precision damage\b/i.exec(p.text);
         if (m) sneak = Math.max(sneak, averageOf(m[1]));
     }
-    // Pack Attack: "Strikes deal 1d4 extra damage to creatures within reach of at least two of the wolf's allies"
+    // Pack Attack and the like: extra damage against a creature within reach of at least N of its allies
     let pack = null;
     for (const p of profiles) {
         if (p.kind !== "passive") continue;
@@ -1643,9 +1655,9 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
         lastTarget: (() => { const l = LAST_TARGET.get(token.id); const d = (combat?.round ?? 0) - (l?.round ?? 0); return l && l.combatId === combat?.id && d >= 0 && d <= 1 ? l.id : null; })(),
         vicious: viciousIn(tacticsText),
         round: combat?.round ?? 0,
-        // Who has hurt it, healed its foes or attacked it this fight (decays by half each round)
+        // Who has hurt it, healed its foes or attacked it this fight (fading each round by the threatDecay setting)
         threat: threatFor(combat, token.id),
-        // What its side has seen of each foe's defences this fight: attacks on their AC, saves they rolled
+        // What its side has seen of each foe's defenses this fight: attacks on their AC, saves they rolled
         learned: learnedFor(combat),
         // A spell it cast on an earlier turn that it can Sustain
         sustain: sustainOf(actor, combat),
@@ -1881,6 +1893,5 @@ function rampsOf(scene, field, size, me) {
     }
     return out;
 }
-// ---------------------------------------------------------------------------------------------
 
 export { HP_AT_TURN, staffSpellsOf, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };

@@ -131,7 +131,7 @@ function necromancer(board, ctx, out) {
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.score ?? plan.ev + (plan.bias ?? 0.4) });
     const free = (x, y) => !board.occupant?.get?.(`${x},${y}`) && !(x >= me.rect.x && x < me.rect.x + me.rect.w && y >= me.rect.y && y < me.rect.y + me.rect.h);
     const seen = (r) => !board.lineBlocked || !board.lineBlocked(centerOf(me.rect), centerOf(r));
-    /** Unoccupied squares beside f within reach feet of you with a line to them, nearest you first. */
+    /** Free squares beside f, within maxFeet of you and in sight, nearest you first. */
     const ring = (f, maxFeet = 30) => {
         const cands = [];
         for (let x = f.rect.x - 1; x <= f.rect.x + f.rect.w; x++) for (let y = f.rect.y - 1; y <= f.rect.y + f.rect.h; y++) {
@@ -142,7 +142,9 @@ function necromancer(board, ctx, out) {
         }
         return cands.sort((a, b) => feetBetween(me.rect, a) - feetBetween(me.rect, b));
     };
-    /** Crosses: does a flanker at a and one at b sandwich the target? (reader's flanks, kept local by center lines) */
+    /**
+     * Does a flanker at a and one at b flank t? The line between their centers must cross two opposite sides of t.
+     */
     const flanksAt = (a, b, t) => {
         const A = centerOf(a), B = centerOf(b);
         const L = t.x, R = t.x + t.w, T = t.y, Bm = t.y + t.h;
@@ -187,7 +189,7 @@ function necromancer(board, ctx, out) {
     // ---- thrall turns: Create Thrall beside a foe and Strike with it, Thrall Charge, Reaper's and Puppeteer's extras
     const strikeAt = (f, made, extra = 0) => strikeExpected(atk + mapFor(made, false), f.ac, thrallDie + spiritDmg + extra);
     const existingBy = (f) => thralls.filter((t) => inReach(t.rect, f.rect, t.reach ?? 5));
-    // Thrall Charge: "range 30 feet; target 1 of your thralls": the thrall within 30 feet of you, the foe within its Stride
+    // Thrall Charge targets one of your thralls within 30 feet of you; the foe must be within that thrall's Stride
     const chargeable = (f) => thralls.filter((t) => feetBetween(me.rect, t.rect) <= 30 && feetBetween(t.rect, f.rect) <= thrallSpeed + 5 && (t.canAct !== false));
     const bestFree = new Map(); // per foe: the best free thrall turn's ev, for the Focus Point comparison
     const freePlans = [];
@@ -274,7 +276,10 @@ function necromancer(board, ctx, out) {
         return { foes: foes.filter((e) => rectInArea(t.test, e.rect)), allies: ally((a) => rectInArea(t.test, a.rect)) };
     };
     const degree = (f, stat) => degreeChances(f.saves?.[stat] ?? 5 + lv, dc);
-    /** Options to have a thrall in r against f: 0 actions when one stands there, 1 (Create Thrall) otherwise. */
+    /**
+     * A thrall in a square want accepts: one already there within from feet (0 actions), else Create Thrall beside f
+     * (1 action); null when neither.
+     */
     const thrallAt = (f, want, from = 30) => {
         const have = thralls.filter((t) => feetBetween(me.rect, t.rect) <= from && want(t.rect));
         if (have.length) return { cost: 0, r: have[0].rect, who: nameOf(have[0]), text: `${nameOf(have[0])} (already there)` };

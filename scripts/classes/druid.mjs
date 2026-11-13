@@ -1,10 +1,10 @@
 /**
  * PF2e Tactics: classes/druid.mjs
  * See classes/_common.mjs for the shape of a class read.
- * The druid's layer over the advisor: the order (its focus spell and what it steers), the animal companion (Command an
- * Animal as a plan worth its Strikes, Side by Side flanking), Untamed Form (which shape, and whether a form beats
- * casting from here on), summons (worth on the turn they appear, what a Sustain buys afterwards), Untamed Shift,
- * Focus Points and the once-a-day features, and the spellshapes and reactions as "when" notes.
+ * The druid's layer over the advisor: the order (its focus spell and what it steers), Heal Animal on the companion,
+ * Untamed Form (which shape, and whether a form beats casting from here on), Untamed Shift, Focus Points and the
+ * once-a-day features, and the spellshapes and reactions as "when" notes. The companion's commands and summons are
+ * planned in classes/minions.mjs.
  */
 import { companionOf, summonedOf as summonedAlly } from "./minions.mjs";
 import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
@@ -38,7 +38,10 @@ function tierAt(form, rank) {
     const ranks = Object.keys(form.tiers).map(Number).filter((r) => r <= rank);
     return ranks.length ? { rank: Math.max(...ranks), ...form.tiers[Math.max(...ranks)] } : null;
 }
-/** A summoned creature of the level a summon spell of this rank brings, as the Monster Core's high attack and moderate Strike. */
+/**
+ * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
+ * damage (Monster Core).
+ */
 const SUMMON_LEVEL = { 1: -1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 7, 7: 9, 8: 11, 9: 13, 10: 15 };
 const CREATURE_ATK = { "-1": 8, 0: 8, 1: 9, 2: 11, 3: 12, 4: 14, 5: 15, 6: 17, 7: 18, 8: 20, 9: 21, 10: 23, 11: 24, 12: 26, 13: 27, 14: 29, 15: 30 };
 const CREATURE_AVG = { "-1": 3.5, 0: 4.5, 1: 5.5, 2: 8.5, 3: 10.5, 4: 12, 5: 14, 6: 16, 7: 18, 8: 20, 9: 22, 10: 24, 11: 26, 12: 26.5, 13: 28.5, 14: 30.5, 15: 32.5 };
@@ -52,7 +55,10 @@ function unarmedBonus(board) {
     const m = board.strikes.filter((s) => !s.ranged).sort((a, b) => b.bonus - a.bonus)[0];
     return m ? m.bonus : level(board) + 2 + (board.me.actor?.system?.abilities?.str?.mod ?? 0);
 }
-/** The best 2-action damage spell (cantrip when cantripOnly) against f, as expected damage; what a turn of casting is worth. */
+/**
+ * The best 1- or 2-action damage spell (cantrips only when cantripOnly) against f, as { sp, e }: what a turn of
+ * casting is worth.
+ */
 function bestCast(board, f, { cantripOnly = false } = {}) {
     let best = null;
     for (const sp of castable(board, (sp) => sp.cost >= 1 && sp.cost <= 2 && sp.avg > 0 && !sp.heals && (!cantripOnly || sp.cantrip))) {

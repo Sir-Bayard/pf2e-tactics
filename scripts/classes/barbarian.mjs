@@ -8,11 +8,8 @@
 import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed, abil, classDC } from "./_common.mjs";
 
 /**
- * Rage damage by instinct: at 1st, with the 7th-level specialization, and with greater weapon specialization (15th).
- * fury 3/7/13; dragon 4/8/16 (with the dragon's damage type); giant 6/10/18 (with a larger weapon, clumsy 1); spirit 3/7/13
- * (as spirit damage); animal 2/5/12 (the animal's unarmed attacks only); superstition 3/7/13 (4/8/16 against a foe you've seen
- * cast a spell in the last hour); elemental 4/6/12; ligneous 6/10/18 (bark: -10 Speed); decay 6/10/18 (poison; you take
- * 1/5/10 at the end of each turn); bloodrager 2/4/8 (plus persistent bleed of half). No instinct: 2.
+ * Rage damage by instinct: [at 1st, from 7th (weapon specialization), from 15th (greater weapon specialization)].
+ * RAGE_HOW holds what each instinct's number depends on. No instinct: 2.
  */
 const RAGE_DAMAGE = {
     fury: [3, 7, 13], dragon: [4, 8, 16], giant: [6, 10, 18], spirit: [3, 7, 13], animal: [2, 5, 12], superstition: [3, 7, 13],
@@ -24,7 +21,10 @@ const RAGE_HOW = {
     ligneous: "if you take the bark (your Speed drops by 10)", decay: "as poison, if you accept the rot (you take damage at the end of each of your turns)",
     bloodrager: "plus persistent bleed of half that", fury: "", default: "",
 };
-/** The animal instincts' attacks: [label, die, agile, traits, deadly die]. The sheet only shows them while raging. */
+/**
+ * The animal instincts' attacks: [label, die, agile, reach (default 5), deadly die]. The sheet only shows them while
+ * raging.
+ */
 const ANIMALS = {
     ankylosaurus: [["Tail", 10, false]], ant: [["Mandibles", 10, false]], ape: [["Fist", 10, false]], bat: [["Fangs", 10, false], ["Wing", 4, false]],
     bear: [["Jaws", 10, false], ["Claw", 6, true]], bird: [["Beak", 10, false], ["Talon", 6, true]], brontosaurus: [["Tail", 10, false]], bull: [["Horn", 10, false]],
@@ -35,7 +35,10 @@ const ANIMALS = {
 };
 const SIZE = { tiny: 0, sm: 1, med: 2, lg: 3, huge: 4, grg: 5 };
 const stepUp = (die) => ({ 4: 6, 6: 8, 8: 10, 10: 12, 12: 12 })[die] ?? die;
-/** Weapon specialization damage for a barbarian: expert at 5, master at 13; greater at 15. */
+/**
+ * Weapon specialization damage for a barbarian: 2 from 7th, 3 at master (13th), 6 with greater weapon specialization
+ * (15th).
+ */
 const weaponSpec = (lv) => (lv >= 15 ? 6 : lv >= 13 ? 3 : lv >= 7 ? 2 : 0);
 const oversized = (s, actor) => s.item?.isOversized === true || (SIZE[s.item?.system?.size] ?? 2) > (SIZE[actor?.system?.traits?.size?.value] ?? 2);
 const instinctStrike = (s) => !!s.synthetic || /^instinct-/.test(s.item?.slug ?? s.item?.system?.slug ?? "") || (s.item?.system?.traits?.otherTags ?? []).includes("instinct-unarmed-strike");
@@ -49,7 +52,10 @@ function rageDamage(actor, lv) {
     const tier = !own ? 0 : lv >= 15 ? 2 : lv >= 7 ? 1 : 0;
     return { inst, tier, base: RAGE_DAMAGE[inst][tier] };
 }
-/** Rage damage on one Strike: none at range (thrown with Raging Thrower), the instinct's number where it applies, half with agile. */
+/**
+ * Rage damage on one Strike: none at range (but thrown with Raging Thrower), the instinct's number where it applies,
+ * half with agile.
+ */
 function rageBonusFor(s, actor, inst, tier) {
     if (s.ranged && !(s.thrown && has(actor, "raging-thrower"))) return 0;
     let b = RAGE_DAMAGE[inst][tier];
@@ -82,7 +88,7 @@ function barbarian(board, ctx, out) {
     const str = abil(actor, "str"), con = abil(actor, "con");
     const dc = classDC(actor, lv, { expertAt: 11, masterAt: 19 });
     const tempHp = lv + con;
-    const howl = me.intimidation ?? null; // read before raging may hide Demoralize
+    const howl = me.intimidation ?? null; // read up front: raging may take Demoralize off the board
     const round1 = typeof game !== "undefined" && game.combat?.round === 1;
     const heavy = actor.wornArmor?.category === "heavy" || !!actor.items?.some?.((i) => i.type === "armor" && i.system?.category === "heavy" && (i.isEquipped ?? i.system?.equipped?.inSlot));
     // Quick-Tempered fires when you roll initiative, not on your turn: the plans never spend it

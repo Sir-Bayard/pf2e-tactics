@@ -1,15 +1,17 @@
 /**
  * PF2e Tactics: classes/minions.mjs
- * What a character's minions add to its turn, whatever its class (3.5.0; the druid's read did this for druids alone):
- * an animal companion (Command an Animal, 1 action: two actions for it, then two of yours), a summoned creature (Sustain,
- * 1 action: its two actions; or a summon spell cast beside a foe), and a familiar (a note: it acts when Commanded).
- * The eidolon (summoner), the construct companion (inventor) and thralls (necromancer) are read by their classes.
- * A minion is the character's when it names the character as its master (a familiar's master, flags.pf2e.master), or,
- * failing that, when it is a companion or summon owned by the same player.
+ * What a character's minions add to its turn, whatever its class: an animal companion (Command an Animal), a summoned
+ * creature (Sustain, or a summon spell cast beside a foe), and a familiar (a note only). The eidolon (summoner), the
+ * construct companion (inventor) and thralls (necromancer) are read by their classes. A minion is the character's
+ * when it names the character as its master (system.master or flags.pf2e.master), or, failing that, when it shares a
+ * player owner.
  */
 import { bestStrike, castable, has, level, markOffGuard, myReach, allySpeed, spendsSlot, squareToReach, strikeRun, targets, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 
-/** A summoned creature of the level a summon spell of this rank brings, as the Monster Core's high attack and moderate Strike. */
+/**
+ * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
+ * damage (Monster Core).
+ */
 const SUMMON_LEVEL = { 1: -1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 7, 7: 9, 8: 11, 9: 13, 10: 15 };
 const CREATURE_ATK = { "-1": 8, 0: 8, 1: 9, 2: 11, 3: 12, 4: 14, 5: 15, 6: 17, 7: 18, 8: 20, 9: 21, 10: 23, 11: 24, 12: 26, 13: 27, 14: 29, 15: 30 };
 const CREATURE_AVG = { "-1": 3.5, 0: 4.5, 1: 5.5, 2: 8.5, 3: 10.5, 4: 12, 5: 14, 6: 16, 7: 18, 8: 20, 9: 22, 10: 24, 11: 26, 12: 26.5, 13: 28.5, 14: 30.5, 15: 32.5 };
@@ -58,7 +60,7 @@ function squareBeside(board, f) {
     }
     return false;
 }
-/** The best 2-action cantrip (or any 2-action damage spell) against f: { sp, e }. */
+/** The best 1- or 2-action damage spell against f (cantrips only unless cantripOnly is false): { sp, e }. */
 function bestCast(board, f, { cantripOnly = true } = {}) {
     let best = null;
     for (const sp of castable(board, (sp) => sp.cost >= 1 && sp.cost <= 2 && sp.avg > 0 && !sp.heals && (!cantripOnly || sp.cantrip))) {

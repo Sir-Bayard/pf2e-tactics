@@ -2,21 +2,23 @@
  * PF2e Tactics: classes/oracle.mjs
  * See classes/_common.mjs for the shape of a class read.
  * The advisor plans every spell on the board; this read adds the oracle's layer: the mystery and its curse (what the
- * current cursebound stage costs, what the next one would), the cursebound feats as plans or notes with the stage they
- * raise the curse to, the revelation spells and Focus Points, slots and signature spells by the sorcerer's approach,
- * and the once-a-day and reaction features with the moment they fire.
- * Remaster text (Player Core 2): revelation spells are plain focus spells; only the cursebound feats (and a Diverse
+ * current cursebound stage costs, what the next one would), the cursebound feats as plans or notes with the stage
+ * they raise the curse to, the revelation spells and Focus Points, slots and signature spells by the sorcerer's
+ * approach, and the once-a-day and reaction features with the moment they fire.
+ * Remaster (Player Core 2): revelation spells are plain focus spells; only the cursebound feats (and a Diverse
  * Mystery spell) raise the curse. The sheet already carries every curse penalty (the system's rule elements), so the
- * read never applies a stage twice; it only folds the stage a plan would reach into that plan's own follow-ups.
- * A cursebound ability raises the curse after it resolves, so "if you are cursebound N when you use it" reads the
- * stage before the rise. Whether a slot is worth spending over a cantrip is spell thrift's call (player.mjs).
+ * read never applies a stage twice; it only folds the stage a plan would reach into that plan's own follow-ups. A
+ * cursebound ability raises the curse after it resolves, so an effect that scales with the stage uses the stage
+ * before the rise. Whether a slot is worth spending over a cantrip is spell thrift's call (player.mjs).
  */
 import { bestStrike, castable, focusLeft, has, hasAny, level, pct, spendsSlot, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, mapFor, strikeExpected, saveExpected, nameOf, signed, ordinal, isSignature, slotsLeft } from "./_common.mjs";
 
 const dice = (n, d) => n * (d + 1) / 2;
 
-/** Each mystery: its curse feature, the curse by stage (what each stage adds; a value curse scales with the number),
- *  the revelation spells (initial, advanced, greater) and the cursebound feat it grants. */
+/**
+ * Each mystery: its curse feature, the curse by stage (what each stage adds; a value curse scales with the number),
+ * the revelation spells (initial, advanced, greater) and the cursebound feat it grants.
+ */
 const MYSTERIES = {
     ancestors: { curse: "curse-of-ancestral-meddling", feat: "whispers-of-weakness", spells: ["Ancestral Touch", "Ancestral Defense", "Ancestral Form"],
         value: (n) => `clumsy ${n} (${signed(-n)} to AC, Reflex and Dexterity-based attacks and checks)` },

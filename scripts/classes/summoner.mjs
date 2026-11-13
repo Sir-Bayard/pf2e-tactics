@@ -510,7 +510,6 @@ function summoner(board, ctx, out) {
             if (bs.length >= 2) push({ title: `Elemental Maelstrom through ${bs.length} foes`, target: along[0], ev: bs.reduce((t, b) => t + b.e.expected, 0), bias: 0.3, steps: [{ cost: 3, text: `${eName} becomes a maelstrom: a Stride with a Strike at each of ${along.map(nameOf).join(", ")} it passes (${bs.map((b) => signed(b.bonus)).join(", ")})` }], notes: ["Its whole turn; plot the Stride so its reach sweeps each foe once."] });
         }
     }
-    // Tendril Strike (plant, 1 action): a melee Strike 5 feet beyond its reach. The Boost-and-Strike plans already use the longer reach; this is the note on it.
     // Eidolon's Wrath (6, focus, 2 actions, cast by the eidolon): a 20-foot emanation around it, basic Reflex
     if (hasAny(actor, "eidolons-wrath", "eidolon-s-wrath") && focus > 0) {
         const hit = foes.filter((f) => feetBetween(E.rect, f.rect) <= 20);

@@ -41,7 +41,7 @@ const APPARITIONS = {
     "speaker-in-sibilance": { name: "Speaker in Sibilance", lores: ["fortune-telling", "mountain"], cantrip: "Puff of Poison", vessel: "Crown of Prophets" },
     "lamentation-of-sinister-deals": { name: "Lamentation of Sinister Deals", lores: ["legal", "scribing"], cantrip: "Message", vessel: "Wish Market" },
 };
-/** What each vessel spell is for, in a line, for the Circle of Spirits note (the one that isn't primary right now). */
+/** What each vessel spell is for, in a line, for the Circle of Spirits note on vessels that aren't primary. */
 const VESSEL_LINE = {
     "Traveling Workshop": "Crafting and Thievery tools; nothing for a fight",
     "Garden of Healing": "a 10-foot aura that heals everyone in it each round you Sustain it",
@@ -145,8 +145,8 @@ function animist(board, ctx, out) {
         if (effect(actor, re)) return true;
         return !!board.sustain && re.test(String(board.sustain.name ?? "").toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-"));
     };
-    // The primary apparition(s): one, or two for a medium from 9th (Dual Invocation). The sheet doesn't say which, so: the
-    // flag, else what is up, else the sheet's order. The rest of the vessel spells need Circle of Spirits first.
+    // The primary apparition(s), picked as APPARITIONS describes; the other vessel spells need Circle of Spirits
+    // first.
     const maxPrimaries = practice === "medium" && lv >= 9 ? 2 : 1;
     const named = String(actor?.flags?.["pf2e-tactics"]?.primaryApparition ?? "").toLowerCase();
     const flagged = named ? vessels.filter((sp) => named.includes(sp.name.toLowerCase()) || named.includes(vesselOf(sp.name).name.toLowerCase())) : [];

@@ -167,8 +167,8 @@ function guardian(board, ctx, out) {
     }
 
     // --- The foe that ignored your Taunt: it's off-guard, and Proud Nail or Ring Their Bell make it pay
-    // Shoulder Check, Ring Their Bell and Belly Flop: "a fist Strike ... if you're wielding a shield boss or shield spikes, you can
-    // make a Strike with one of those weapons instead". Shield Wallop alone also takes a plain shield bash.
+    // Shoulder Check, Ring Their Bell and Belly Flop use a fist Strike, or a shield boss or shield spikes in its place;
+    // Shield Wallop also takes a plain shield bash.
     const fist = melee.find((s) => (s.traits ?? []).includes("unarmed") && /\bfist\b|unarmed/i.test(s.label)) ?? melee.find((s) => (s.traits ?? []).includes("unarmed")) ?? null;
     const isShield = (s) => /shield/i.test(`${s.label} ${s.item?.name ?? ""}`) || s.item?.type === "shield";
     const bossOrSpikes = melee.find((s) => /shield (?:boss|spikes?)|spiked shield/i.test(`${s.label} ${s.item?.name ?? ""}`)) ?? null;
@@ -276,8 +276,8 @@ function guardian(board, ctx, out) {
             const b = bestStrike(board, f, { made: ctx.made, extra: dieAvg(bestMelee) });
             if (!b) continue;
             const left = acts - 2 - sq.route.actions;
-            // The Shove ("you can automatically Shove") moves it 5 feet (10 with Right Where You Want Them); it falls prone after.
-            // A follow-up Strike needs it still in reach: with a short reach, skip the Shove (and the fall that follows it).
+            // Clobber's Shove moves it 5 feet (10 with Right Where You Want Them); it falls prone after. A follow-up
+            // Strike needs it still in reach: with a short reach, skip the Shove (and the fall that follows it).
             const shoveFeet = has(actor, "right-where-you-want-them") ? 10 : 5;
             const keepsReach = b.s.ranged ? false : (b.s.reach || 5) >= 5 + shoveFeet;
             const shoved = b.e.expected + b.e.hit * (worth(board, "prone") + punish + 1);
@@ -297,7 +297,7 @@ function guardian(board, ctx, out) {
     // --- Momentum Strike (10th): a hit shoves the foe into a creature beside it for double your Strength
     if (has(actor, "momentum-strike") && acts >= 2 && str > 0) {
         for (const f of foes) {
-            if ((f.sizeRank ?? 2) > trueSize) continue; // "your size or smaller": Larger Than Life doesn't cover it
+            if ((f.sizeRank ?? 2) > trueSize) continue; // only a foe your size or smaller: Larger Than Life doesn't count here
             const sq = squareToReach(board, f, reach, acts - 2);
             if (!sq) continue;
             const at = { ...me.rect, x: sq.x, y: sq.y };

@@ -1,21 +1,8 @@
 /**
- * PF2e Tactics (module id pf2e-tactics)
+ * PF2e Tactics: shared.mjs
  *
- * When an NPC's turn starts, a window (or a GM whisper) shows what it can do and how to use it
- * well on the board as it stands: one recommended turn with the reasoning behind it, a few
- * alternatives, the encounter's own tactics and triggers, and every Strike, action, reaction and
- * spell it has, so nothing gets forgotten. The GM decides; nothing is moved or rolled for you.
- *
- * Abilities are read from PF2e's data first (action costs, traits, links to the basic actions,
- * checks, damage and templates in the text) and from the wording second, so an ability like
- * Elf Step ("Step 5 feet twice") replaces a plain Step wherever a turn needs one.
- *
- * Triggers: a line in an encounter's tactics or in your notes of the form
- *     Trigger: Bandit Captain, below 20 HP: calls the retreat and runs for the door.
- * is watched during combat. The card shows it as soon as it's true, and the GM gets a whisper
- * the moment it happens, even on a player's turn. Conditions it understands: below N HP, below
- * half (a third, a quarter, N%) of its HP, <name> is down/dead, round N, alone, half its allies
- * down. Anything else is shown as a reminder to watch for.
+ * Constants and small helpers every file uses, and window memory for the module's windows. One module, several files:
+ * see pf2e-tactics.mjs for the whole.
  */
 const MODULE_ID = "pf2e-tactics";
 const FLAG_SCOPE = MODULE_ID;
@@ -43,16 +30,17 @@ const baseActorOf = (actor) => (actor?.isToken ? game.actors.get(actor.id) ?? ac
 function setting(key, fallback) {
     try { return game.settings.get(MODULE_ID, key); } catch { return fallback; }
 }
-// ---------------------------------------------------------------------------------------------
 
 /* ------------------------------------------------------------------ */
 /* Window memory                                                      */
 /* ------------------------------------------------------------------ */
 
-/* The same code in each of Sir Bayard's modules. A window made with rememberWindow keeps the size and place the user
- * gives it, in this browser, and comes back from minimized whole: Foundry's restore animation can stall at the title
- * bar's height (seen on 14.370, core windows too) and Foundry sets the size while it runs, so a restored window came
- * back as a strip. */
+/**
+ * The same code is in each of the author's modules. A window made with rememberWindow keeps the size and place the
+ * user gives it, in this browser, and comes back from minimized whole: Foundry's restore animation can stall at the
+ * title bar's height (seen on 14.370, core windows too) and Foundry sets the size while it runs, which would leave a
+ * restored window a strip.
+ */
 
 /** Wait for an element's own transitions to end; a hidden tab pauses them, so after a second they're finished by hand. */
 async function settleWindow(el) {
@@ -88,7 +76,7 @@ function rememberWindow(Base, key, { size = true } = {}) {
         if (!v || typeof v !== "object") return {};
         const W = globalThis.innerWidth ?? 1920, H = globalThis.innerHeight ?? 1080;
         const out = {};
-        // A size saved while the window was collapsed is no size at all.
+        // A size below the minimum was saved while the window was collapsed: ignore it.
         if (size === true && v.width >= MIN_W && v.height >= MIN_H) {
             out.width = Math.min(v.width, W);
             out.height = Math.min(v.height, H);

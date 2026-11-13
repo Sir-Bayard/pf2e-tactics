@@ -3,7 +3,8 @@
  * Helpers every class read uses. A class read is a function (board, ctx, out) in classes/<class>.mjs:
  *   board  the advice board (player.mjs adviceBoard): me, strikes, spells, profiles, enemies (estimates, never sheets),
  *          allies, field, sneak...; the read may mark it (board.sneak, markOffGuard) before the advisor plans
- *   ctx    { actions, made }: actions left this turn, attacks already made (for the multiple attack penalty)
+ *   ctx    { actions, made, spent }: actions left this turn, attacks already made (for the multiple attack penalty),
+ *          actions already spent
  *   out    { plans: [], notes: [] }: plans in the advisor's shape ({ kind, title, target, ev, score, dest, steps:
  *          [{ cost, text }], notes }), notes as plain sentences for the Your Class card
  * Wording is for the player ("you", "your"), in the house voice: plain, concrete, no exclamation marks.
@@ -71,7 +72,10 @@ const level = (board) => board.me.level ?? 1;
 /** A rough worth, in damage, of a condition on a foe at this level (the advisor's table scaled by hits). */
 const worth = (board, cond, mult = 1) => (CONDITION_VALUE[cond] ?? 2) * Math.max(1, (6 + 1.6 * level(board)) / 8) * mult;
 
-/** The best melee Strike and what it's expected to do against t, with the attacks already made. */
+/**
+ * The best melee (or, with melee: false, ranged) Strike and what it's expected to do against t, with the attacks
+ * already made.
+ */
 function bestStrike(board, t, { made = 0, melee = true, acAdj = 0, extra = 0 } = {}) {
     let best = null;
     for (const s of board.strikes.filter((s) => (melee ? !s.ranged : s.ranged))) {
@@ -81,7 +85,10 @@ function bestStrike(board, t, { made = 0, melee = true, acAdj = 0, extra = 0 } =
     }
     return best;
 }
-/** A square within one action from which the character reaches t, or null; { route } with actions 0 when already there. */
+/**
+ * A square within maxActions (default one) from which the character reaches t, or null; { route } with actions 0 when
+ * already there.
+ */
 function squareToReach(board, t, reach = 5, maxActions = 1) {
     const me = board.me;
     if (inReach(me.rect, t.rect, reach)) return { x: me.rect.x, y: me.rect.y, route: { actions: 0, provokes: [], via: null } };
@@ -109,12 +116,12 @@ function strikeRun(board, t, n, { made = 0, extra = 0, acAdj = 0, melee = true }
     for (let i = 0; i < n; i++) { const b = bestStrike(board, t, { made: made + used.length, extra, acAdj, melee }); if (!b) break; used.push(b); ev += b.e.expected; }
     return { used, ev, text: used.length ? `Strike ${nameOf(t)} with ${used[0].s.label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})` : "" };
 }
-/** Spells the character can cast now: not consumables, with an attack roll or a save or a heal, by the filter given. */
+/** Spells the character can cast: not consumables, with an action cost, and passing test. */
 const castable = (board, test = () => true) => (board.spells ?? []).filter((sp) => !sp.consumable && sp.cost !== null && test(sp));
 /** Focus Points left, or null when the character has no pool. */
 const focusLeft = (actor) => { const f = actor?.system?.resources?.focus; return f && f.max > 0 ? Number(f.value) || 0 : null; };
 
-/* ---- small helpers the class reads share (3.4.1: these were copied into a dozen files) ---- */
+/* ---- small helpers the class reads share ---- */
 /** An ability modifier from the sheet ("str", "dex"...). */
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** " twice", " three times", " 4 times" (nothing for one). */
@@ -134,7 +141,10 @@ const diceOf = (s, fallback = 1) => Number(s?.dice ?? s?.item?.system?.damage?.d
 const diceAvg = (n, d) => n * (d + 1) / 2;
 /** A spell marked signature on the sheet. */
 const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signature);
-/** Spell slots left by rank from the actor's spontaneous entries: [{ rank, left, max }]. */
+/**
+ * Spell slots left by rank across the actor's slot entries (focus, innate and ritual entries skipped): [{ rank, left,
+ * max }].
+ */
 function slotsLeft(actor) {
     const out = new Map();
     const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];

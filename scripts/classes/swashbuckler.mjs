@@ -409,7 +409,10 @@ function swashbuckler(board, ctx, out) {
     if (has(actor, "swan-dive")) n("Swan Dive (1 action, bravado): dive into water from any height without damage and Swim your Speed.");
 }
 
-/** The status bonus to Speed: Stylish Combatant +5 with panache; Vivacious Speed (3) +10, +5 at 7, 11, 15 and 19, half of it without panache. */
+/**
+ * The status bonus to Speed: Swashbuckler's Speed +10 (+5 without panache); else Stylish Combatant +5 with panache;
+ * Vivacious Speed (3) +10, +5 at 7, 11, 15 and 19, half of it without panache.
+ */
 function speedBonus(actor, own, lv, panache) {
     if (has(actor, "swashbucklers-speed")) return panache ? 10 : 5;
     const vivacious = has(actor, "vivacious-speed") || (own && lv >= 3);

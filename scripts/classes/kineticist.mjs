@@ -212,8 +212,8 @@ function kineticist(board, ctx, out) {
             // needs reach can't also be agile
             const needReach = !inReach(at, f.rect, 5);
             if (inReach(at, f.rect, infusion ? 10 : 5)) forms.push({ melee: true, bonus: impulseMod + mapFor(made, infusion && made > 0 && !needReach), avg: base + str, how: `melee${needReach ? ", reach infusion" : infusion && made > 0 ? ", agile infusion" : ""}` });
-            // ranged: the element's range is a maximum, not an increment (Elemental Blast: "Earth ... 30 feet"); only Weapon
-            // Infusion's shapes have range increments, -2 each past the first
+            // ranged: the element's range is a maximum, not an increment; only Weapon Infusion's shapes have range
+            // increments, -2 each past the first
             const pen = (r) => -2 * Math.max(0, Math.ceil(dist / r) - 1);
             if (dist <= c.range) forms.push({ melee: false, bonus: impulseMod + mapFor(made), avg: base, how: `ranged ${c.range} ft` });
             if (infusion) {
@@ -258,7 +258,7 @@ function kineticist(board, ctx, out) {
         if (!b) return { steps: [{ cost, text: `${head}: ${aura}${safe ? `; Safe Elements: name up to ${safe} creatures the aura spares` : ""}` }], cost, ev: 0, made: 0 };
         return { steps: [{ cost, text: `${head}: ${aura}, with its free blast: ${b.text}${safe ? `; Safe Elements: name up to ${safe} creatures the aura spares` : ""}` }], cost, ev: b.e.expected, made: 1 };
     };
-    /** What one 1-action blast is worth now: the yardstick an overflow impulse's lost aura is measured by. */
+    /** What one 1-action blast is worth this turn: the yardstick an overflow impulse's lost aura is measured by. */
     const yardstick = foes.length ? Math.max(0, ...foes.map((f) => bestBlast(f, me.rect, 0, 1)?.e.expected ?? 0)) : 0;
     const overflowCost = (isClass ? 0.2 : 1) * yardstick + (stanceSlug ? 1.5 : 0) + (elements.some((el) => junctions[el].has("aura") || junctions[el].has("resistance")) ? 1 : 0);
 

@@ -70,7 +70,7 @@ const READS = [
     ["alchemist", ["quick-alchemy", "alchemist-dedication"], alchemist],
 ];
 
-/** Plans and notes from the character's class and feats. ctx: { actions, made }. */
+/** Plans and notes from the character's class and feats. ctx: { actions, made, spent }. */
 function classFeatures(board, ctx) {
     const out = { plans: [], notes: [] };
     const actor = board.me.actor;

@@ -14,12 +14,12 @@ const itemById = (actor, id) => actor?.items?.get?.(id) ?? itemsOf(actor).find((
 const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
 
 /**
- * The divine font as the sheet shows it: which spells it holds, how many are still prepared and unexpended, at what
- * rank, and the die each rolls. Counts every prepared Heal and Harm (font slots and ordinary ones alike), since the
- * sheet doesn't tell them apart; a sheet that prepares spells but no Heal or Harm has none. With no prepared slots to
- * read it falls back to the spells on the board.
- * kinds is the font (the Divine Font's own choice, else the deity's, both with Versatile Font); heal/harm.usable is
- * whether one is prepared and unexpended, whatever slot it sits in (Channel Smite and Cast Down take either).
+ * The divine font as the sheet shows it: { kinds, rank, max, versatile, heal, harm, dc }. Counts every prepared Heal
+ * and Harm (font slots and ordinary ones alike), since the sheet doesn't tell them apart; a sheet that prepares
+ * spells but no Heal or Harm has none. With no prepared slots to read it falls back to the spells on the board (left:
+ * null). kinds: both with Versatile Font, else the Divine Font's own choice, else the deity's, else whichever is
+ * prepared. heal/harm: { left, die, sp, usable }, usable meaning one is prepared and unexpended, whatever slot it
+ * sits in (Channel Smite and Cast Down take either).
  */
 function fontOf(actor, board) {
     const lv = actor?.level ?? 1;
@@ -191,7 +191,7 @@ function cleric(board, ctx, out) {
             if (left >= 1) { const r = strikeRun(board, f, left, { made: ctx.made + 1 }); if (r.used.length) { steps.push({ cost: r.used.length, text: r.text }); total += r.ev; } }
             plans.push({ kind: "class", title: `Restorative Strike ${nameOf(f)}`, target: f, ev: total, score: total + 0.2, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes: [`It spends one of your ${leftText(font.heal)} heal spells.`] });
         }
-        // The three best: one a foe, and most of them say the same thing
+        // Only the three best: there is one plan per foe, and they mostly read alike
         out.plans.push(...plans.sort((a, b) => b.ev - a.ev).slice(0, 3));
     }
 

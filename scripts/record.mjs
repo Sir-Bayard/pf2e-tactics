@@ -13,11 +13,11 @@ const slugOf = (i) => i?.slug ?? String(i?.name ?? "").toLowerCase().replace(/['
 /** Actions that recharge Spellstrike besides the plain recharge (a conflux spell is read from its traits). */
 const RECHARGERS = new Set(["maguss-analysis", "running-recharge", "recharging-flurry", "rapid-recharge", "spell-retaliation", "recharge-spellstrike"]);
 
-/** This character's record for the combat on now, or a fresh one. */
+/** This character's record for the combat on now, a fresh one if it has none, or null outside a started combat. */
 function ownRecord(actor, combat = game.combat) {
     const r = flagOf(actor, "record");
     if (!combat?.started) return null;
-    // nothing seen yet this fight: Spellstrike is charged as the fight starts, unknown after that (a card or the toggle settles it)
+    // no record yet this fight: Spellstrike is charged in round 1, unknown later (a card or the toggle settles it)
     if (!r || r.combat !== combat.id) return { combat: combat.id, spellstrike: (combat.round ?? 0) <= 1 ? true : null, exploited: null, chaliceDrained: null, wandBoosted: null, demoralized: [], asked: [] };
     return { demoralized: [], asked: [], ...r };
 }
@@ -87,8 +87,8 @@ function recordForBoard(actor) {
 }
 
 /**
- * When a combat ends, its records go: the GM's client clears the record from every character that fought in it (the GM
- * owns them all; a record from an older fight is cleared too). Nothing about a fight outlives it.
+ * When a combat is deleted, the GM's client (which owns every character) clears the record from each character that
+ * fought in it, and any record left from a combat that has since been deleted.
  */
 async function clearRecords(combat) {
     if (!game.users?.activeGM?.isSelf) return;

@@ -2,13 +2,15 @@
  * PF2e Tactics: classes/runesmith.mjs
  * See classes/_common.mjs for the shape of a class read.
  * Reads the runic repertoire (the runes known, from the rune-named items on the sheet or the pf2e-tactics rune flag),
- * the runes already placed (effects on you and your allies, token marks or the flag for runes on foes), Trace Rune and
- * Invoke Rune with every rune's invocation scored on its save against your class DC, Engraving Strike, Remote Detonation,
- * Pattern Flight, Swiping Trace, Engraving Maneuver, Edifying Trace, Fortifying Knock, Terrifying Invocation, Words Fly Free,
- * Transpose Etching, Dance of Bloody Ink, Song of Glorious Invocation, Chain of Words, Vital Compound Invocation, Tracing
- * Trance, the diacritics Ur- and En- (free with Diacritic Fluency or Shades of Meaning), Rune-Singer's one-action range,
- * Drawn in Vital Ink, Distant and Unbounded Invocations, Smithing Weapons and the passives of Esvadir and Marssyl.
- * The PF2e system (8.6.1) ships no rune items: see the "how runes are read" block below. The rest are when-notes.
+ * the runes already placed (effects on you and your allies, token marks or the flag for runes on foes), Trace Rune
+ * and Invoke Rune with every rune's invocation scored on its save against your class DC, Engraving Strike, Remote
+ * Detonation, Pattern Flight, Swiping Trace, Engraving Maneuver, Edifying Trace, Fortifying Knock, Terrifying
+ * Invocation, Words Fly Free, Transpose Etching, Dance of Bloody Ink, Song of Glorious Invocation, Chain of Words,
+ * Vital Compound Invocation, Tracing Trance, the diacritics Ur- and En- (free with Diacritic Fluency or Shades of
+ * Meaning), Rune-Singer's one-action range, Drawn in Vital Ink, Distant and Unbounded Invocations, Smithing Weapons
+ * and the passives of Esvadir and Marssyl.
+ * The PF2e system (8.6.1) ships no rune items, so runes are read from item names (runeIn) and the flag (runeFlag).
+ * The rest are when-notes.
  */
 import { bestStrike, canMove, effect, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, diceAvg } from "./_common.mjs";
 import { damageAgainst } from "../reader.mjs";

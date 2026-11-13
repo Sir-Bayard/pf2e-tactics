@@ -78,8 +78,10 @@ function investigator(board, ctx, out) {
     const planned = has(actor, "just-as-planned") && usesLeft(actor, "just-as-planned") !== 0;
     const poiLeft = has(actor, "person-of-interest") ? usesLeft(actor, "person-of-interest") : 0;
     const poiReady = has(actor, "person-of-interest") && poiLeft !== 0 && !effect(actor, /person-of-interest/);
-    /** Does this Strike take the substituted roll (and Intelligence)? Agile or finesse in melee or thrown; any other ranged weapon;
-     *  a one-handed club-group weapon with Takedown Expert. */
+    /**
+     * Does this Strike take the substituted roll (and Intelligence)? Agile or finesse in melee or thrown; any other
+     * ranged weapon; a one-handed club-group weapon with Takedown Expert.
+     */
     const qualifies = (s) => {
         const t = s.traits ?? [];
         if (t.includes("agile") || t.includes("finesse")) return true;
@@ -133,7 +135,9 @@ function investigator(board, ctx, out) {
         if (d >= 2) v += riderWorth(f);
         return { v, d, b };
     };
-    /** n ordinary Strikes at f after the devised one (Ongoing Strategy's flat precision is already on the Strikes). */
+    /**
+     * k ordinary Strikes at f after the devised one (Ongoing Strategy's flat precision is already on the Strikes).
+     */
     const rest = (f, k, made, acAdj = 0, at = me.rect) => {
         const used = [];
         let ev = 0;

@@ -15,7 +15,7 @@
 import { bestStrike, effect, has, halfLevel, level, moveText, myReach, pct, squareToReach, standardDC, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed, diceOf } from "./_common.mjs";
 
 const IMPLEMENTS = ["amulet", "bell", "chalice", "lantern", "mirror", "regalia", "shield", "tome", "wand", "weapon"];
-/** Weapon damage dice on a Strike (PF2e counts striking runes in system.damage.dice). */
+/** A Strike whose weapon is held in two hands (by the item's hands held, or a two-hands usage). */
 const twoHands = (s) => Number(s.item?.system?.equipped?.handsHeld) === 2 || /two-hands/.test(String(s.item?.system?.usage?.value ?? ""));
 
 function thaumaturge(board, ctx, out) {

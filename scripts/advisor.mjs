@@ -1,7 +1,8 @@
 /**
- * PF2e NPC Tactics: advisor.mjs
- * The turn advisor: candidate turns from the creature's kit and the board, scored by expected value.
- * One module, several files: see pf2e-tactics.mjs for the whole.
+ * PF2e Tactics: advisor.mjs
+ *
+ * The turn advisor: candidate turns from the creature's kit and the board, scored by expected value. One module,
+ * several files: see pf2e-tactics.mjs for the whole.
  */
 import { MODULE_ID, cap, signed } from "./shared.mjs";
 import { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
@@ -162,7 +163,7 @@ function reachableSquares(board, maxActions = ACT) {
         for (const sq of base) {
             const at = { x: sq.x, y: sq.y, w: board.me.rect.w, h: board.me.rect.h, z, ht: board.me.rect.ht };
             if (!near.some((e) => feetBetween(at, e.rect) <= 30)) continue;
-            // 3. Not into someone else's space up there (straight down onto the fighter it hovers over)
+            // Not into someone else's space up there (straight down onto the fighter it hovers over)
             const here = sq.x === board.me.rect.x && sq.y === board.me.rect.y;
             if (here && [...(board.enemies ?? []), ...(board.allies ?? [])].some((c) => c.rect.x < at.x + at.w && at.x < c.rect.x + c.rect.w && c.rect.y < at.y + at.h && at.y < c.rect.y + c.rect.h
                 && Math.abs((c.rect.z ?? 0) - z) < Math.max(heightOf(c.rect), heightOf(at)))) continue;
@@ -255,16 +256,19 @@ function acAgainst(target, flanked = false) {
     return target.ac - (flanked && !isOffGuard(target) ? 2 : 0);
 }
 
-/** Best sequence of n Strikes from a list, given the attacks already made this turn. */
 /** Extra damage the planning creature deals to an off-guard target (Sneak Attack and the like). planTurn sets it from board.sneak. */
 let SNEAK = 0;
 /** Actions this creature has left this turn (3, fewer when slowed or stunned, less what it has spent). Set by planTurn. */
 let ACT = 3;
 /** Attacks it has already made this turn, for the multiple attack penalty. Set by planTurn from board.turn. */
 let TURN_MADE = 0;
-/** Animals and mindless creatures fight on instinct: closest foe, shortest path, no reading of the board. */
-/** "Stride ×2 into reach of Vance", or "to a clear line on Vance" for a ranged attack. */
-/** The move part of a step: "Stride ×2", "Stand, then Stride", "Stride, opening a door on the way". */
+/**
+ * Move wording and the instinct test:
+ * - routeText: the move part of a step ("Stride ×2", "Stand, then Stride", "Stride, opening a door on the way").
+ * - approachText: "Stride ×2 into reach of Vance", or "to a clear line on Vance" for a ranged attack.
+ * - isAnimal: mindless creatures and those of Int -4 or lower fight on instinct: closest foe, shortest path, no
+ *   reading of the board.
+ */
 const routeText = (route) => {
     const k = Math.max(1, (route.actions ?? 0) - (route.doors ?? 0) - (route.stand ? 1 : 0) - (route.vAct ?? 0));
     const doors = route.doors ? `, opening ${route.doors > 1 ? `${route.doors} doors` : "a door"} on the way` : "";
@@ -303,7 +307,7 @@ const CONDITION_VALUE = { frightened: 2, sickened: 2.5, clumsy: 1.5, enfeebled: 
     fascinated: 2, fleeing: 5, unconscious: 10, petrified: 10, controlled: 12, doomed: 1 };
 /** A condition's weight within a degree's list: a bare slug counts once; "frightened-2"-style entries count by value. */
 function valueScale(k, list) { const m = /-(\d+)$/.exec(String(k)); return m ? Math.max(1, Number(m[1])) : 1; }
-/** The board being planned, and a cache of what each attacker square sees of each target. Set by planTurn. */
+/** The board being planned. Set by planTurn, which also clears the CTX sight cache. */
 let BOARD = null;
 /** Set by planTurn for a thinking flier: { penalty(at), leave(at) } so a Strike can give way to flying off. */
 let HIT_RUN = null;
@@ -369,8 +373,12 @@ function sightNotes(plan, at, t, { ranged = true, attack = true } = {}) {
         plan.notes.push(`${nameOf(t)} can't see it there (${c.seen})${deny ? "; Deny Advantage, so not off-guard to it" : byAction ? ": off-guard to its first attack" : ": off-guard to its attacks, and needs a DC 11 flat check to target it"}`);
     }
 }
-/** Extra damage against particular targets this turn (Pack Attack and the like): target id -> average. Set by planTurn. */
+/**
+ * Extra damage against particular targets this turn (Pack Attack and the like): target id -> average. Set by
+ * planTurn.
+ */
 let EXTRA_VS = new Map();
+/** The best sequence of n Strikes from a list, given the attacks already made this turn. */
 function strikeRun(strikes, n, ac, { made = 0, offGuard = false, vs = null, at = null } = {}) {
     const extra = vs ? EXTRA_VS.get(vs.id) ?? 0 : 0;
     let total = 0, firstHit = null;
@@ -491,8 +499,9 @@ function threatShare(board, t) {
 }
 
 /**
- * Who it goes for, beyond the damage: what its tier lets it notice. Returns { b: score bonus, why: [reasons] }.
- * engaged: the foes already in its melee reach.
+ * Who it goes for, beyond the damage: what its tier lets it notice. Returns { b, why, mult, add }: a score bonus, the
+ * reasons, the threat multiplier, and damage-scale points for overkill and the chance to drop the target. engaged:
+ * the foes already in its melee reach.
  */
 function targetBonus(board, plan, tier, engaged = []) {
     const t = plan.target;
@@ -691,8 +700,8 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
 }
 
 /**
- * Candidate turns. Returns plans sorted best first:
- * { kind, title, target, steps: [{cost, text}], ev, score, notes: [], dest: {x, y} | null }
+ * Candidate turns. Returns plans sorted best first: { kind, title, target, steps: [{cost, text}], ev, score, notes:
+ * [], dest: {x, y} | null }, plus fields some kinds carry (path, aim, caught, why, spell...).
  */
 function planTurn(board, { intent = null, noFollow = false, noSustain = false } = {}) {
     const plans = [];
@@ -742,7 +751,6 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         const holders = board.enemies.filter((e) => inReach(e.rect, me.rect, Math.max(5, e.reach)));
         const dc = Math.max(10 + me.level + 3, ...holders.map((e) => 10 + (e.athletics ?? e.level + 5)));
         const unarmed = Math.max(-99, ...board.strikes.filter((s) => s.traits?.includes("unarmed")).map((s) => s.bonus));
-        // Escape has the attack trait: it takes the multiple attack penalty from attacks already made
         const raw = Math.max(me.athletics ?? -99, me.acrobatics ?? -99, unarmed);
         const mod = raw > -99 ? raw + mapFor(TURN_MADE, false) : raw;
         const c = degreeChances(mod > -99 ? mod : me.level + 3, dc);
@@ -1307,11 +1315,10 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     }
 
     // Spells that hinder rather than hurt: fear, shroud of night, slow...
-    // CONDITION_VALUE: what each condition is worth to the fight (module scope, the threat table uses it too)
     for (const sp of spells) {
         if (!sp.cost || sp.cost > ACT || sp.area || sp.heals || sp.avg || !sp.save || !sp.inflicts?.length) continue;
         // On the hit scale (as the threat table and Sustain value them): 5 points is one of its hits, so slowed or
-        // stunned is a hit's worth, frightened 2 about a hit, paralyzed two. Flat points couldn't keep up with damage.
+        // stunned is a hit's worth, paralyzed two, frightened under half. Flat points couldn't keep up with damage.
         const hitScale = hitWorth(me.level) / 5;
         const worth = sp.inflicts.reduce((sum, c) => sum + (CONDITION_VALUE[c] ?? 1), 0) * hitScale;
         for (const t of targets) {
@@ -1719,7 +1726,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         : fallen.length >= 1 && fallen.length >= (board.allies?.length ?? 0) + 1 && hpFrac < 0.5 ? `half its side is down`
         : (board.recentDamage ?? 0) >= 0.4 * me.maxHp && hpFrac < 0.5 ? `took ${board.recentDamage} damage since its last turn` : null;
     if (top && !me.pc && !intent && !me.mindless && !fearless && !pinned && me.hp > 0 && (hpFrac < 0.25 || morale) && targets.length && !(plans[0].why ?? []).includes("could drop")) {
-        // A boss (two or more levels over the party's best) or the last of its side (nobody else to run to) is
+        // A boss (two or more levels over the party's best) or a creature fighting alone (no allies, up or down) is
         // offered the choice second, not first: its flight ends the fight, and that's the GM's story call
         const partyLevel = Math.max(0, ...targets.map((t) => t.level ?? 0));
         const boss = (me.level ?? 0) >= partyLevel + 2;
@@ -1765,7 +1772,6 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     return plans;
 }
 
-/** Best place to aim an area: most enemies, no allies, from where it stands or one action away. */
 /** Areas the grid code knows: a cylinder is a burst seen from above; a cube or square, a burst of half its side. */
 function normalArea(area) {
     const shape = String(area?.shape ?? "burst").toLowerCase();
@@ -1775,6 +1781,7 @@ function normalArea(area) {
     return { shape: "burst", size };
 }
 
+/** Where to aim an area: most enemies and fewest allies, from where it stands or one action away. */
 function bestArea(board, squares, rectAt, a) {
     a = { ...a, area: normalArea(a.area) };
     let best = null;
@@ -1855,7 +1862,7 @@ function bestArea(board, squares, rectAt, a) {
             after ??= leftover(sq, at);
             // Where it ends up: thinking creatures don't land in the middle of the party to breathe a cone they could breathe from the edge
             const endCost = a.endCost ? a.endCost(at) : 0;
-            // 5. What it provokes getting there and using it, at what those reactions are worth at this level
+            // What it provokes getting there and using it, at what those reactions are worth at this level
             const score = ev + after.ev - friendly * 1.5 - sq.route.actions - provokeCost(board, [...sq.route.provokes, ...casting.map((e) => e.id)]) - endCost;
             if (!best || score > best.score) best = { sq, at, aim, hits, ev, friendly, score, casting, self, after };
         }
@@ -1881,7 +1888,7 @@ function bestArea(board, squares, rectAt, a) {
     return plan;
 }
 
-/** Things that may beat a third Strike at -10: Demoralize (best done first), or raising a shield. */
+/** Things that may beat a third Strike at -10: Demoralize or Feint (both best done first), or raising a shield. */
 function thirdActionAlternatives(board, target, at) {
     const { me } = board;
     const out = [];
@@ -1905,6 +1912,5 @@ function thirdActionAlternatives(board, target, at) {
     if (me.shield && !me.shieldRaised && exposure(board, at)) out.push({ kind: "shield", value: 2.5, text: "Raise a Shield" });
     return out;
 }
-// ---------------------------------------------------------------------------------------------
 
 export { CONDITION_VALUE, NOTICE, RUN_WORDS, TIER_TEXT, acAgainst, actorTier, areaHits, bestArea, dropChance, exposure, fillLast, flankingAlly, heightRoute, isOffGuard, nameOf, pathTo, pickHeightWay, planTurn, provokeCost, reachableSquares, routeTo, seenFactor, strikeRun, targetBonus, thirdActionAlternatives, threatPull, threatShare, tierOf };

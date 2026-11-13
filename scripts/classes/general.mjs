@@ -1,5 +1,6 @@
 /**
  * PF2e Tactics: classes/general.mjs
+ * Reads that apply whatever the class: Sneak Attack dice, Raise a Shield, Battle Medicine, and the reactions note.
  * See classes/_common.mjs for the shape of a class read.
  */
 import { bestStrike, canMove, castable, effect, focusLeft, has, slugOf, sneaky, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
@@ -24,9 +25,8 @@ const backWorth = (level) => 1.1 * Math.max(4, 6 + 1.6 * (Number(level) || 0)) *
 const TREAT = [null, [15, 9, 18], [20, 19, 28], [30, 39, 48], [40, 59, 68]];
 
 /**
- * Battle Medicine (1 action, touch): a Medicine check at the Treat Wounds DC you choose (any your rank allows), the HP of
- * that DC; a critical failure deals 1d8. Each patient is then immune to *your* Battle Medicine for a day. A dying ally in
- * reach (or a Stride away) is the big one: it gets up and fights again.
+ * Battle Medicine: heal a hurt ally (or yourself) in reach, or get a dying ally up, at whichever Treat Wounds DC your
+ * rank allows pays best. Skips anyone already immune to your Battle Medicine.
  */
 function battleMedicine(board, ctx, out) {
     const actor = board.me.actor;
@@ -40,7 +40,10 @@ function battleMedicine(board, ctx, out) {
         const o = i.origin?.uuid ?? i.origin?.id ?? i.system?.context?.origin?.actor ?? null;
         return !o || !mine.length || mine.some((m) => String(o) === m || String(o).endsWith(`.${actor.id}`));
     }) ?? false;
-    /** The DC that's worth most for this much missing HP: [ev, dc, heal shown, chance]. */
+    /**
+     * The DC that's worth most for this much missing HP (back: the worth of getting a dying ally up): { ev, dc, heal,
+     * p }.
+     */
     const bestDc = (missing, back = 0) => {
         let best = null;
         for (let r = 1; r <= rank; r++) {
@@ -55,7 +58,7 @@ function battleMedicine(board, ctx, out) {
     const push = (a, b, steps, notes, dest = null) => out.plans.push({ kind: "class", title: `Battle Medicine on ${who(a)}`, target: null, ev: b.ev, score: b.ev, dest, steps, notes });
     const text = (a, b) => `Battle Medicine on ${who(a)} (Medicine ${signed(mod)} vs DC ${b.dc}, about ${pct(b.p)}; ${a === me ? "you're" : "they're"} at ${a.hp}/${a.maxHp}): restores about ${b.heal} HP${rank > 1 && b.dc < TREAT[rank][0] ? ` (the easier DC pays better here than DC ${TREAT[rank][0]})` : ""}`;
     const once = "Once a day per patient from you (the immunity effect says so); a critical failure deals 1d8 instead.";
-    // Allies up but hurt, and you: in reach now
+    // Hurt allies (60% HP or less) and you, already in reach
     for (const a of [...board.allies, me].filter((x) => x.actor && x.hp > 0 && x.hp <= x.maxHp * 0.6 && inReach(me.rect, x.rect, 5) && !immune(x))) {
         const b = bestDc(Math.max(0, a.maxHp - a.hp));
         if (b.ev > 0) push(a, b, [{ cost: 1, text: text(a, b) }], [once, "Then the rest of your turn as the other options say."]);
@@ -71,7 +74,7 @@ function battleMedicine(board, ctx, out) {
     }
 }
 
-/** Plans and notes from the character's class and feats. ctx: { actions, made }. */
+/** Notes the character's reactions (feats and actions with a reaction cost); the plans never spend one. */
 
 
 function reactionsNote(board, out) {

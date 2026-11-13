@@ -44,7 +44,7 @@ function commander(board, ctx, out) {
     const spent = (slug) => usesLeft(actor, slug) === 0;
     const spentNames = [];
     const ok = (slug, name) => { if (!has(actor, slug)) return false; if (spent(slug)) { spentNames.push(name); return false; } return true; };
-    /** A foe's HP as the player may quote it: its bar when the party sees it, "an estimate" otherwise. */
+    /** A foe's HP as the player may quote it: " (hp/max)" when the party sees its bar, nothing for an estimate. */
     const hpText = (f) => (f.estimated ? "" : ` (${f.hp}/${f.maxHp})`);
     /** A foe the party has seen shoot or cast this fight (the estimate's rangedReach), never its sheet. */
     const shoots = (f) => (f.rangedReach ?? 0) > 0;
@@ -310,8 +310,9 @@ function commander(board, ctx, out) {
             }
         }
     }
-    // Cry Havoc! (3, once a day): squadmates Stride up to twice their Speed directly toward one target; each enemy a squadmate
-    // comes adjacent to on the way saves or takes 2d6+2d6, plus 2d6+2d6 per squadmate taking part
+    // Cry Havoc! (3, once a day): squadmates Stride up to twice their Speed straight toward one target; each foe a
+    // squadmate comes adjacent to on the way takes a basic Fortitude save against 4d6, plus 4d6 per squadmate taking
+    // part
     if (ok("cry-havoc", "Cry Havoc!") && ctx.actions >= 3 && foes.length) {
         const chargers = inSquadAura.filter((a) => canMove(a));
         const center = (r) => ({ x: r.x + (r.w - 1) / 2, y: r.y + (r.h - 1) / 2 });

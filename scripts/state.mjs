@@ -1,7 +1,9 @@
 /**
- * PF2e NPC Tactics: state.mjs
- * What the fight has done so far: the turn ledger, recharge timers, the threat table and what the NPCs have learned of their foes' defences. Written by the active GM from chat and token moves.
- * One module, several files: see pf2e-tactics.mjs for the whole.
+ * PF2e Tactics: state.mjs
+ *
+ * What the fight has done so far: the turn ledger, recharge timers, the threat table and what the NPCs have learned
+ * of their foes' defenses. Read from chat and token moves; everything but the ledger is written by the active GM
+ * only. One module, several files: see pf2e-tactics.mjs for the whole.
  */
 import { CONDITION_VALUE, NOTICE, actorTier } from "./advisor.mjs";
 import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, setting, flagOf } from "./shared.mjs";
@@ -9,12 +11,14 @@ import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spel
 import { refreshSoon, workbenchRecharge } from "./card.mjs";
 
 // --- The turn so far: what the creature whose turn it is has done, read from the board and chat ------
-// Kept in memory on each GM's client for the current turn only. Movement comes from the token moving
-// (consecutive moves add up, so dragging in pieces or with the arrow keys counts as the Strides it adds up
-// to); Strikes, maneuvers and other checks, ability cards and spells come from chat. The −/+ buttons
-// on the card correct it.
+//
+// Kept in memory for the current turn only, on each GM's client and on the client of a player whose character is
+// acting (see ledgerMine). Movement comes from the token moving (consecutive moves add up, so dragging in pieces or
+// with the arrow keys counts as the Strides it adds up to); Strikes, maneuvers and other checks, ability cards and
+// spells come from chat. The −/+ buttons on the card correct it.
 const MANEUVER_SLUGS = new Set(["trip", "shove", "grapple", "disarm", "reposition", "escape"]);
-// Actions that are a move and a check together: what they cost (High Jump and Long Jump include a Stride)
+// TERRAIN_CHECKS: the checks PF2e Terrains rolls during a move. MOVE_CHECK_COST: actions that are a move and a check
+// together, and what they cost (High Jump and Long Jump include a Stride).
 const TERRAIN_CHECKS = new Set(["balance", "climb"]);
 const MOVE_CHECK_COST = { "tumble-through": 1, sneak: 1, climb: 1, swim: 1, balance: 1, leap: 1, "high-jump": 2, "long-jump": 2, squeeze: 1, "maneuver-in-flight": 1 };
 /** An ability's credit covers what comes straight after it; anything else ends it. */
@@ -119,7 +123,7 @@ function onChatForTurn(message) {
     const item = message.item ?? null;
     const name = item?.name ?? "";
     const part = (k) => { if (L.credit[k] > 0) { L.credit[k] -= 1; return ` (part of ${L.credit.from})`; } return null; };
-    // "This attempt neither applies nor counts toward the multiple attack penalty" (Knockdown, Grab...)
+    // An ability whose check neither applies nor counts toward the multiple attack penalty (Knockdown, Grab...)
     const counts = (inAbility) => !(inAbility && L.credit.noMap);
     if (ctx?.type === "attack-roll") {
         const inAbility = part("strikes");
@@ -137,8 +141,8 @@ function onChatForTurn(message) {
         // Only checks made as an action (Trip, Demoralize, Seek...): PF2e tags them action:<slug>
         const slug = opts.map((o) => /^action:([a-z-]+)$/.exec(o)?.[1]).find(Boolean);
         if (!slug) {
-            // A plain Athletics roll right after an ability that includes a check (Knockdown's Trip rolled by hand):
-            // that's its check, so it uses up the ability's credit instead of leaving it for a later Shove
+            // A plain skill check (no action tag) right after an ability that includes a check (Knockdown's Trip
+            // rolled by hand) is that check: it uses up the ability's credit
             if (L.credit.checks > 0 && ctx.type === "skill-check") {
                 const inAbility = part("checks");
                 L.log.push({ kind: "check", text: `${cap(opts.map((o) => /^skill:([a-z-]+)$/.exec(o)?.[1]).find(Boolean) ?? "check")}${inAbility}`, cost: 0, attack: counts(true) && !L.credit.noMap ? 1 : 0 });
@@ -183,8 +187,8 @@ function onChatForTurn(message) {
         L.credit = { from: item.name, strikes: prof?.strikes ? (prof.strikes.count ?? 1) : 0, moves: prof?.moves?.length ? 1 : 0, checks, noMap };
         L.log.push({ kind: "ability", itemId: item.id, text: item.name, cost, attack: traits.includes("attack") && !prof?.strikes && !checks ? 1 : 0, flourish: traits.includes("flourish") });
     } else if (!ctx && pf.origin?.type === "consumable") {
-        // Drinking a potion, using an elixir or a talisman: Activate, one action (a scroll or wand casts its spell, and
-        // that card is counted). Drawing it first is an Interact: add it with + if it wasn't in hand.
+        // Drinking a potion, using an elixir or a talisman: Activate, one action (a scroll or wand casts its spell,
+        // and that card is counted)
         const what = item?.name ?? /\bUses?\s+(.+)$/i.exec(String(message.flavor ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())?.[1] ?? "an item";
         if (["scroll", "wand"].includes(item?.category) || /\b(scroll|wand)\b/i.test(what)) return;
         clearCredit(L);
@@ -268,9 +272,11 @@ async function onAbilityUsed(message) {
 }
 
 // --- Threat ------------------------------------------------------------------------------------
-// Each creature in the fight keeps a table of who has hurt it, healed its foes or attacked it. Stored on the
-// combat (flag "threat": { round, t: { npcTokenId: { tokenId: value } } }), written by the active GM only, halved
-// for every round that passes. Damage counts its amount, healing a foe half the HP healed, a miss 2, a maneuver 1 to 3.
+//
+// Each creature in the fight keeps a table of who has hurt it, healed its foes, attacked it or cast at it. Stored on
+// the combat (flag "threat": { round, t: { npcTokenId: { tokenId: value } } }), written by the active GM only, and
+// faded each round by the threatDecay setting (halved by default). Damage counts its amount, healing a foe half the
+// HP healed, a miss 2, a maneuver 1 to 3; saves and spells count by what they leave (saveThreat, onSpellCast).
 const threatOn = () => setting("threat", true) !== false;
 const threatDecay = () => { const v = Number(setting("threatDecay", "0.5")); return v > 0 && v <= 1 ? v : 0.5; };
 const threatScale = () => Number(setting("threatWeight", "1")) || 1;
@@ -533,7 +539,7 @@ function onSpellCast(combat, message, tokenOf) {
     }
 }
 
-// --- What the NPCs learn: every attack on a foe shows a bit of their AC, every save they roll against one of them a bit of that save
+// --- What each side learns: attacks narrow a foe's AC, saves rolled narrow that save ------------------
 const learnQueue = new Map();
 const LEARN_SEEN = new Set();
 let learnTimer = null;

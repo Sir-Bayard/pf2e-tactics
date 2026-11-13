@@ -2,18 +2,20 @@
  * PF2e Tactics: classes/alchemist.mjs
  * See classes/_common.mjs for the shape of a class read.
  * Gate: class alchemist, or alchemist-dedication (Quick Alchemy's benefits, 4 vials).
- * Reads: the research field (bomber, chirurgeon, mutagenist, toxicologist) and its field vials, the bombs you carry (each
- * used up, each drawn first) then Quick Alchemy as a plan: a quick vial (the Remaster's free bomb, every turn, no vial spent) or a formula bomb that spends
- * a versatile vial, offered only when it's worth the vial (make one and throw it: 2 actions, 1 with Quick Bomber), the bomb additives (Debilitating,
- * Sticky, Sour, Unstable: the best one on the bomb made), Calculated/Expanded Splash and Directional Bombs, Far Lobber
- * and Uncanny Bombs, Perpetual Infusions/Potency/Perfection (free bombs or elixirs when the vials run out), Double
- * Brew and Alchemical Alacrity, Chirurgeon heals (field vial, elixir of life, Healing Bomb), mutagens as effects,
- * poisons on weapons, Mega Bomb, and when-notes for the rest.
+ * Reads: the research field and its field vials; the bombs you carry (each used up, each drawn first); Quick Alchemy
+ * as a plan, either a quick vial (free every turn, no vial spent) or a formula bomb that spends a versatile vial when
+ * it's worth it; the bomb additives (the best one on the bomb made); Calculated and Expanded Splash, Directional
+ * Bombs, Far Lobber and Uncanny Bombs; Perpetual Infusions, Potency and Perfection; Double Brew and Alchemical
+ * Alacrity; Chirurgeon heals (field vial, elixir of life, Healing Bomb); mutagens as effects; poisons on weapons;
+ * Mega Bomb; and when-notes for the rest.
  */
 import { bestStrike, canMove, castable, effect, focusLeft, has, half, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 import { provokeCost } from "../advisor.mjs";
 
-/** Bomb tiers by the item level an alchemist can make: alchemist's fire as the reference (dice d8, persistent, splash, item bonus). */
+/**
+ * Bomb tiers by the item level an alchemist can make, alchemist's fire as the reference: [min level, name, d8 dice,
+ * n], where n is the persistent damage and splash, and n - 1 the item bonus.
+ */
 const BOMB_TIERS = [[17, "major", 4, 4], [11, "greater", 3, 3], [3, "moderate", 2, 2], [1, "lesser", 1, 1]];
 const bombTier = (lvl) => BOMB_TIERS.find(([l]) => lvl >= l) ?? BOMB_TIERS[3];
 /**
@@ -22,8 +24,8 @@ const bombTier = (lvl) => BOMB_TIERS.find(([l]) => lvl >= l) ?? BOMB_TIERS[3];
  */
 const vialTier = (lv) => (lv >= 18 ? { dice: 4, splash: 4, item: 3 } : lv >= 12 ? { dice: 3, splash: 3, item: 2 } : lv >= 4 ? { dice: 2, splash: 2, item: 1 } : { dice: 1, splash: 1, item: 0 });
 const vialDice = (lv) => vialTier(lv).dice;
-/** Elixir of life by the item level available: [level, name, d6 dice (minor: 1d8), flat]. */
-const ELIXIRS = [[19, "true", 10, 27], [15, "major", 8, 21], [13, "greater", 7, 18], [9, "moderate", 5, 12], [5, "lesser", 3, 6], [1, "minor", 1, 0]]; // minor: 1d6
+/** Elixir of life by the item level available: [min level, name, d6 dice, flat]. */
+const ELIXIRS = [[19, "true", 10, 27], [15, "major", 8, 21], [13, "greater", 7, 18], [9, "moderate", 5, 12], [5, "lesser", 3, 6], [1, "minor", 1, 0]];
 const elixirFor = (lvl) => ELIXIRS.find(([l]) => lvl <= 0 ? false : lvl >= l) ?? ELIXIRS[5];
 
 function alchemist(board, ctx, out) {
