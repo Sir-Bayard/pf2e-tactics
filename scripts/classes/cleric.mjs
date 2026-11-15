@@ -9,6 +9,8 @@
 import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
 
 const isUndead = (c) => (c?.traits ?? []).includes("undead");
+/** Does the party know this foe's creature type? (The Turn Helper's estimate leaves it unknown until it's identified.) */
+const typeKnown = (c) => c?.traitsKnown !== false;
 const itemsOf = (actor) => actor?.items?.contents ?? (Array.isArray(actor?.items) ? actor.items : []);
 const itemById = (actor, id) => actor?.items?.get?.(id) ?? itemsOf(actor).find((i) => i.id === id) ?? null;
 const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
@@ -81,8 +83,8 @@ function cleric(board, ctx, out) {
     const font = fontOf(actor, board);
     const fast = has(actor, "fast-channel");
     const foes = targets(board);
-    const living = foes.filter((f) => !isUndead(f) && f.hp > 0);
-    const undead = foes.filter((f) => isUndead(f) && f.hp > 0);
+    const living = foes.filter((f) => typeKnown(f) && !isUndead(f) && f.hp > 0);
+    const undead = foes.filter((f) => typeKnown(f) && isUndead(f) && f.hp > 0);
     const favored = favoredStrikes(board, actor);
     const hurt = (c) => Math.max(0, (c.maxHp ?? 0) - (c.hp ?? 0));
     const allies = (board.allies ?? []).filter((a) => a.hp > 0);
@@ -106,7 +108,8 @@ function cleric(board, ctx, out) {
         const near = (c) => feetBetween(me.rect, c.rect) <= 30 && (!c.rect?.lvl || !me.rect?.lvl || c.rect.lvl === me.rect.lvl);
         const healed = [{ c: me, self: true }, ...allies.map((c) => ({ c, self: false }))].filter(({ c }) => near(c) && !isUndead(c) && hurt(c) > 0);
         const fallen = down.filter((d) => near(d) && !isUndead(d));
-        const livingFoes = living.filter(near);
+        // a foe of unknown type may well be living: the burst heals it too unless it's undead
+        const livingFoes = foes.filter((f) => f.hp > 0 && !(typeKnown(f) && isUndead(f))).filter(near);
         const undeadFoes = undead.filter(near);
         const gains = healed.map(({ c, self }) => ({ c, self, v: Math.min(avg, hurt(c)) * 0.8 * (self ? 1 : 0.9) }));
         const back = fallen.map((d) => ({ c: d, v: Math.min(avg, d.maxHp ?? avg) * 0.8 + 0.8 * 1.1 * hitWorth(d.level ?? lv) * 2 }));
@@ -125,7 +128,7 @@ function cleric(board, ctx, out) {
                 let text = `Heal (${burstCost} actions${fast ? ", Fast Channel" : ""}): 30-foot emanation, about ${Math.round(avg)} HP to ${list}`;
                 if (undeadFoes.length) text += `, and about ${Math.round(avg)} vitality damage to ${undeadFoes.map(nameOf).join(", ")} (basic Fortitude)`;
                 if (excluded.length) text += `; Selective Energy keeps it off ${excluded.map((l) => nameOf(l.c)).join(", ")}`;
-                if (kept.length) text += `; ${kept.map((l) => nameOf(l.c)).join(", ")} ${kept.length > 1 ? "are" : "is"} living and heal${kept.length > 1 ? "" : "s"} too${has(actor, "directed-channel") ? " (Directed Channel can make it a 30-foot cone instead, aimed away from them)" : ""}`;
+                if (kept.length) text += `; ${kept.map((l) => nameOf(l.c)).join(", ")} ${kept.every((l) => typeKnown(l.c)) ? `${kept.length > 1 ? "are" : "is"} living and heal${kept.length > 1 ? "" : "s"} too` : `heal${kept.length > 1 ? "" : "s"} too unless undead`}${has(actor, "directed-channel") ? " (Directed Channel can make it a 30-foot cone instead, aimed away from them)" : ""}`;
                 const notes = [`It spends one of your ${leftText(font.heal)} heal spells.`];
                 if (back.length) notes.push(`${back.map((b) => nameOf(b.c)).join(", ")} ${back.length > 1 ? "are" : "is"} down: healed, ${back.length > 1 ? "they stand" : "it stands"} next turn${has(actor, "resurrectionist") ? ", with fast healing 5 for a minute (Resurrectionist)" : ""}.`);
                 if (has(actor, "remediate")) notes.push("Remediate (free, once an hour): this casting also tries to counteract one divine effect in the area.");
@@ -144,6 +147,7 @@ function cleric(board, ctx, out) {
     // --- Channel Smite: a melee Strike that carries a 1-action font spell, the target failing its save outright ----
     if (has(actor, "channel-smite") && ctx.actions >= 2) {
         for (const f of foes.filter((x) => x.hp > 0)) {
+            if (!typeKnown(f)) continue; // heal or harm turns on whether it's undead
             const kind = isUndead(f) ? "heal" : "harm";
             if (!font[kind].usable) continue;
             const sq = squareToReach(board, f, myReach(board), ctx.actions - 2);
@@ -199,6 +203,7 @@ function cleric(board, ctx, out) {
     if (has(actor, "cast-down") && ctx.actions >= 2) {
         const prone = worth(board, "prone");
         for (const f of foes.filter((x) => x.hp > 0 && !x.conditions?.has?.("prone"))) {
+            if (!typeKnown(f)) continue; // heal or harm turns on whether it's undead
             const kind = isUndead(f) ? "heal" : "harm";
             if (!font[kind].usable) continue;
             const avg = touchAvg(kind);

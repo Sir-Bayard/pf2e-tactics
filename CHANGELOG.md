@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.7
+
+- The Turn Helper no longer shows foes your character can't see. On a scene with token vision, a foe behind a wall, in a room nobody has opened, or one your screen doesn't show you, isn't named, placed or planned against, and paths no longer bend around it. If it's in the combat tracker, the helper only says that something in this fight is undetected and how to Seek for it. A foe on another floor isn't mentioned at all. The GM's preview of a character's helper uses that character's line of sight. The window updates when a door opens, a wall changes or what you can see changes.
+- Private and blind rolls teach the party nothing. A whispered or blind card no longer counts as a foe's reaction, spell, ranged attack or heal, and an NPC's save or an attack on it rolled that way no longer narrows what the party knows of its AC or saves.
+- NPC names follow PF2e's name visibility. With "Tokens Determine NPC Name Visibility" on, a foe whose name players can't see is "a Medium foe" (numbered in turn order when several share a size) in the Foes list, the plans, the notes and the turn line. The turn line never names a combatant hidden in the tracker or on the map.
+- The helper no longer reads a foe's creature type from its sheet. Class advice that depends on it stays quiet for now: a cleric's Channel Smite and Cast Down (heal or harm), a champion's Cruelty, notes about undead, fiends and spirits, and the like. A later version gives it back once the creature is identified.
+
 ## 3.5.6
 
 - Restoring a window from minimized brings it back at its full size; on Foundry 14.370 it came back as a thin strip. The NPC Turn and Turn Helper windows still keep their place and width in each browser, and their height still fits the card.

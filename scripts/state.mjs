@@ -6,7 +6,7 @@
  * only. One module, several files: see pf2e-tactics.mjs for the whole.
  */
 import { CONDITION_VALUE, NOTICE, actorTier } from "./advisor.mjs";
-import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, setting, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, playersSee, setting, flagOf } from "./shared.mjs";
 import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects, visibleAdjustments } from "./reader.mjs";
 import { refreshSoon, workbenchRecharge } from "./card.mjs";
 
@@ -615,7 +615,7 @@ function onLearnMessage(message) {
         // are kept net of what the table could see changing its AC at the time (frightened, an off-guard from flanking,
         // a shown effect), so they still hold when that wears off; the helper adds back what shows now.
         if (npc.hasPlayerOwner) {
-            if (foe.hasPlayerOwner) return;
+            if (foe.hasPlayerOwner || !playersSee(message)) return;
             let adj = visibleAdjustments(foe).ac;
             const opts = ctx.options ?? [];
             if (opts.includes("target:condition:off-guard") && !foe.conditions?.active?.some?.((c) => c.slug === "off-guard")) adj -= 2;
@@ -635,7 +635,7 @@ function onLearnMessage(message) {
         if (!foe || !src || !(src.isEnemyOf?.(foe) ?? false) || !stat || !tok) return;
         // An NPC's save against a player's spell: the roll shows its modifier outright (total less the die)
         if (src.hasPlayerOwner) {
-            if (foe.hasPlayerOwner) return;
+            if (foe.hasPlayerOwner || !playersSee(message)) return;
             const roll = message.rolls?.[0];
             const nat = roll?.dice?.find((d) => d.faces === 20)?.results?.find((r) => r.active && !r.discarded)?.result ?? null;
             // net of what shows on it (frightened 2 takes 2 off every save), as with AC

@@ -13,6 +13,7 @@
  * .wandBoosted), treats them as fresh in the fight's first round, and otherwise offers both turns with the assumption named.
  */
 import { bestStrike, effect, has, halfLevel, level, moveText, myReach, pct, squareToReach, standardDC, strikeRun, targets, worth, degreeChances, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed, diceOf } from "./_common.mjs";
+import { playersSeeName, tokensSetNames } from "../shared.mjs";
 
 const IMPLEMENTS = ["amulet", "bell", "chalice", "lantern", "mirror", "regalia", "shield", "tome", "wand", "weapon"];
 /** A Strike whose weapon is held in two hands (by the item's hands held, or a two-hands usage). */
@@ -73,13 +74,17 @@ function thaumaturge(board, ctx, out) {
     const kindOf = (f) => f.token?.document?.actorId ?? f.actorId ?? null;
     const sympathetic = has(actor, "sympathetic-vulnerabilities");
     const mortalOk = !rec?.outcome || /success/i.test(rec.outcome) && !/failure/i.test(rec.outcome);
-    const exploitedName = rec?.name ?? "the creature you exploited";
+    // its name as the players may see it: as it reads on the board, else the record's if PF2e lets players see it
+    const recDoc = rec?.id ? globalThis.canvas?.scene?.tokens?.get?.(rec.id) ?? null : null;
+    const exploitedName = recTarget ? nameOf(recTarget) : rec?.name && (recDoc ? playersSeeName(recDoc) : !tokensSetNames()) ? rec.name : "the creature you exploited";
     /** Does your standing Exploit already reach f? "either": whichever you took; "mortal": only if you took its mortal weakness. */
     const covers = (f) => {
         if (modMode) return f.id !== upTarget?.id && modReached.has(f.id) ? "module" : null; // the module says exactly
         if (!recId || f.id === recId || !rec?.kind || kindOf(f) !== rec.kind) return null;
-        if (sympathetic && !(f.traits ?? []).includes("humanoid") && mortalOk) return "either";
-        if (sympathetic && !(f.traits ?? []).includes("humanoid") && !mortalOk) return "either"; // a failure gives antithesis, which reaches its kind
+        // not humanoid, as far as the party knows; an unknown creature type proves nothing
+        const notHumanoid = f.traitsKnown !== false && !(f.traits ?? []).includes("humanoid");
+        if (sympathetic && notHumanoid && mortalOk) return "either";
+        if (sympathetic && notHumanoid && !mortalOk) return "either"; // a failure gives antithesis, which reaches its kind
         return mortalOk ? "mortal" : null;
     };
     // up: true (known), false (the first turn, or the exploited foe is down), null (it may be on someone from an earlier

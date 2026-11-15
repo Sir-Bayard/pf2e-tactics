@@ -1715,7 +1715,8 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     const placed = (c) => !(typeof unseen === "function" && board.enemies.includes(c) && unseen(c, board));
     for (const c of [...board.enemies, ...board.allies]) if (placed(c)) for (const k of rectSquares(c.rect)) occupant.set(k, c);
     // The dying and unconscious still fill their squares: nothing ends its move on top of them
-    for (const c of [...(board.downAllies ?? []), ...(board.downEnemies ?? [])]) for (const k of rectSquares(c.rect)) if (!occupant.has(k)) occupant.set(k, c);
+    const downPlaced = (c) => !(typeof unseen === "function" && (board.downEnemies ?? []).includes(c) && unseen(c, board));
+    for (const c of [...(board.downAllies ?? []), ...(board.downEnemies ?? [])]) if (downPlaced(c)) for (const k of rectSquares(c.rect)) if (!occupant.has(k)) occupant.set(k, c);
     const blockers = new Map(); // dead bodies don't block; living enemies block passage
     for (const c of board.enemies) if (placed(c)) for (const k of rectSquares(c.rect)) blockers.set(k, c);
     const rect = board.sceneRect = {
@@ -1752,7 +1753,7 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     const terrain = me.conditions.has("blinded") ? (x, y) => Math.max(2, ground(x, y)) : ground;
     const threatsAt = (x, y, z = me.rect.z) => {
         const at = { x, y, w, h, z, ht: me.rect.ht, lvl: me.rect.lvl };
-        return board.enemies.filter((e) => e.reactions.some((r) => r.trigger.onMove) && inReach(e.rect, at, e.reach)).map((e) => e.id);
+        return board.enemies.filter((e) => placed(e) && e.reactions.some((r) => r.trigger.onMove) && inReach(e.rect, at, e.reach)).map((e) => e.id);
     };
     const maxFeet = Math.min(move.stride.speed === "fly" ? 240 : 150, 3 * Math.max(move.stride.feet, move.step.feet, 5));
     // Tiny creatures can move into and stop in a bigger creature's space (they have to, to attack with no reach)

@@ -435,7 +435,8 @@ function animist(board, ctx, out) {
             const steps = [];
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
             const undead = (f.traits ?? []).includes("undead");
-            steps.push({ cost: 2, text: `Grudge Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}, +2 in it): +2d6 ${undead ? "vitality" : "void"} on a hit, about ${Math.round(b.e.expected)} in all` });
+            const kind = f.traitsKnown === false ? "void (vitality against undead)" : undead ? "vitality" : "void";
+            steps.push({ cost: 2, text: `Grudge Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}, +2 in it): +2d6 ${kind} on a hit, about ${Math.round(b.e.expected)} in all` });
             let ev = b.e.expected;
             if (left >= 1) { const r = strikeRun(board, f, left, { made: ctx.made + 1 }); if (r.used.length) { steps.push({ cost: r.used.length, text: r.text }); ev += r.ev; } }
             push(`Grudge Strike ${nameOf(f)}`, f, ev, steps, [], sq.route.actions ? { x: sq.x, y: sq.y } : null, 0.3);

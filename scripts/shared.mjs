@@ -175,4 +175,13 @@ function rememberWindow(Base, key, { size = true } = {}) {
     };
 }
 
-export { FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, link, rememberWindow, section, setting, signed, ul };
+/** Does PF2e hide NPC names that a token's nameplate doesn't show (its "Tokens Determine NPC Name Visibility" setting)? */
+function tokensSetNames() {
+    try { return !!game.settings.get("pf2e", "metagame_tokenSetsNameVisibility"); } catch { return false; }
+}
+/** Can players see this token's name? PF2e's own getter ignores its setting, so the setting is checked here. */
+const playersSeeName = (tokenDoc) => !tokensSetNames() || tokenDoc?.playersCanSeeName !== false;
+/** Can every player see this chat card? A whispered or blind one teaches the party nothing. */
+const playersSee = (message) => !message?.blind && !((message?.whisper?.length ?? message?.whisper?.size ?? 0) > 0);
+
+export { FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, link, playersSee, playersSeeName, rememberWindow, tokensSetNames, section, setting, signed, ul };

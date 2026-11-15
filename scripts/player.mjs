@@ -14,7 +14,7 @@
  * only trace of one is a line about Seeking, when the party already knows it is there (its combatant is in the
  * tracker).
  */
-import { MODULE_ID, esc, link, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
+import { MODULE_ID, esc, link, playersSee, playersSeeName, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
@@ -73,10 +73,11 @@ const bucket = (map, combatId, tokenId) => {
  * What a chat card shows the table about the NPC that made it: a reaction it used (an item with the reaction glyph,
  * or a melee attack roll made outside its own turn, which is a Reactive Strike or the like), a spell it cast, a
  * ranged attack, a heal. The Turn Helper treats a foe as able to do these only once the party has seen it do them.
+ * A whispered or blind card shows the players nothing, so it counts for nothing.
  */
 function noteReaction(message) {
     const combat = game.combat;
-    if (!combat?.started) return;
+    if (!combat?.started || !playersSee(message)) return;
     const tokenId = message.speaker?.token;
     const actor = message.actor;
     if (!tokenId || !actor || actor.hasPlayerOwner) return;
@@ -139,30 +140,82 @@ function waysToReveal(board) {
     return out;
 }
 
+/**
+ * Can the character see this foe at all? With token vision on the scene: a line of sight from the middle of its square
+ * to some part of the foe's (walls that block sight, closed doors), and on a player's client, the token showing on that
+ * player's screen too. Without token vision the GM shows everyone, so everyone counts as seen.
+ */
+function inSight(board, e) {
+    const scene = board.me?.token?.document?.parent ?? globalThis.canvas?.scene;
+    if (!scene?.tokenVision) return true;
+    // Foundry's own test of whether this client sees the token (its display flag can lag behind)
+    if (!game.user?.isGM && (e.token?.isVisible ?? e.token?.visible) !== true) return false;
+    if (typeof board.lineBlocked !== "function") return true;
+    const r = board.me.rect, f = e.rect;
+    const from = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    const inset = Math.min(0.2, f.w / 4, f.h / 4);
+    const points = [{ x: f.x + f.w / 2, y: f.y + f.h / 2 }, { x: f.x + inset, y: f.y + inset }, { x: f.x + f.w - inset, y: f.y + inset }, { x: f.x + inset, y: f.y + f.h - inset }, { x: f.x + f.w - inset, y: f.y + f.h - inset }];
+    return points.some((p) => !board.lineBlocked(from, p));
+}
+/** Foes the character can't make out at all: out of its sight, or undetected by its senses (worked out once per board). */
+function unseenFoe(board, e) {
+    const memo = board.unseenMemo ??= new Map();
+    if (!memo.has(e.id)) memo.set(e.id, !inSight(board, e) || stateOf(board, e) === "undetected");
+    return memo.get(e.id);
+}
+
+const SIZE_NAMES = ["Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan"];
+/** Can players see this foe's name? PF2e's name visibility, when its metagame setting is on. */
+const nameShown = (e) => playersSeeName(e.token?.document);
+/**
+ * Foes whose names players can't see go by their size: "a Medium foe", or "Medium foe 1", "Medium foe 2" when several
+ * share a size, numbered in combat-tracker order. Only foes in sight count, so a number never hints at one out of it.
+ */
+function hideNames(foes) {
+    const order = (e) => { const i = game.combat?.turns?.findIndex?.((c) => c.tokenId === e.id) ?? -1; return i < 0 ? Infinity : i; };
+    const bySize = new Map();
+    for (const e of foes) {
+        if (nameShown(e)) continue;
+        const size = SIZE_NAMES[e.sizeRank] ?? "Medium";
+        (bySize.get(size) ?? bySize.set(size, []).get(size)).push(e);
+    }
+    for (const [size, list] of bySize) {
+        list.sort((a, b) => order(a) - order(b) || String(a.id).localeCompare(String(b.id)));
+        list.forEach((e, i) => { e.name = list.length > 1 ? `${size} foe ${i + 1}` : `a ${size} foe`; e.nameHidden = true; });
+    }
+}
+
 async function readHelperBoard(token) {
     // Only reactions the party has seen a foe use count on this board (paths and warnings go round those alone)
     const combat = game.combat;
     const board = await readBoard(token, combat, {
         reactionsSeen: (e, r) => shownReactions(combat, e.id).has(r.name) || (/reactive strike|attack of opportunity/i.test(r.name) && shownReactions(combat, e.id).has("Reactive Strike")),
-        unseen: (e, b) => stateOf(b, e) === "undetected",
+        unseen: (e, b) => unseenFoe(b, e),
     });
     return board ? annotateBoard(board) : null;
 }
 /** What the character sees of the board: foes by state, cover, what the party knows, what each has shown. */
 function annotateBoard(board) {
     const combat = game.combat;
-    // Foes as the character sees them. Undetected ones are left out, except for the Seek line.
-    const seen = [];
-    let unseenKnown = 0;
+    board.unseenMemo = new Map();
+    // Foes as the character sees them. Ones it can't see or detect are left out, except for the Seek line.
+    const visible = [];
+    const inFight = [];
     for (const e of board.enemies) {
-        const state = stateOf(board, e);
-        if (state === "undetected") {
+        if (unseenFoe(board, e)) {
             const c = combat?.combatants?.find((x) => x.tokenId === e.id);
-            if (c && !c.hidden) unseenKnown += 1; // the party knows it is in the fight
+            if (c && !c.hidden) inFight.push(e); // the party knows it is in the fight
             continue;
         }
-        seen.push({ ...e, state, cover: Math.max(0, coverBetween(board, board.me.rect, e, { ranged: true, fromSize: board.me.sizeRank ?? 2 })), known: knownAc(board, e), shown: shownReactions(combat, e.id) });
+        visible.push(e);
     }
+    const unseenKnown = inFight.length;
+    board.downEnemies = (board.downEnemies ?? []).filter((e) => !unseenFoe(board, e));
+    // From here the board holds only the foes it can see (cover, Around You); foes on another floor are out of sight
+    board.enemies = visible;
+    board.elsewhere = [];
+    hideNames([...visible, ...board.downEnemies]);
+    const seen = visible.map((e) => ({ ...e, state: stateOf(board, e), cover: Math.max(0, coverBetween(board, board.me.rect, e, { ranged: true, fromSize: board.me.sizeRank ?? 2 })), known: knownAc(board, e), shown: shownReactions(combat, e.id) }));
     board.seenFoes = seen;
     board.unseenKnown = unseenKnown;
     board.reveals = waysToReveal(board);
@@ -187,7 +240,7 @@ function barsVisible(e) {
 /**
  * A foe as the party can judge it: AC from the party's hits and misses this fight (the middle of the bounds), saves
  * from the rolls it has made, HP from its bar when players can see it, otherwise a creature of level L (the party's,
- * unless the helperKnowsLevel setting is on). Nothing from its sheet: no weaknesses, no skills.
+ * unless the helperKnowsLevel setting is on). Nothing from its sheet: no weaknesses, no skills, no creature traits.
  */
 function estimateFoe(board, e, known, L) {
     const k = known?.[e.id] ?? {};
@@ -205,6 +258,8 @@ function estimateFoe(board, e, known, L) {
         // What the sheet knows and the party doesn't: its senses, languages, class, spell list, ranged attacks and
         // feats (All-Around Vision, Deny Advantage) are left out; casting, shooting and healing count once seen
         actor: undefined, cls: null, senses: null, languages: [], flankImmune: null,
+        // Its creature type isn't known until it's identified: class reads that test a trait stay quiet
+        traits: [], traitsKnown: false,
         caster: did.has("cast"), healer: did.has("heal"), rangedReach: did.has("ranged") || did.has("cast") ? 60 : 0,
         level: L,
         // the middle of the party's bounds (kept net of what shows) plus what the table can see on it now
@@ -415,7 +470,7 @@ function foeLine(f) {
     if (f.known) bits.push(f.known);
     if (f.shown?.size) bits.push(`has used ${[...f.shown].join(", ")} this fight`);
     const size = f.sizeRank != null ? ["Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan"][f.sizeRank] ?? "" : "";
-    return `<li><strong>${esc(nameOf(f))}</strong>${size ? ` <span class="npt-dim">${size}</span>` : ""}${bits.length ? `: ${esc(bits.join(" · "))}` : ""}</li>`;
+    return `<li><strong>${esc(nameOf(f))}</strong>${size && !f.nameHidden ? ` <span class="npt-dim">${size}</span>` : ""}${bits.length ? `: ${esc(bits.join(" · "))}` : ""}</li>`;
 }
 
 function aroundSection(board) {
@@ -499,7 +554,9 @@ function turnLine(actor) {
     const c = combat.combatant;
     const mine = c?.actor === actor || c?.actor?.id === actor.id;
     if (mine) return "";
-    return `<div class="npt-dim npt-notyet">${c?.name ? `${esc(c.name)}'s turn` : "Not your turn"}: this is what you could do when yours comes.</div>`;
+    // a combatant hidden in the tracker or on the map isn't named, nor one whose name PF2e hides
+    const named = c?.name && !c.hidden && !c.token?.hidden && (c.actor?.hasPlayerOwner || playersSeeName(c.token));
+    return `<div class="npt-dim npt-notyet">${named ? `${esc(c.name)}'s turn` : "Not your turn"}: this is what you could do when yours comes.</div>`;
 }
 
 async function buildHelper(actor, token) {
@@ -509,6 +566,7 @@ async function buildHelper(actor, token) {
     const top = `<div class="npt-top">${actor.img ? `<img src="${esc(actor.img)}" alt="">` : ""}
         <div class="npt-who"><h3>${link(actor, name)}</h3>${selfLine(actor)}</div></div>`;
     let board = null;
+    if (!game.user?.isGM && helperWindow?.actor?.id === actor?.id) tokensShown = tokensShownKey();
     try { board = placeable ? await readHelperBoard(placeable) : null; } catch (err) { console.error(`${MODULE_ID} | turn helper failed`, err); }
     const ledger = board ? ledgerFor(actor, placeable ?? token) : null;
     let advice = "";
@@ -748,8 +806,22 @@ Hooks.on("createChatMessage", (message) => {
 const BOARD_FIELDS = ["x", "y", "width", "height", "hidden", "elevation", "disposition", "level"];
 Hooks.on("updateToken", (doc, changes) => { if (doc.parent === canvas?.scene && BOARD_FIELDS.some((k) => k in changes)) refreshHelper(300); });
 for (const hook of ["createToken", "deleteToken"]) Hooks.on(hook, (doc) => { if (doc.parent === canvas?.scene) refreshHelper(300); });
+// What the character can see changes with walls, doors, light and moves: redraw when a wall changes, or (on a player's
+// client) when the tokens showing on this screen change
+Hooks.on("updateWall", (doc, changes) => { if (helperWindow?.rendered && doc.parent === canvas?.scene && ["ds", "c", "sight", "door"].some((k) => k in changes)) refreshHelper(300); });
+for (const hook of ["createWall", "deleteWall"]) Hooks.on(hook, (doc) => { if (helperWindow?.rendered && doc.parent === canvas?.scene) refreshHelper(300); });
+// Who is in the fight, and hidden or shown in the tracker, changes the Seek line
+Hooks.on("updateCombatant", (c, changes) => { if (helperWindow?.rendered && ("hidden" in changes || "defeated" in changes)) refreshHelper(300); });
+for (const hook of ["createCombatant", "deleteCombatant"]) Hooks.on(hook, () => { if (helperWindow?.rendered) refreshHelper(300); });
+const tokensShownKey = () => (canvas?.tokens?.placeables ?? []).filter((t) => t.visible).map((t) => t.id).sort().join(",");
+let tokensShown = "";
+Hooks.on("sightRefresh", () => {
+    if (!helperWindow?.rendered || game.user?.isGM) return;
+    const key = tokensShownKey();
+    if (key !== tokensShown) { tokensShown = key; refreshHelper(300); }
+});
 Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (changes.system?.attributes || changes.system?.traits || changes.flags?.[MODULE_ID]?.record)) refreshHelper(300); });
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, helperBody, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift, turnLine };

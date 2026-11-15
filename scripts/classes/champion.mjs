@@ -198,7 +198,7 @@ function champion(board, ctx, out) {
     if (has(actor, "cruelty") && focus > 0 && ctx.actions >= 2 && tov) {
         const dc = tov.dc ?? actor.classDC?.value ?? 10 + lv + 4;
         for (const f of foes) {
-            if (traitsOf(f).includes("undead") || traitsOf(f).includes("construct")) continue;
+            if (f.traitsKnown === false || traitsOf(f).includes("undead") || traitsOf(f).includes("construct")) continue; // living foes only
             const sq = squareToReach(board, f, 5, ctx.actions - 2);
             if (!sq) continue;
             const cond = has(actor, "greater-cruelty") ? (f.caster ? "stupefied" : "clumsy") : "enfeebled"; // caster: the party has seen it cast
