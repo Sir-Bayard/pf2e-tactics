@@ -1,5 +1,52 @@
 # Changelog
 
+## 4.0.0
+
+A large update: new windows for the GM, smarter turns on both sides, and numbers read from the PF2e system instead of written into the module. Foundry needs a restart (not just a reload) after updating, because the module now uses a socket.
+
+**New**
+
+- **What the Party Knows** (GM): Party Knows on the NPC card opens a window for the fight. For each foe it lists what the party has learned (AC bounds, save modifiers) and seen (reactions, casting, ranged attacks, healing), as the Turn Helper uses them, each with a button to take it back. A reaction taken back stays out until it's seen again.
+- **Identify switch**: in that window, an identified foe's creature traits (undead, construct, mindless...) are on the Turn Helper's board again, so class advice that depends on them comes back. A player character's successful Recall Knowledge on a foe sets it too.
+- The NPC card has a button for the next player character in the order that opens their Turn Helper, so the GM can see what it will suggest.
+- The Turn Helper says why each folded alternative came second: it provokes, it spends a slot or a Focus Point, it does less damage, or what put the first choice ahead.
+- The turn's count of actions and attacks survives a reload on the same turn.
+- The windows work from the keyboard: focus stays put across a redraw, Tab moves through them and focus shows. A redraw that would show the same card leaves the window alone, and the Turn Helper waits to redraw while the pointer is over it.
+
+**Smarter turns**
+
+- When its first Strikes will likely drop a foe and another is in reach, a thinking creature (or a player character) turns the rest on the next foe ("Strike Vance, then Kestrel").
+- Trample is read and planned: a line through the foes it can trample, each taking the Strike's damage with a basic Reflex save.
+- Partial immunity counts: the fire on a flaming weapon does nothing to a fire-immune foe, while the weapon still hurts. Precision damage and Sneak Attack do nothing to a creature immune to precision. Vitality damage hurts only the undead, and void doesn't hurt them.
+- The NPC card keeps the hidden-foe rules the Turn Helper keeps: a foe hidden from the creature is a target only when it can see no other (or for an area), an undetected one only for an area, and the card says to Seek.
+- Creatures on instinct take the shortest way, as described; thinking ones still go round reach.
+- The chance of dropping a foe uses each Strike's real damage against that foe (weakness, resistance, sneak damage).
+- Fixed values (raising a shield, stepping out of reach, Demoralize, standing up, knocking a foe prone or off a ledge) grow with level like everything else, so high-level creatures stop ignoring them.
+- An NPC no longer tries to Demoralize someone it has already tried it on this fight.
+- The caster-in-melee caution applies to creatures only: a magus or a warpriest belongs in melee.
+- AC bounds ignore effects that shift a roll's result after the dice.
+- Light reads the darkness at each square, so a region that darkens a cellar (or lights a room) counts. Hazards, loot piles and vehicles fill their squares but are no longer read as creatures.
+
+**The Turn Helper's numbers**
+
+- An unknown foe's AC, saves, HP and Reactive Strike are guessed from the median creature of its level among the PF2e system's own creatures. The old guess ran low from about level 7 (at level 20 it now expects AC 44 and 375 HP).
+- DCs by level are read from the PF2e system's own table. If a system update moves it, the GM is told once and the odds that need it go even.
+- An attack a foe makes outside its own turn counts as a Reactive Strike after 8 seconds, and not when its own turn started or ended within 8 seconds of the roll (the GM moving the tracker on).
+
+**Classes**
+
+- Fighter: Agile Grace's -3/-6 counts in every plan. Rogue: Gang Up makes a foe off-guard to your melee Strikes in every plan, not just its own. Animist: under Relinquish Control every plan moves by a Step at most. Witch and wizard: a slot spell is weighed against the same turn with your cantrip.
+- Every class that spends a Focus Point is now counted as spending one when the helper looks for your best free turn (Lay on Hands, Untamed Form, Heal Animal, the bard's compositions, the wizard's school spells and more), and Spellstrike with a slot spell, Brain Drain and a Strain Mind amp no longer count as spending one.
+- Battle Medicine says when your sheet shows no healer's toolkit, or both hands full.
+- Actions a class read plans itself are no longer also planned by the general advisor from their text, so they don't appear twice.
+
+**Under the hood**
+
+- One GM with the world open in two tabs no longer doubles threat, recharge rolls, trigger whispers or learning.
+- What a fight kept in memory is cleared when the combat ends, and an edited spell is read again.
+- Tooltips and notices are plain text; the windows remember their place through the shared kit (your old positions and folds carry over).
+- The README is split: a short front page, a GM's guide and a Turn Helper guide in `docs/`.
+
 ## 3.5.7
 
 - The Turn Helper no longer shows foes your character can't see. On a scene with token vision, a foe behind a wall, in a room nobody has opened, or one your screen doesn't show you, isn't named, placed or planned against, and paths no longer bend around it. If it's in the combat tracker, the helper only says that something in this fight is undetected and how to Seek for it. A foe on another floor isn't mentioned at all. The GM's preview of a character's helper uses that character's line of sight. The window updates when a door opens, a wall changes or what you can see changes.
