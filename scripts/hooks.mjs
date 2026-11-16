@@ -6,9 +6,9 @@
  */
 import { BOARD_FIELDS, FLAG_SCOPE, MODULE_ID, esc, gmLeadNow, isGmLead, setting, startGmTabs, flagOf } from "./shared.mjs";
 import { helperApi } from "./player.mjs";
-import { HP_AT_TURN, RECENT, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
+import { HP_AT_TURN, RECENT, forgetFightReader, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
-import { currentLedger, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, setThreatRow, threatFor } from "./state.mjs";
+import { currentLedger, forgetFightState, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, setThreatRow, threatFor } from "./state.mjs";
 import { planTurn } from "./advisor.mjs";
 
 // --- Turns -------------------------------------------------------------------------------------
@@ -102,7 +102,7 @@ Hooks.on("updateCombat", (combat, changes) => {
     if ("round" in changes || "started" in changes) checkTriggersSoon();
     if (changes.flags?.[MODULE_ID]?.threat && combat === game.combat) refreshSoon(250);
 });
-Hooks.on("deleteCombat", () => { clearPath(); closeWindow(); });
+Hooks.on("deleteCombat", () => { clearPath(); closeWindow(); forgetFightReader(); forgetFightState(); });
 Hooks.on("deleteToken", (doc) => { if (turnWindow?.token && doc.id === turnWindow.token.id) clearPath(); });
 Hooks.on("combatStart", (combat) => onTurn(combat));
 Hooks.on("updateCombatant", () => checkTriggersSoon());

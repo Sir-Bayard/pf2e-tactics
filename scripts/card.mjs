@@ -254,13 +254,20 @@ function showButton(plan) {
 const OLD_FOLD_KEY = `${MODULE_ID}.folds`;
 const TURN_FOLDS = new Map();
 function resetTurnFolds() { TURN_FOLDS.clear(); }
+// The stored folds, read once per draw (T26): a draw runs in one go, so the copy is let go at the next microtask
+let foldMemo = null;
+const storedFolds = () => {
+    if (!foldMemo) { foldMemo = store.get("folds", {}, { from: OLD_FOLD_KEY }) ?? {}; queueMicrotask(() => { foldMemo = null; }); }
+    return foldMemo;
+};
 function foldOpen(key, fallback) {
     if (String(key).startsWith("h-")) return TURN_FOLDS.get(key) ?? fallback;
-    const v = store.get("folds", {}, { from: OLD_FOLD_KEY })?.[key];
+    const v = storedFolds()[key];
     return typeof v === "boolean" ? v : fallback;
 }
 function saveFold(key, open) {
     if (String(key).startsWith("h-")) return void TURN_FOLDS.set(key, open);
+    foldMemo = null;
     const all = { ...(store.get("folds", {}, { from: OLD_FOLD_KEY }) ?? {}) };
     all[key] = open;
     store.set("folds", all);

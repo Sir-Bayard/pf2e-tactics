@@ -399,7 +399,8 @@ async function onDropped(item) {
 const EFFECTS = new Map();
 function effectsOf(item) {
     if (!item) return null;
-    const key = item.uuid ?? item.id ?? item.name;
+    // keyed by when it was last changed too, so an edited spell is read again (T24)
+    const key = `${item.uuid ?? item.id ?? item.name}|${item._stats?.modifiedTime ?? ""}`;
     if (!EFFECTS.has(key)) {
         let e = null;
         try { e = spellEffects(item); } catch { e = null; }
@@ -688,6 +689,8 @@ function onSustainCast(message) {
 
 /** One count per save, whichever way it arrives (its own message, or PF2e Toolbelt's card). */
 const SAVE_SEEN = new Set();
+/** The fight is over (deleteCombat): what was kept about it goes, and the spell readings with it (T24). */
+function forgetFightState() { LAST_HIT.clear(); EFFECTS.clear(); SAVE_SEEN.clear(); }
 const saveKey = (combat, item, npcTok, srcTok) => `${combat.id}|${combat.round ?? 0}|${item?.uuid ?? item?.name ?? "?"}|${npcTok}|${srcTok}`;
 
 /** Saves rolled through PF2e Toolbelt's Target Helper are written into the spell's card instead of a message of their own. */
@@ -722,4 +725,4 @@ function onToolbeltSaves(message, changes) {
 }
 
 
-export { adjustLedger, currentLedger, editThreat, flushThreat, hitWorth, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, saveThreat, setThreatRow, sustainNow, threatFor, threatOn, threatScale, turnHtml };
+export { adjustLedger, currentLedger, editThreat, flushThreat, forgetFightState, hitWorth, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, saveThreat, setThreatRow, sustainNow, threatFor, threatOn, threatScale, turnHtml };

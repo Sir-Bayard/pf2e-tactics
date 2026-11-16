@@ -685,7 +685,6 @@ function flanks(att, ally, target) {
 function movementField(opts) {
     const { start, maxFeet, canEnter, canEnd, blocked, costAt = () => 1, edgeFeet = () => 0, threats = () => [], noReactions = false, noReactionsUpTo = null, avoid = "safe", flatDiagonals = false } = opts;
     const key = (x, y, p) => `${x},${y},${p}`;
-    const best = new Map();
     const startKey = key(start.x, start.y, 0);
     const heap = [[0, 0, start.x, start.y, 0, []]]; // [score, feet, x, y, parity, provokes]
     const seen = new Map([[startKey, 0]]);
@@ -758,7 +757,6 @@ function movementField(opts) {
             }
         }
     }
-    best.clear();
     return out;
 }
 
@@ -1296,9 +1294,10 @@ function creatureOf(token, size) {
         .filter((p) => p.trigger && (p.trigger.onMove || p.trigger.onManipulate || p.trigger.onRanged));
     const hp = a.hitPoints ?? a.system?.attributes?.hp ?? {};
     const conditions = new Set((a.conditions?.active ?? []).map((c) => c.slug));
-    const pcStrike = a.type === "character" ? strikesOf(a).filter((s) => !s.ranged).sort((x, y) => y.bonus - x.bonus)[0] : null;
+    const own = strikesOf(a); // read once (T26)
+    const pcStrike = a.type === "character" ? own.filter((s) => !s.ranged).sort((x, y) => y.bonus - x.bonus)[0] : null;
     // How far it can hurt something it can't reach: its longest ranged Strike's first increment, or 60 ft for a caster
-    const pcRanged = a.type === "character" ? strikesOf(a).filter((s) => s.ranged).sort((x, y) => (y.range ?? 0) - (x.range ?? 0))[0] : null;
+    const pcRanged = a.type === "character" ? own.filter((s) => s.ranged).sort((x, y) => (y.range ?? 0) - (x.range ?? 0))[0] : null;
     return {
         id: token.id, name: token.name, token, actor: a, rect: rectOf(token.document, size),
         type: a.type, level: a.level ?? 0,
@@ -1321,7 +1320,7 @@ function creatureOf(token, size) {
         perception: a.perception?.mod ?? a.system?.perception?.mod ?? null,
         athletics: a.skills?.athletics?.mod ?? null,
         canAct: !CANT_ACT.some((c) => conditions.has(c)),
-        hasMelee: a.type === "character" || strikesOf(a).some((s) => !s.ranged),
+        hasMelee: a.type === "character" || own.some((s) => !s.ranged),
         flankImmune: hasAbility(a, /^all-around vision$/i) ? "all" : hasAbility(a, /^deny advantage$/i) ? "deny" : null,
         takingCover: !!a.items?.some?.((i) => i.type === "effect" && /take cover|^effect: cover/i.test(i.name ?? "")),
         // What anyone can see of its defenses: the armor it wears (characters only) and a raised shield
@@ -1524,6 +1523,8 @@ const RECENT = new Map();
 const HP_AT_TURN = new Map();
 /** Whom each NPC last attacked (token id -> { combatId, id, round }). */
 const LAST_TARGET = new Map();
+/** The fight is over (deleteCombat): what was kept about it goes (T24). */
+function forgetFightReader() { RECENT.clear(); HP_AT_TURN.clear(); LAST_TARGET.clear(); }
 /** A token on another level of the scene has no object on the canvas: stand in for it with its document. */
 const tokenStandIn = (doc) => ({ id: doc.id, name: doc.name, actor: doc.actor, document: doc });
 
@@ -1952,4 +1953,4 @@ function slotsByRank(actor) {
     return out;
 }
 
-export { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, HP_AT_TURN, inReach, isDown, itemSpellsOf, LAST_TARGET, learnedAcBounds, learnK, mapFor, movementField, movementOptions, partialsOf, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, RECENT, rectInArea, RIDERS, round1, saveExpected, segmentsCrossProperly, slotsByRank, speedsOf, spellEffects, staffSpellsOf, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, visibleAdjustments, withVisioner };
+export { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, forgetFightReader, gapSquares, healUse, heightOf, HP_AT_TURN, inReach, isDown, itemSpellsOf, LAST_TARGET, learnedAcBounds, learnK, mapFor, movementField, movementOptions, partialsOf, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, RECENT, rectInArea, RIDERS, round1, saveExpected, segmentsCrossProperly, slotsByRank, speedsOf, spellEffects, staffSpellsOf, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, visibleAdjustments, withVisioner };
