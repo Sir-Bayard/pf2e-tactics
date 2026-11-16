@@ -4,7 +4,8 @@
  * Turns, trigger whispers, Foundry hooks, settings and the module API. One module, several files: see
  * pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, MODULE_ID, esc, setting, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, esc, gmLeadNow, isGmLead, setting, startGmTabs, flagOf } from "./shared.mjs";
+import { helperApi } from "./player.mjs";
 import { HP_AT_TURN, RECENT, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
 import { currentLedger, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, setThreatRow, threatFor } from "./state.mjs";
@@ -33,7 +34,7 @@ async function onTurn(combat) {
     }
     try {
         if (m === "window") await showWindow(c.actor, c.token?.object ?? c.token);
-        else if (m === "chat" && game.users.activeGM?.id === game.user.id) {
+        else if (m === "chat" && isGmLead()) {
             // Keyed on the combatant, and kept on the combat, so a re-sort or a reload doesn't post it twice
             const key = `${combat.round}:${c.id}`;
             if (key === lastPosted || flagOf(combat, "posted") === key) return;
@@ -49,7 +50,7 @@ async function onTurn(combat) {
 // --- Trigger whispers: the moment a trigger comes true, even on a player's turn ---------------------
 let triggerTimer = null;
 function checkTriggersSoon() {
-    if (!game.combat?.started || !setting("triggerWhispers", true) || game.users.activeGM?.id !== game.user.id) return;
+    if (!game.combat?.started || !setting("triggerWhispers", true) || !isGmLead()) return;
     clearTimeout(triggerTimer);
     triggerTimer = setTimeout(checkTriggers, 300);
 }
@@ -134,10 +135,10 @@ for (const hook of ["createToken", "deleteToken"]) Hooks.on(hook, (doc) => { if 
  * A passive that recharges an ability on a Strike's critical hit (Draconic Momentum and the like): clear the wait.
  */
 async function onCritRecharge(message) {
-    if (game.users.activeGM?.id !== game.user.id) return;
     const combat = game.combat;
     const ctx = message.flags?.pf2e?.context;
     if (!combat?.started || ctx?.type !== "attack-roll" || ctx.outcome !== "criticalSuccess") return;
+    if (!(await gmLeadNow())) return;
     const actor = message.actor;
     if (!actor || actor.hasPlayerOwner) return;
     const waits = flagOf(actor, "recharge") ?? {};
@@ -248,6 +249,12 @@ Hooks.once("init", () => {
         parseTriggers,
         triggers: (actor, token) => triggersFor(actor, token),
     };
+});
+// The players' functions (helper, helperCard) join the API at ready; the module's ready hook fires then, once, with all of it
+Hooks.once("ready", () => {
+    const module = game.modules.get(MODULE_ID);
+    module.api = Object.assign(module.api ?? {}, helperApi());
+    startGmTabs();
     Hooks.callAll(`${MODULE_ID}.ready`, module.api);
 });
 

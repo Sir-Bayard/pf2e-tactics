@@ -6,7 +6,7 @@
  * only. One module, several files: see pf2e-tactics.mjs for the whole.
  */
 import { CONDITION_VALUE, NOTICE, actorTier } from "./advisor.mjs";
-import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, playersSee, setting, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, gmLeadNow, isGmLead, playersSee, safe, setting, tipAttr, flagOf } from "./shared.mjs";
 import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects, visibleAdjustments } from "./reader.mjs";
 import { refreshSoon, workbenchRecharge } from "./card.mjs";
 
@@ -230,7 +230,7 @@ function turnHtml(L, board) {
     const base = Math.max(0, Math.min(3, 3 - (cv.stunned ? cv.stunned : cv.slowed ?? 0))) + quick;
     const left = Math.max(0, base - t.spent);
     const pips = Array.from({ length: Math.max(base, t.spent) }, (_, i) => `<span class="npt-pip${i < t.spent ? " npt-used" : ""}"></span>`).join("");
-    const btn = (k, d, label, title, cls = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-npt-adj="${k}:${d}" data-tooltip="${title}">${label}</button>`;
+    const btn = (k, d, label, title, cls = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-npt-adj="${k}:${d}"${tipAttr(title)}>${label}</button>`;
     const map = t.attacks ? `<span class="npt-map">next ${t.attacks >= 2 ? "−10 (agile −8)" : "−5 (agile −4)"}</span>` : "";
     const log = L.log.length ? `<div class="npt-log">So far: ${L.log.map((e) => `${esc(e.text)}${e.cost ? ` ${costGlyph(Math.min(3, e.cost))}` : ""}`).join(" · ")}</div>` : "";
     return `<div class="npt-turn"><div class="npt-turn-row">
@@ -241,7 +241,7 @@ function turnHtml(L, board) {
 
 // --- Recharge: an ability that "can't be used again for 1d4 rounds" was just used ------------------
 async function onAbilityUsed(message) {
-    if (game.users.activeGM?.id !== game.user.id) return;
+    if (!(await gmLeadNow())) return;
     const combat = game.combat;
     if (!combat?.started) return;
     const originUuid = message.flags?.pf2e?.origin?.uuid;
@@ -356,7 +356,7 @@ async function editThreat(tokenId) {
     const me = token.actor;
     const row = threatFor(combat, tokenId);
     const foes = combat.combatants.filter((c) => c.tokenId && c.tokenId !== tokenId && c.actor && (me.isEnemyOf?.(c.actor) ?? false));
-    if (!foes.length) return ui.notifications.info(`No one in this fight is hostile to ${token.name}.`);
+    if (!foes.length) return ui.notifications.info(safe`No one in this fight is hostile to ${token.name}.`);
     const rows = foes.map((c) => `<div class="form-group"><label>${esc(c.token?.name ?? c.name)}</label><input type="number" name="${esc(c.tokenId)}" value="${Math.round(row[c.tokenId] ?? 0)}" min="0" step="1"></div>`).join("");
     const result = await foundry.applications.api.DialogV2.wait({
         window: { title: `Threat: ${token.name}`, icon: "fa-solid fa-scale-unbalanced" },
@@ -378,7 +378,7 @@ async function editThreat(tokenId) {
 function onPersistent(item) {
     if (item?.type !== "condition" || item.slug !== "persistent-damage" || !threatOn()) return;
     const combat = game.combat;
-    if (!combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!combat?.started || !isGmLead()) return;
     const actor = item.parent;
     const c = combat.combatants.find((x) => x.actor === actor || (actor && x.actor?.uuid === actor.uuid));
     const last = c?.tokenId ? LAST_HIT.get(c.tokenId) : null;
@@ -394,7 +394,7 @@ const PERSIST_SRC = new Map(); // persistent-damage condition uuid -> token id o
 async function onDropped(item) {
     if (item?.type !== "condition" || item.slug !== "unconscious" || !threatOn()) return;
     const combat = game.combat;
-    if (!combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!combat?.started || !(await gmLeadNow())) return;
     const actor = item.parent;
     const c = combat.combatants.find((x) => x.actor === actor || (actor && x.actor?.uuid === actor.uuid));
     const cut = dropCut();
@@ -442,7 +442,7 @@ const MANEUVER_OPTIONS = /^action:(trip|grapple|shove|disarm|reposition|demorali
 /** Read a chat message for threat: damage applied, healing on a foe, an attack or maneuver aimed at a creature. */
 function onThreatMessage(message, sign = 1) {
     const combat = game.combat;
-    if (!threatOn() || !combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!threatOn() || !combat?.started || !isGmLead()) return;
     const f = message.flags?.pf2e ?? {};
     const tokenOf = (actor) => (actor ? combat.combatants.find((c) => c.actor === actor || c.actor?.uuid === actor.uuid)?.tokenId ?? null : null);
     const applied = f.appliedDamage;
@@ -587,7 +587,7 @@ function flushLearned() {
 const SAVE_STATS = ["fortitude", "reflex", "will"];
 function onLearnMessage(message) {
     const combat = game.combat;
-    if (!combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!combat?.started || !isGmLead()) return;
     const ctx = message.flags?.pf2e?.context;
     if (!ctx || ctx.isReroll) return;
     const tokenOf = (actor) => (actor ? combat.combatants.find((c) => c.actor === actor || c.actor?.uuid === actor.uuid)?.tokenId ?? null : null);
@@ -650,7 +650,7 @@ function onLearnMessage(message) {
 function onLearnToolbelt(message, changes) {
     const combat = game.combat;
     const th = changes?.flags?.["pf2e-toolbelt"]?.targetHelper;
-    if (!th || !combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!th || !combat?.started || !isGmLead()) return;
     const src = message.actor;
     if (!src || src.hasPlayerOwner) return;
     const counted = { ...(flagOf(message, "learnSaves") ?? {}) };
@@ -681,7 +681,7 @@ async function sustainNow(actor) {
 /** An NPC casts a sustained spell: note it, so its later turns offer the Sustain. */
 function onSustainCast(message) {
     const combat = game.combat;
-    if (!combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!combat?.started || !isGmLead()) return;
     const ctx = message.flags?.pf2e?.context;
     if (ctx && ctx.type !== "spell-cast") return;
     const item = message.item;
@@ -705,7 +705,7 @@ const saveKey = (combat, item, npcTok, srcTok) => `${combat.id}|${combat.round ?
 function onToolbeltSaves(message, changes) {
     if (!changes?.flags?.["pf2e-toolbelt"]?.targetHelper || !threatOn()) return;
     const combat = game.combat;
-    if (!combat?.started || !game.users?.activeGM?.isSelf) return;
+    if (!combat?.started || !isGmLead()) return;
     const src = message.actor;
     const srcTok = message.token?.id ?? message.speaker?.token ?? combat.combatants.find((c) => c.actor === src)?.tokenId ?? null;
     if (!src || !srcTok) return;

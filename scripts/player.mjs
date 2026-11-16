@@ -14,7 +14,7 @@
  * only trace of one is a line about Seeking, when the party already knows it is there (its combatant is in the
  * tracker).
  */
-import { MODULE_ID, esc, link, playersSee, playersSeeName, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
+import { MODULE_ID, esc, isGmLead, link, playersSee, playersSeeName, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
@@ -49,7 +49,7 @@ function shownDoing(combat, tokenId) {
 let seenTimer = null;
 /** The GM's client writes what this client has noted into the combat's record (merged, never shrunk). */
 function keepSeen(combat) {
-    if (!combat || !game.users?.activeGM?.isSelf) return;
+    if (!combat || !isGmLead()) return;
     clearTimeout(seenTimer);
     seenTimer = setTimeout(async () => {
         try {
@@ -592,7 +592,7 @@ let HelperWindow = null;
 function helperClass() {
     if (HelperWindow) return HelperWindow;
     // Keeps its place and width in this browser; the height fits the card.
-    HelperWindow = class extends rememberWindow(foundry.applications.api.ApplicationV2, HELPER_POSITION_KEY, { size: "width" }) {
+    HelperWindow = class extends rememberWindow(foundry.applications.api.ApplicationV2, { module: MODULE_ID, name: "helper", size: "width", from: HELPER_POSITION_KEY }) {
         static DEFAULT_OPTIONS = {
             id: `${MODULE_ID}-helper`,
             classes: ["npt-window", "npt-helper-window"],
@@ -775,10 +775,8 @@ Hooks.once("init", () => {
     });
 });
 
-Hooks.once("ready", () => {
-    const module = game.modules.get(MODULE_ID);
-    module.api = Object.assign(module.api ?? {}, { helper: openHelper, helperCard: (actor, token) => (actor?.isOwner || game.user.isGM ? buildHelper(actor, token) : Promise.resolve("")) });
-});
+/** The players' half of the module's API, added at ready (hooks.mjs). helperCard checks that the user owns the character. */
+const helperApi = () => ({ helper: openHelper, helperCard: (actor, token) => (actor?.isOwner || game.user.isGM ? buildHelper(actor, token) : Promise.resolve("")) });
 
 Hooks.on("updateCombat", (combat, changes) => {
     if (combat !== game.combat) return;
@@ -824,4 +822,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift, turnLine };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, helperApi, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift, turnLine };

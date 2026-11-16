@@ -7,7 +7,7 @@
  * (flags["pf2e-tactics"].record = { combat, spellstrike, exploited, chaliceDrained, wandBoosted, demoralized, asked }),
  * so it survives a reload and starts over with the next fight.
  */
-import { MODULE_ID, flagOf } from "./shared.mjs";
+import { MODULE_ID, gmLeadNow, flagOf } from "./shared.mjs";
 
 const slugOf = (i) => i?.slug ?? String(i?.name ?? "").toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 /** Actions that recharge Spellstrike besides the plain recharge (a conflux spell is read from its traits). */
@@ -91,7 +91,7 @@ function recordForBoard(actor) {
  * fought in it, and any record left from a combat that has since been deleted.
  */
 async function clearRecords(combat) {
-    if (!game.users?.activeGM?.isSelf) return;
+    if (!(await gmLeadNow())) return;
     const actors = new Set();
     for (const c of combat?.combatants ?? []) if (c.actor?.type === "character") actors.add(c.actor);
     for (const a of game.actors ?? []) if (a.type === "character" && flagOf(a, "record")) actors.add(a);

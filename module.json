@@ -64,5 +64,6 @@
       },
       "flags": {}
     }
-  ]
+  ],
+  "socket": true
 }

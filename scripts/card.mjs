@@ -4,7 +4,7 @@
  * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas. One module, several
  * files: see pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, rememberWindow, section, setting, signed, ul, flagOf } from "./shared.mjs";
+import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, rememberWindow, safe, section, setting, signed, store, tipAttr, ul, flagOf } from "./shared.mjs";
 import { RIDERS, feetBetween, profilesOf, readBoard, round1, stripTags, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { RUN_WORDS, TIER_TEXT, nameOf, planTurn, tierOf } from "./advisor.mjs";
 import { adjustLedger, editThreat, ledgerFor, ledgerTotals, sustainNow, threatOn, turnHtml } from "./state.mjs";
@@ -306,23 +306,19 @@ function showButton(plan) {
 
 /** Which cards are open: kept per GM in this browser, the way each was left. The Turn Helper's folds ("h-" keys) last only
  *  for the turn: each turn starts from the defaults (Your Turn open, the rest folded). */
-const FOLD_KEY = `${MODULE_ID}.folds`;
+const OLD_FOLD_KEY = `${MODULE_ID}.folds`;
 const TURN_FOLDS = new Map();
 function resetTurnFolds() { TURN_FOLDS.clear(); }
 function foldOpen(key, fallback) {
     if (String(key).startsWith("h-")) return TURN_FOLDS.get(key) ?? fallback;
-    try {
-        const v = JSON.parse(localStorage.getItem(FOLD_KEY) ?? "{}")[key];
-        return typeof v === "boolean" ? v : fallback;
-    } catch { return fallback; }
+    const v = store.get("folds", {}, { from: OLD_FOLD_KEY })?.[key];
+    return typeof v === "boolean" ? v : fallback;
 }
 function saveFold(key, open) {
     if (String(key).startsWith("h-")) return void TURN_FOLDS.set(key, open);
-    try {
-        const all = JSON.parse(localStorage.getItem(FOLD_KEY) ?? "{}");
-        all[key] = open;
-        localStorage.setItem(FOLD_KEY, JSON.stringify(all));
-    } catch { /* private window or blocked storage */ }
+    const all = { ...(store.get("folds", {}, { from: OLD_FOLD_KEY }) ?? {}) };
+    all[key] = open;
+    store.set("folds", all);
 }
 
 /** A card: title, a one-line summary, buttons, and a body. With a key and a body it folds. title and sum are HTML. */
@@ -344,7 +340,7 @@ function tierChip(actor) {
     if (!actor || actor.type === "hazard" || actor.hasPlayerOwner) return "";
     const me = { mindless: actor.traits?.has?.("mindless") ?? false, int: actor.system?.abilities?.int?.mod ?? 0 };
     const t = tierOf(me);
-    return `<span class="npt-chip npt-tier" data-tooltip="${esc(TIER_TEXT[t])}">${TIER_NAME[t]} · Int ${minus(signed(me.int))}</span>`;
+    return `<span class="npt-chip npt-tier"${tipAttr(TIER_TEXT[t])}>${TIER_NAME[t]} · Int ${minus(signed(me.int))}</span>`;
 }
 
 /** Triggers true now: a card each, at the top. */
@@ -356,7 +352,7 @@ function triggerSection(triggers) {
 function watchChips(triggers) {
     const list = triggers.filter((t) => t.state !== "now");
     if (!list.length) return "";
-    return `<div class="npt-chips">${list.map((t) => `<span class="npt-chip${t.state === "manual" ? " npt-manual" : ""}" data-tooltip="${t.state === "watch" ? "Watched: whispered to you when it comes true" : t.test?.compound ? "Two conditions in one line: watch for this yourself" : "Watch for this yourself"}">${t.who ? `${esc(t.who)}, ` : ""}${esc(clip(t.cond))}${t.then ? `: ${esc(clip(t.then))}` : ""}</span>`).join("")}</div>`;
+    return `<div class="npt-chips">${list.map((t) => `<span class="npt-chip${t.state === "manual" ? " npt-manual" : ""}"${tipAttr(t.state === "watch" ? "Watched: whispered to you when it comes true" : t.test?.compound ? "Two conditions in one line: watch for this yourself" : "Watch for this yourself")}>${t.who ? `${esc(t.who)}, ` : ""}${esc(clip(t.cond))}${t.then ? `: ${esc(clip(t.then))}` : ""}</span>`).join("")}</div>`;
 }
 
 function stepsHtml(steps) {
@@ -383,7 +379,7 @@ function adviceSection(plans, board, intent) {
     }
     if (!plans.length) {
         const why = board.enemies.length ? "Nothing it has can reach an enemy this turn. Close the distance, take cover, or hold."
-            : board.elsewhere?.length ? `Its foes (${board.elsewhere.map(nameOf).join(", ")}) are on another floor, out of sight. It takes the stairs or a ladder to them, or waits for them to come.`
+            : board.elsewhere?.length ? `Its foes (${esc(board.elsewhere.map(nameOf).join(", "))}) are on another floor, out of sight. It takes the stairs or a ladder to them, or waits for them to come.`
             : "No one is left fighting it. Its tactics may say what it does now (flee, drag something off, stand guard).";
         return panel("Turn Advice", { cls: "npt-act", body: `<p class="npt-dim">${why}</p>` });
     }
@@ -393,7 +389,7 @@ function adviceSection(plans, board, intent) {
     if (best.why?.length) why.push(`<span class="npt-reason">${esc(best.why.join(", "))}</span>`);
     const showBtn = showButton(best);
     // A spell it can Sustain: one click uses PF2e's Sustain action for it (its card, the action counted, the advice redone)
-    const sustainBtn = board.sustain && board.me?.actor?.uuid ? `<button type="button" class="npt-show npt-sustain" data-npt-sustain="${esc(board.me.actor.uuid)}" data-tooltip="${esc(`Sustain ${board.sustain.name}: posts PF2e's Sustain action for it, counts the action, and plans the rest of the turn`)}"><i class="fa-solid fa-hourglass-half"></i> Sustain</button>` : "";
+    const sustainBtn = board.sustain && board.me?.actor?.uuid ? `<button type="button" class="npt-show npt-sustain" data-npt-sustain="${esc(board.me.actor.uuid)}"${tipAttr(`Sustain ${board.sustain.name}: posts PF2e's Sustain action for it, counts the action, and plans the rest of the turn`)}><i class="fa-solid fa-hourglass-half"></i> Sustain</button>` : "";
     const notes = best.notes.length ? `<div class="npt-notes">${best.notes.map(esc).join(" · ")}</div>` : "";
     const seen = new Set([`${best.kind}|${best.target?.id ?? ""}|${best.title}`]);
     const alts = [];
@@ -628,7 +624,7 @@ function windowClass() {
     if (TurnWindow) return TurnWindow;
     const { ApplicationV2 } = foundry.applications.api;
     // Keeps its place and width in this browser; the height fits the card.
-    TurnWindow = class extends rememberWindow(ApplicationV2, POSITION_KEY, { size: "width" }) {
+    TurnWindow = class extends rememberWindow(ApplicationV2, { module: MODULE_ID, name: "card", size: "width", from: POSITION_KEY }) {
         static DEFAULT_OPTIONS = {
             id: MODULE_ID,
             classes: ["npt-window"],
@@ -856,14 +852,14 @@ async function editNotes(uuid) {
             <textarea name="notes" rows="9" style="width:100%">${esc(current)}</textarea>`,
         buttons: [
             { action: "save", label: "Save", icon: "fa-solid fa-floppy-disk", default: true, callback: (event, button) => button.form.elements.notes.value },
-            { action: "cancel", label: "Cancel", icon: "fa-solid fa-xmark" },
+            { action: "cancel", label: "Cancel", icon: "fa-solid fa-xmark", callback: () => null },
         ],
         rejectClose: false,
     });
-    if (typeof text !== "string" || text === "cancel") return;
-    const update = text.trim() ? { [`flags.${FLAG_SCOPE}.notes`]: text.trim() } : { [`flags.${FLAG_SCOPE}.-=notes`]: null };
+    if (typeof text !== "string") return;
+    const update = text.trim() ? { [`flags.${FLAG_SCOPE}.notes`]: text.trim() } : { [`flags.${FLAG_SCOPE}.notes`]: new foundry.data.operators.ForcedDeletion() };
     await actor.update(update);
-    ui.notifications.info(`Notes saved for ${actor.name}.`);
+    ui.notifications.info(safe`Notes saved for ${actor.name}.`);
 }
 
 
