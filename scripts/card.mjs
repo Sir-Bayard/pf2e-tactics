@@ -4,6 +4,7 @@
  * Trigger lines, the card, the window, chat cards, notes and the path drawn on the GM's canvas. One module, several
  * files: see pf2e-tactics.mjs for the whole.
  */
+import { keyboardWindow } from "./kit/keyboard.mjs";
 import { FLAG_SCOPE, MODULE_ID, POSITION_KEY, baseActorOf, cap, costGlyph, esc, link, rememberWindow, safe, section, setCardRefresh, setting, signed, store, tipAttr, ul, flagOf } from "./shared.mjs";
 import { RIDERS, feetBetween, profilesOf, readBoard, round1, stripTags, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { RUN_WORDS, TIER_TEXT, nameOf, planTurn, tierOf } from "./advisor.mjs";
@@ -246,7 +247,7 @@ function titleCase(text) {
 /** The Show button for a plan that moves (its path) or aims an area (its point); drawn on this client's map only. */
 function showButton(plan) {
     if (!plan?.dest && !plan?.aim) return "";
-    return `<button type="button" class="npt-show" data-npt-show="${esc(JSON.stringify(plan.dest ?? plan.aim))}" data-npt-path="${esc(JSON.stringify(plan.path ?? []))}" data-npt-kind="${plan.dest ? "square" : "point"}" data-tooltip="Draw the path on your map (only you see it). Click again to hide it."><i class="fa-solid fa-location-crosshairs"></i> Show</button>`;
+    return `<button type="button" class="npt-show" data-npt-show="${esc(JSON.stringify(plan.dest ?? plan.aim))}" data-npt-path="${esc(JSON.stringify(plan.path ?? []))}" data-npt-kind="${plan.dest ? "square" : "point"}" ${tipAttr("Draw the path on your map (only you see it). Click again to hide it.")}${plan.dest ? ` aria-pressed="${pathShown?.key === JSON.stringify(plan.path ?? []) + JSON.stringify(plan.dest) ? "true" : "false"}"` : ""}><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> Show</button>`;
 }
 
 /** Which cards are open: kept per GM in this browser, the way each was left. The Turn Helper's folds ("h-" keys) last only
@@ -403,7 +404,7 @@ function boardLine(board, triggers = []) {
     const chips = watchChips(triggers);
     if (chips) rows.push(["Watching", chips]);
     const sum = th.length ? `top threat ${esc(nameOf(th[0].e))} · nearest ${esc(nameOf(near[0].e))} ${near[0].d} ft` : `nearest ${esc(nameOf(near[0].e))} ${near[0].d} ft`;
-    const tools = threatOn() && game.user?.isGM && game.combat ? `<button type="button" data-npt-threat="${esc(board.me.id)}" data-tooltip="Set or reset who it's most set on"><i class="fa-solid fa-scale-unbalanced"></i> Threat</button>` : "";
+    const tools = threatOn() && game.user?.isGM && game.combat ? `<button type="button" data-npt-threat="${esc(board.me.id)}" ${tipAttr("Set or reset who it's most set on")}><i class="fa-solid fa-scale-unbalanced" aria-hidden="true"></i> Threat</button>` : "";
     return panel("The Board", { key: "board", open: true, sum, tools, body: `<div class="npt-grid">${rows.map(([k, v]) => `<span class="npt-k">${k}</span><div>${v}</div>`).join("")}</div>` });
 }
 
@@ -416,7 +417,7 @@ function tacticsHtml(actor, token) {
         html += panel("Tactics", { key: `tactics:${t.title}`, sum: esc(`${t.title}${first ? ` · ${first}` : ""}`), body });
     }
     const notes = notesOf(base);
-    const tools = `<button type="button" data-npt-notes="${esc(base?.uuid ?? actor.uuid)}" data-tooltip="How this creature fights, shared by all its tokens"><i class="fa-solid fa-pen"></i> ${notes ? "Edit" : "Add"}</button>`;
+    const tools = `<button type="button" data-npt-notes="${esc(base?.uuid ?? actor.uuid)}" ${tipAttr("How this creature fights, shared by all its tokens")}><i class="fa-solid fa-pen" aria-hidden="true"></i> ${notes ? "Edit" : "Add"}</button>`;
     if (notes) {
         const body = notes.split(/\n{2,}/)
             .map((p) => p.split("\n").filter((l) => !/^\W*trigger\W*[:.]/i.test(l.trim())).join("\n").trim()).filter(Boolean)
@@ -571,7 +572,9 @@ function windowClass() {
     if (TurnWindow) return TurnWindow;
     const { ApplicationV2 } = foundry.applications.api;
     // Keeps its place and width in this browser; the height fits the card.
-    TurnWindow = class extends rememberWindow(ApplicationV2, { module: MODULE_ID, name: "card", size: "width", from: POSITION_KEY }) {
+    // Remembers its place; works from the keyboard (kit keyboard: focus kept across redraws, Tab and focus styling;
+    // ownKeys off, since its buttons act on the game and Space should still pause it) (T44)
+    TurnWindow = class extends keyboardWindow(rememberWindow(ApplicationV2, { module: MODULE_ID, name: "card", size: "width", from: POSITION_KEY }), { module: MODULE_ID, scope: ".npt-window", ownKeys: false }) {
         static DEFAULT_OPTIONS = {
             id: MODULE_ID,
             classes: ["npt-window"],
@@ -598,11 +601,14 @@ function windowClass() {
         }
 
         _replaceHTML(result, content) {
-            content.innerHTML = result;
             const titleEl = this.window?.title ?? this.element?.querySelector?.(".window-title");
             if (titleEl) titleEl.textContent = this.title;
+            // The same card as last time: leave it be, scroll, focus and all (T45)
+            if (result === this._shown && content.childElementCount) return;
+            this._shown = result;
+            content.innerHTML = result;
             Object.assign(content.style, { maxHeight: "78vh", overflowY: "auto" });
-            bindCard(content, () => this.render());
+            bindCard(content, () => { this._shown = null; this.render(); });
         }
 
         async close(options) {
@@ -713,6 +719,8 @@ function bindCard(root, rerender) {
                     canvas.controls.handlePing(game.user, origin, ping);
                 }
             } catch (err) { console.warn(`${MODULE_ID} | couldn't show the square`, err); }
+            // a square's Show is a toggle: say which one is drawn (T44)
+            for (const x of root.querySelectorAll('[data-npt-show][data-npt-kind="square"]')) x.setAttribute("aria-pressed", String(pathShown?.key === x.dataset.nptPath + x.dataset.nptShow));
         });
     });
 }

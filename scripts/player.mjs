@@ -14,7 +14,8 @@
  * only trace of one is a line about Seeking, when the party already knows it is there (its combatant is in the
  * tracker).
  */
-import { BOARD_FIELDS, MODULE_ID, esc, isGmLead, link, playersSee, playersSeeName, rememberWindow, setting, signed, slugify, flagOf } from "./shared.mjs";
+import { keyboardWindow } from "./kit/keyboard.mjs";
+import { BOARD_FIELDS, esc, flagOf, isGmLead, link, MODULE_ID, playersSee, playersSeeName, rememberWindow, setting, signed, slugify, tipAttr } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, slotsByRank, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
@@ -631,7 +632,7 @@ async function buildHelper(actor, token) {
     const rec = ownRecord(actor);
     const magus = rec && actor.items?.some?.((i) => i.type === "action" && (i.slug ?? "") === "spellstrike");
     const ssLabel = rec?.spellstrike === true ? "charged: mark spent" : rec?.spellstrike === false ? "spent: mark charged" : "unknown: mark charged";
-    const ss = magus ? `<button type="button" data-npt-spellstrike="${rec.spellstrike === true ? "0" : "1"}" title="PF2e doesn't track it; the helper reads your Spellstrike and recharge cards, and this sets it by hand"><i class="fa-solid fa-bolt"></i> Spellstrike ${ssLabel}</button>` : "";
+    const ss = magus ? `<button type="button" data-npt-spellstrike="${rec.spellstrike === true ? "0" : "1"}" ${tipAttr("PF2e doesn't track it; the helper reads your Spellstrike and recharge cards, and this sets it by hand")}><i class="fa-solid fa-bolt"></i> Spellstrike ${ssLabel}</button>` : "";
     const buttons = `<div class="npt-foot">${ss}<button type="button" data-npt-refresh><i class="fa-solid fa-rotate"></i> Refresh</button></div>`;
     return `<div class="npt-card npt-helper">${top}${turnLine(actor)}${ledger ? turnHtml(ledger, board) : ""}<div class="npt-body">${body}</div>${buttons}</div>`;
 }
@@ -642,7 +643,8 @@ let HelperWindow = null;
 function helperClass() {
     if (HelperWindow) return HelperWindow;
     // Keeps its place and width in this browser; the height fits the card.
-    HelperWindow = class extends rememberWindow(foundry.applications.api.ApplicationV2, { module: MODULE_ID, name: "helper", size: "width", from: HELPER_POSITION_KEY }) {
+    // Works from the keyboard too (kit keyboard; ownKeys off, as on the GM card) (T44)
+    HelperWindow = class extends keyboardWindow(rememberWindow(foundry.applications.api.ApplicationV2, { module: MODULE_ID, name: "helper", size: "width", from: HELPER_POSITION_KEY }), { module: MODULE_ID, scope: ".npt-window", ownKeys: false }) {
         static DEFAULT_OPTIONS = {
             id: `${MODULE_ID}-helper`,
             classes: ["npt-window", "npt-helper-window"],
@@ -661,15 +663,23 @@ function helperClass() {
             return editor.enrichHTML(html, { async: true });
         }
         _replaceHTML(result, content) {
-            content.innerHTML = result;
             const titleEl = this.window?.title ?? this.element?.querySelector?.(".window-title");
             if (titleEl) titleEl.textContent = this.title;
+            if (!this._leaveBound && this.element) {
+                this._leaveBound = true;
+                this.element.addEventListener("pointerleave", () => { if (this._heldRefresh) { this._heldRefresh = false; refreshHelper(50); } });
+            }
+            // The same card as last time: leave it be, scroll, focus and all (T45)
+            if (result === this._shown && content.childElementCount) return;
+            this._shown = result;
+            content.innerHTML = result;
             Object.assign(content.style, { maxHeight: "78vh", overflowY: "auto" });
-            bindCard(content, () => this.render());
+            bindCard(content, () => { this._shown = null; this.render(); });
             content.querySelectorAll("[data-npt-spellstrike]").forEach((btn) => btn.addEventListener("click", async (ev) => {
                 ev.preventDefault();
                 if (!this.actor?.isOwner) return;
                 await setSpellstrike(this.actor, btn.dataset.nptSpellstrike === "1");
+                this._shown = null;
                 this.render();
             }));
         }
@@ -722,7 +732,12 @@ let helperTimer = null;
 function refreshHelper(delay = 250) {
     if (!helperWindow?.rendered || !helperWindow.actor) return;
     clearTimeout(helperTimer);
-    helperTimer = setTimeout(() => helperWindow?.rendered && helperWindow.render(), delay);
+    helperTimer = setTimeout(() => {
+        if (!helperWindow?.rendered) return;
+        // the pointer is over it (reading, about to click): redraw when it leaves (T45)
+        if (helperWindow.element?.matches?.(":hover")) { helperWindow._heldRefresh = true; return; }
+        helperWindow.render();
+    }, delay);
 }
 
 /* ------------------------------------------------------------------ spell thrift */
