@@ -512,7 +512,7 @@ function magus(board, ctx, out) {
                 );
             }
         }
-        // Spell Swipe: two adjacent foes in reach, one attack roll against both; Whirlwind Spell: every foe in reach. One spell is
+        // Spell Swipe: two adjacent foes in reach, a Strike against each (both at the same penalty); Whirlwind Spell: every foe in reach. One spell is
         // carried, so a foe other than the first takes it only when the spell has more than one target or an area.
         const inR = foes.filter((f) => melee.some((s) => inReach(board.me.rect, f.rect, s.reach || 5)));
         const spellOn = (x, g) => {
@@ -546,7 +546,7 @@ function magus(board, ctx, out) {
                                 steps: [
                                     {
                                         cost: 3,
-                                        text: `Spell Swipe: one Strike with ${x.s.label} (${signed(x.bonus)}) against both ${nameOf(a)} and ${nameOf(b)}, carrying ${carry(x)}; the spell ${multi ? "affects every foe you hit" : "affects one of them, your pick"}${orText(pa)}`
+                                        text: `Spell Swipe: a Strike with ${x.s.label} (${signed(x.bonus)}) against each of ${nameOf(a)} and ${nameOf(b)}, rolled separately, carrying ${carry(x)}; the spell ${multi ? "affects every foe you hit" : "affects one of them, your pick"}${orText(pa)}`
                                     }
                                 ],
                                 notes: [...(assume ? [assume] : []), "Spell Swipe counts as two attacks, applied after both Strikes."]

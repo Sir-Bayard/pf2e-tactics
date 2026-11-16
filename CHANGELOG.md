@@ -39,6 +39,13 @@ A large update: new windows for the GM, smarter turns on both sides, and numbers
 - Every class that spends a Focus Point is now counted as spending one when the helper looks for your best free turn (Lay on Hands, Untamed Form, Heal Animal, the bard's compositions, the wizard's school spells and more), and Spellstrike with a slot spell, Brain Drain and a Strain Mind amp no longer count as spending one.
 - Battle Medicine says when your sheet shows no healer's toolkit, or both hands full.
 - Actions a class read plans itself are no longer also planned by the general advisor from their text, so they don't appear twice.
+- Class plans count Sneak Attack, Gang Up and other per-Strike extras in their own Strike numbers, so a class feat no longer loses to a plain Strike for the wrong reason.
+- Commander: Coordinating Maneuvers repositions the foe (it isn't a Trip); Bloody Guillotine needs the foe prone, or a Trip first; with your banner planted, the tactics and banner feats that need it in hand are left out and named; one-action tactics fill the rest of the turn; Glorious Banner planted reaches 80 feet.
+- Fighter: Weapon Supremacy's extra action goes only to a Strike in every plan; a two-hand weapon held in both hands counts as two-handed; Lunge uses a weapon that reaches; the presses check the free hand's reach and the foe's size; a "then press" plan appears only when a press applies.
+- Magus: area spells ride a Spellstrike (on the target only, unless you have Expansive Spellstrike); Spellstrike is offered after an attack, at the current penalty; Recharging Flurry needs two weapons in hand, and is offered at the start of a turn when the charge is spent.
+- Alchemist: bomb splash and Mega Bomb count the allies and you they would hit (a bomber can keep the splash to the target); the toxicologist poisons a piercing or slashing weapon and Strikes with it; Quick Alchemy says when your hands are full.
+- Thaumaturge: Intensify Vulnerability and Twin Weakness only on your Exploit's target; Implement's Empowerment only with your hands as it needs them; the censer implement is recognized.
+- Wizard: Hand of the Apprentice throws a weapon you hold, never a fist; Force Bolt alone is planned when you have no damaging cantrip.
 
 **Under the hood**
 

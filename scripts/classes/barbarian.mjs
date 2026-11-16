@@ -597,9 +597,9 @@ function barbarian(board, ctx, out) {
     if (has(actor, "share-rage") && avail >= 1) {
         const ally = board.allies
             .filter((a) => a.hasMelee !== false && a.canAct !== false && feetBetween(me.rect, a.rect) <= 30 && !effect(a.actor, /^effect-rage$/))
-            .sort((a, b) => (allyStrike(b, lv).avg) - (allyStrike(a, lv).avg))[0];
+            .sort((a, b) => allyStrike(b, lv).avg - allyStrike(a, lv).avg)[0];
         if (ally) {
-            const ev = ((ally.level ?? lv) + 2) * 0.3 + 0.1 * (allyStrike(ally, lv).avg) * 2 * 2;
+            const ev = ((ally.level ?? lv) + 2) * 0.3 + 0.1 * allyStrike(ally, lv).avg * 2 * 2;
             push({
                 title: `Share Rage with ${nameOf(ally)}`,
                 target: null,

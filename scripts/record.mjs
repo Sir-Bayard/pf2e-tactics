@@ -110,8 +110,9 @@ function noteIdentify(message, lead = false) {
 
 /**
  * A character's turn starts: the client of a player who owns it (or the GM's, when no owner is on) notes which foes are
- * down now, so "a foe dropped since your last turn" (End It!, Demand Surrender) can be told apart from one down for a
- * while (record.downAtTurn).
+ * down now. End It! and Demand Surrender need a foe reduced to 0 HP since the start of your last turn, so the board gets
+ * the foes that were already down when your previous turn began (record.downAtTurn); null on your first turn. Keyed by
+ * the turn, so a second call in the same turn changes nothing.
  */
 function noteTurnStart(combat) {
     const actor = combat?.combatant?.actor;
@@ -119,7 +120,8 @@ function noteTurnStart(combat) {
     const ownerOn = (game.users?.contents ?? []).some((u) => u.active && !u.isGM && actor.testUserPermission?.(u, "OWNER"));
     if (game.user.isGM && ownerOn) return;
     const down = combat.combatants.filter((x) => x.actor && !x.actor.hasPlayerOwner && (x.isDefeated || (x.actor.hitPoints?.value ?? 1) <= 0)).map((x) => x.tokenId);
-    return save(actor, (r) => ({ ...r, downAtTurn: down }));
+    const key = `${combat.id}:${combat.round}:${combat.turn}`;
+    return save(actor, (r) => (r.downKey === key ? r : { ...r, downKey: key, downAtTurn: r.downStart ?? null, downStart: down }));
 }
 
 /** The helper's toggle, for a Spellstrike rolled without its card. */

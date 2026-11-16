@@ -482,7 +482,7 @@ function commander(board, ctx, out) {
     // End It! (2, incapacitation): the squad outnumbers the foes and one went down since your last turn; everyone Steps and foes within 10 ft flee
     if (has(actor, "end-it") && ctx.actions >= 2) {
         const outnumber = up.length + 1 > foes.length;
-        // dropped since your last turn (B13): down now and not when your last turn began (when the record knows)
+        // reduced to 0 HP since the start of your last turn (B13): down now and not when your previous turn began (when the record knows)
         const downed = (board.downEnemies ?? []).some((e) => !me.downAtTurn || !me.downAtTurn.has(e.id));
         if (outnumber && downed) {
             const near = foes.filter((f) => [me, ...inSquadAura].some((a) => feetBetween(a.rect, f.rect) <= 15));
@@ -789,7 +789,20 @@ function commander(board, ctx, out) {
             .filter(inAura)
             .sort((x, y) => feetBetween(me.rect, x.rect) - feetBetween(me.rect, y.rect))
             .slice(0, 2)) {
-            const cutters = inSquadAura.filter((a) => canMove(a) && melee(a) && canStrideTo(a, f, 0.5));
+            // only a piercing or slashing melee weapon or unarmed attack responds: read from the ally's Strikes (else its
+            // held weapons) when the sheet shows them
+            const edged = (a) => {
+                const fromStrikes = (a.actor?.system?.actions ?? []).filter((x) => x?.type === "strike" && x.item && !x.item.isRanged).map((x) => x.item);
+                const ws = fromStrikes.length
+                    ? fromStrikes
+                    : ((a.actor?.items?.contents ?? a.actor?.items ?? []).filter?.((i) => i.type === "weapon" && !i.isRanged && i.isEquipped !== false) ?? []);
+                if (!ws.length) return true;
+                return ws.some((w) => {
+                    const t = [w.system?.damage?.damageType, ...(w.system?.traits?.value ?? []).map((x) => /^versatile-(p|s)$/.exec(x)?.[1])];
+                    return t.some((x) => ["piercing", "slashing", "p", "s"].includes(x));
+                });
+            };
+            const cutters = inSquadAura.filter((a) => canMove(a) && melee(a) && edged(a) && canStrideTo(a, f, 0.5));
             if (!cutters.length) continue;
             const hits = cutters.map((a) => allyHit(a, f));
             const expectedHits = hits.reduce((s, h) => s + h.hit, 0);
