@@ -4,6 +4,7 @@
  * Turns, trigger whispers, Foundry hooks, settings and the module API. One module, several files: see
  * pf2e-tactics.mjs for the whole.
  */
+import { openFight } from "./fight.mjs";
 import { BOARD_FIELDS, esc, FLAG_SCOPE, flagOf, gmLeadNow, isGmLead, MODULE_ID, rules, setting, startGmTabs } from "./shared.mjs";
 import { helperApi } from "./player.mjs";
 import { HP_AT_TURN, RECENT, forgetFightReader, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
@@ -231,6 +232,8 @@ Hooks.once("init", () => {
     module.api = {
         // the formula the Turn Helper guesses an unknown foe's numbers by (T20), for _dev's check script
         foeGuess: FOE_GUESS,
+        // the GM's window of what the party knows this fight (T40)
+        fight: openFight,
         open: openCard,
         card: (actor, token) => buildCard(actor, token),
         plan: async (token) => {

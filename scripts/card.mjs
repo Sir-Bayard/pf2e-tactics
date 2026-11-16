@@ -274,6 +274,18 @@ function saveFold(key, open) {
     store.set("folds", all);
 }
 
+/** The next player character in the turn order after the one acting now (for the GM's preview of their Turn Helper). */
+function nextPc(combat = game.combat) {
+    if (!game.user?.isGM || !combat?.started) return null;
+    const turns = combat.turns ?? [];
+    const now = combat.turn ?? 0;
+    for (let i = 1; i <= turns.length; i++) {
+        const c = turns[(now + i) % turns.length];
+        if (c?.actor?.type === "character" && c.actor.hasPlayerOwner && !c.isDefeated) return c;
+    }
+    return null;
+}
+
 /** A card: title, a one-line summary, buttons, and a body. With a key and a body it folds. title and sum are HTML. */
 function panel(title, { key = null, sum = "", body = "", cls = "", open = false, tools = "" } = {}) {
     const head = `<h4>${title}</h4>${sum ? `<span class="npt-sum">${sum}</span>` : ""}${tools ? `<span class="npt-tools">${tools}</span>` : ""}`;
@@ -561,7 +573,11 @@ async function buildCard(actor, token, { header = true, advice = true } = {}) {
         + (actor.type === "hazard" ? hazardHtml(actor) : adviceSection(plans, board, intent) + boardHtml + watching)
         + tacticsHtml(actor, placeable?.document ?? token)
         + actionsHtml(actor, profiles) + (await spellsHtml(actor));
-    const buttons = `<div class="npt-foot"><button type="button" data-npt-refresh><i class="fa-solid fa-rotate"></i> Refresh</button></div>`;
+    // The GM can look at what the Turn Helper will suggest to the next player character in the order (T42)
+    const next = nextPc();
+    const preview = next ? `<button type="button" data-npt-preview="${esc(next.tokenId ?? "")}" data-npt-preview-actor="${esc(next.actor.id)}"${tipAttr("What the Turn Helper will suggest on their turn. It's worked out on your screen: their line of sight, senses and what the party has learned, but Foundry's own token vision is yours.")}><i class="fa-solid fa-eye" aria-hidden="true"></i> ${esc(next.name ?? next.actor.name)}'s Turn Helper</button>` : "";
+    const knows = game.user?.isGM && game.combat?.started ? `<button type="button" data-npt-fight${tipAttr("What the party has learned and seen of each foe this fight, with the identify switch; take back anything wrong")}><i class="fa-solid fa-book-open" aria-hidden="true"></i> Party Knows</button>` : "";
+    const buttons = `<div class="npt-foot"><button type="button" data-npt-refresh><i class="fa-solid fa-rotate" aria-hidden="true"></i> Refresh</button>${knows}${preview}</div>`;
     return `<div class="npt-card">${header ? `<div class="npt-kicker">NPC turn</div>` : ""}${top}${ledger ? turnHtml(ledger, board) : ""}<div class="npt-body">${body}</div>${buttons}</div>`;
 }
 // ---------------------------------------------------------------------------------------------
@@ -683,6 +699,15 @@ function bindCard(root, rerender) {
             const [kind, d] = b.dataset.nptAdj.split(":");
             adjustLedger(kind, Number(d));
             rerender();
+        });
+    });
+    root.querySelectorAll("[data-npt-fight]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); game.modules.get(MODULE_ID)?.api?.fight?.(); }));
+    root.querySelectorAll("[data-npt-preview]").forEach((b) => {
+        b.addEventListener("click", (e) => {
+            e.preventDefault();
+            const tok = canvas?.scene?.tokens?.get?.(b.dataset.nptPreview) ?? null;
+            const actor = tok?.actor ?? game.actors?.get?.(b.dataset.nptPreviewActor);
+            game.modules.get(MODULE_ID)?.api?.helper?.(tok ?? actor);
         });
     });
     root.querySelectorAll("[data-npt-refresh]").forEach((b) => {

@@ -89,6 +89,23 @@ function noteNpc(message) {
     return npcChain;
 }
 
+/**
+ * A player character's successful Recall Knowledge on a foe in the fight (T19): the leading GM client marks it identified
+ * on the combat, so its creature traits reach the Turn Helper's board (flags["pf2e-tactics"].identified[tokenId]). The GM
+ * can also set or clear it in the fight window. A blind roll counts too: the GM's client sees its result.
+ */
+function noteIdentify(message) {
+    const combat = game.combat;
+    if (!combat?.started || !isGmLead()) return;
+    const actor = message.actor;
+    if (!actor || actor.type !== "character") return;
+    const ctx = message.flags?.pf2e?.context ?? {};
+    if (!(ctx.options ?? []).includes("action:recall-knowledge") || !["success", "criticalSuccess"].includes(ctx.outcome)) return;
+    const target = ctx.target?.token ? String(ctx.target.token).split(".").pop() : null;
+    if (!target || flagOf(combat, "identified")?.[target] || !combat.combatants.some((c) => c.tokenId === target && !c.actor?.hasPlayerOwner)) return;
+    return combat.update({ [`flags.${MODULE_ID}.identified.${target}`]: true }).catch((err) => console.warn(`${MODULE_ID} | couldn't mark the foe identified`, err));
+}
+
 /** The helper's toggle, for a Spellstrike rolled without its card. */
 function setSpellstrike(actor, charged) {
     return save(actor, (r) => ({ ...r, spellstrike: !!charged }));
@@ -128,4 +145,4 @@ async function clearRecords(combat) {
 }
 Hooks.on("deleteCombat", (combat) => { clearRecords(combat).catch(() => {}); });
 
-export { clearRecords, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike };
+export { clearRecords, noteIdentify, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike };

@@ -112,3 +112,13 @@
 .npt-card.npt-helper .npt-est { margin-top: 6px; font-size: 11px; }
 .npt-card.npt-helper .npt-alts ul { margin: 2px 0 0; padding-left: 1.1em; }
 .npt-card.npt-helper .npt-alts li { margin: 3px 0; }
+
+/* What the Party Knows (fight.mjs): one section per foe */
+.npt-fight { padding: 6px 10px 10px; }
+.npt-fight .npt-fight-foe { border-top: 1px solid rgba(127, 127, 127, 0.3); padding: 6px 0; }
+.npt-fight .npt-fight-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.npt-fight .npt-fight-id { flex: 0 0 auto; width: auto; line-height: 22px; padding: 0 8px; }
+.npt-fight .npt-fight-id[aria-pressed="true"] { background: rgba(80, 160, 90, 0.35); }
+.npt-fight ul { margin: 4px 0 0; padding-left: 16px; }
+.npt-fight li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.npt-fight .npt-fight-x { flex: 0 0 auto; width: 22px; height: 22px; line-height: 20px; padding: 0; }

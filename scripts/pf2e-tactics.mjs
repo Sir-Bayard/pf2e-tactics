@@ -16,6 +16,8 @@
  *   player.mjs: the Turn Helper, the player's own view of their character's turn, and its advice
  *   classes.mjs: what a character's class and feats add to that advice (one file per class in classes/)
  *   record.mjs: what a character did this fight that PF2e doesn't keep (Spellstrike, Exploit Vulnerability...)
+ *   fight.mjs: the GM's window of what the party has learned and seen this fight, and the identify switch
  */
 import "./hooks.mjs";
 import "./player.mjs";
+import "./fight.mjs";

@@ -22,7 +22,7 @@ import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, steps
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
 import { FOE_GUESS, REVEAL_SPELLS } from "./values.mjs";
-import { noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
+import { noteIdentify, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 
@@ -38,15 +38,26 @@ const DID = new Map();
  * Each client also keeps its own copy for the moment before the GM's write lands.
  */
 const seenFlag = (combat, tokenId) => flagOf(combat, "seen")?.[tokenId] ?? null;
+// What the GM took back in the fight window (fight.mjs): left out until it's seen again
+const takenBack = (combat, tokenId, k) => new Set(flagOf(combat, "unseen")?.[tokenId]?.[k] ?? []);
 function shownReactions(combat, tokenId) {
     const local = SHOWN.get(combat?.id)?.get(tokenId);
     const kept = seenFlag(combat, tokenId)?.r ?? [];
-    return new Set([...(local ?? []), ...kept]);
+    const gone = takenBack(combat, tokenId, "r");
+    return new Set([...(local ?? []), ...kept].filter((x) => !gone.has(x)));
 }
 function shownDoing(combat, tokenId) {
     const local = DID.get(combat?.id)?.get(tokenId);
     const kept = seenFlag(combat, tokenId)?.d ?? [];
-    return new Set([...(local ?? []), ...kept]);
+    const gone = takenBack(combat, tokenId, "d");
+    return new Set([...(local ?? []), ...kept].filter((x) => !gone.has(x)));
+}
+/** Seen again after the GM took it back: the leading GM client lifts the take-back. */
+function seenAgain(combat, tokenId, k, value) {
+    if (!isGmLead() || !takenBack(combat, tokenId, k).has(value)) return;
+    const all = foundry.utils.deepClone(flagOf(combat, "unseen") ?? {});
+    all[tokenId][k] = all[tokenId][k].filter((x) => x !== value);
+    combat.setFlag(MODULE_ID, "unseen", all).catch((err) => console.warn(`${MODULE_ID} | couldn't lift the take-back`, err));
 }
 let seenTimer = null;
 /** The GM's client writes what this client has noted into the combat's record (merged, never shrunk). */
@@ -88,12 +99,17 @@ function noteReaction(message) {
     const isAttack = ctx.type === "attack-roll" || ctx.type === "spell-attack-roll";
     const offTurn = combat.combatant?.tokenId && combat.combatant.tokenId !== tokenId;
     const declared = item?.system?.actionType?.value === "reaction" || /<span class="action-glyph[^"]*">\s*[rR]\s*<\/span>/.test(message.flavor ?? "");
-    if (declared) bucket(SHOWN, combat.id, tokenId).add(item?.system?.actionType?.value === "reaction" ? (item?.name ?? "a reaction") : "Reactive Strike");
+    if (declared) {
+        const name = item?.system?.actionType?.value === "reaction" ? (item?.name ?? "a reaction") : "Reactive Strike";
+        bucket(SHOWN, combat.id, tokenId).add(name);
+        seenAgain(combat, tokenId, "r", name);
+    }
     else if (isAttack && offTurn && !item?.isRanged) guessReactive(combat, tokenId);
     const did = bucket(DID, combat.id, tokenId);
-    if (item?.type === "spell" || ctx.type === "spell-attack-roll" || message.flags?.pf2e?.casting) did.add("cast");
-    if (isAttack && (item?.isRanged || (item?.system?.traits?.value ?? []).some((t) => /^(range|thrown)/.test(t)))) did.add("ranged");
-    if (item?.type === "spell" && (item.system?.traits?.value ?? []).includes("healing")) did.add("heal");
+    const doing = (k) => { did.add(k); seenAgain(combat, tokenId, "d", k); };
+    if (item?.type === "spell" || ctx.type === "spell-attack-roll" || message.flags?.pf2e?.casting) doing("cast");
+    if (isAttack && (item?.isRanged || (item?.system?.traits?.value ?? []).some((t) => /^(range|thrown)/.test(t)))) doing("ranged");
+    if (item?.type === "spell" && (item.system?.traits?.value ?? []).includes("healing")) doing("heal");
     keepSeen(combat);
 }
 
@@ -112,6 +128,7 @@ function guessReactive(combat, tokenId) {
         PENDING.delete(tokenId);
         if (game.combat?.id !== combat.id) return;
         bucket(SHOWN, combat.id, tokenId).add("Reactive Strike");
+        seenAgain(combat, tokenId, "r", "Reactive Strike");
         keepSeen(combat);
         refreshHelper(100);
     }, GUARD_MS));
@@ -277,8 +294,9 @@ function estimateFoe(board, e, known, L) {
         // What the sheet knows and the party doesn't: its senses, languages, class, spell list, ranged attacks and
         // feats (All-Around Vision, Deny Advantage) are left out; casting, shooting and healing count once seen
         actor: undefined, cls: null, senses: null, languages: [], flankImmune: null,
-        // Its creature type isn't known until it's identified: class reads that test a trait stay quiet
-        traits: [], traitsKnown: false,
+        // Its creature type isn't known until it's identified (the GM's switch, or a successful Recall Knowledge: T19):
+        // until then class reads that test a trait stay quiet
+        ...(flagOf(game.combat, "identified")?.[e.id] ? { traits: e.traits ?? [], traitsKnown: true } : { traits: [], traitsKnown: false }),
         caster: did.has("cast"), healer: did.has("heal"), rangedReach: did.has("ranged") || did.has("cast") ? 60 : 0,
         level: L,
         // the middle of the party's bounds (kept net of what shows) plus what the table can see on it now
@@ -856,13 +874,15 @@ Hooks.on("updateCombat", (combat, changes) => {
             }
         }
     }
-    if ("started" in changes || changes.flags?.[MODULE_ID]?.party || changes.flags?.[MODULE_ID]?.seen) refreshHelper(250);
+    const f = changes.flags?.[MODULE_ID];
+    if ("started" in changes || f?.party || f?.seen || f?.unseen || f?.identified || (f && Object.keys(f).some((k) => k.startsWith("-=")))) refreshHelper(250);
 });
 Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); for (const t of PENDING.values()) clearTimeout(t); PENDING.clear(); TURN_ENDED.clear(); refreshHelper(100); });
 Hooks.on("createChatMessage", (message) => {
     try { noteReaction(message); } catch { /* not a card we read */ }
     try { noteOwn(message); } catch { /* not a card we read */ }
     try { noteNpc(message); } catch { /* not a card we read */ }
+    try { noteIdentify(message); } catch { /* not a card we read */ }
     const sp = message.speaker ?? {};
     if (helperWindow?.rendered && (sp.actor === helperWindow.actor?.id || sp.token === helperWindow.token?.id)) refreshHelper(300);
 });
