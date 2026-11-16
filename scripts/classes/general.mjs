@@ -91,10 +91,16 @@ function battleMedicine(board, ctx, out) {
     const text = (a, b) =>
         `Battle Medicine on ${who(a)} (Medicine ${signed(mod)} vs DC ${b.dc}, about ${pct(b.p)}; ${a === me ? "you're" : "they're"} at ${a.hp}/${a.maxHp}): restores about ${b.heal} HP${rank > 1 && b.dc < TREAT[rank][0] ? ` (the easier DC pays better here than DC ${TREAT[rank][0]})` : ""}`;
     const once = "Once a day per patient from you (the immunity effect says so); a critical failure deals 1d8 instead.";
+    // The toolkit, held or worn, and a hand to use it with: said in the plan when the sheet shows a problem (T39)
+    const kit = (actor.items?.contents ?? actor.items ?? []).some?.((i) => /^healers-?tool/.test(slugOf(i))) ?? true;
+    const gear = [
+        ...(kit ? [] : ["No healer's toolkit on your sheet: Battle Medicine needs one, held or worn."]),
+        ...(me.freeHand === false ? ["Both hands are full: free one to use the toolkit (releasing is free; stowing or drawing is an Interact)."] : [])
+    ];
     // Hurt allies (60% HP or less) and you, already in reach
     for (const a of [...board.allies, me].filter((x) => x.actor && x.hp > 0 && x.hp <= x.maxHp * 0.6 && inReach(me.rect, x.rect, 5) && !immune(x))) {
         const b = bestDc(Math.max(0, a.maxHp - a.hp));
-        if (b.ev > 0) push(a, b, [{ cost: 1, text: text(a, b) }], [once, "Then the rest of your turn as the other options say."]);
+        if (b.ev > 0) push(a, b, [{ cost: 1, text: text(a, b) }], [...gear, once, "Then the rest of your turn as the other options say."]);
     }
     // Allies down and dying: in reach, or a move away
     for (const a of (board.downAllies ?? []).filter((d) => (d.hp ?? 0) <= 0 && !immune(d))) {
@@ -109,7 +115,7 @@ function battleMedicine(board, ctx, out) {
             a,
             b,
             steps,
-            [once, `${nameOf(a)} is down: brought back, they stand and fight next turn (wounded goes up by 1).`],
+            [...gear, once, `${nameOf(a)} is down: brought back, they stand and fight next turn (wounded goes up by 1).`],
             sq.route.actions ? { x: sq.x, y: sq.y } : null
         );
     }

@@ -250,6 +250,24 @@ function pickHeightWay(me, options, climber = false) {
     return options.slice().sort((a, b) => cost(a) - cost(b) || order[a.kind] - order[b.kind])[0];
 }
 
+/**
+ * Damage against c: its weakness, resistance and immunity, then vitality and void (T48). Vitality harms only the undead
+ * and void heals them, so damage that is all vitality does nothing to the living, and all void nothing to the undead.
+ * A foe whose type isn't known (the Turn Helper's board, until it's identified) counts as living for void, with unsure
+ * set so the plan can say so, and vitality is left out against it. life says which rule made it immune.
+ */
+function harmAgainst(c, types = []) {
+    const d = damageAgainst(c?.iwr, types);
+    if (!types.length || d.immune) return d;
+    const only = (k) => types.every((t) => t === k);
+    const known = c?.traitsKnown !== false;
+    const undead = known && (c?.traits ?? []).includes("undead");
+    if (only("vitality") && !undead) return { ...d, immune: true, life: known ? "living" : "unknown" };
+    if (only("void") && undead) return { ...d, immune: true, life: "undead" };
+    if (only("void") && !known) return { ...d, unsure: true };
+    return d;
+}
+
 function isOffGuard(target) {
     // Prone, grabbed and the rest grant the off-guard condition, against ranged attacks too
     for (const c of OFF_GUARD_FROM) if (target.conditions.has(c)) return true;
@@ -388,7 +406,7 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
             const surprise = !!ctx?.hidden && !offGuard && (!byAction || (i === 0 && made + P.made === 0)) && !(vs.flankImmune === "deny" && (P.board.me.level ?? 0) <= (vs.level ?? 0));
             // Prone and it moved, so it stood first: the prone -2 already in its Strikes is gone
             const stood = P.board.me.conditions?.has?.("prone") && at && (at.x !== P.board.me.rect.x || at.y !== P.board.me.rect.y) ? 2 : 0;
-            const dmg = damageAgainst(vs?.iwr, s.damageTypes ?? []);
+            const dmg = vs ? harmAgainst(vs, s.damageTypes ?? []) : damageAgainst(null, []);
             const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
             const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f, onHit: raw.onHit, onCrit: raw.onCrit };
@@ -1170,14 +1188,18 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
             if (!best) continue;
             // Incapacitation: a target above twice the spell's rank improves its save (or the caster's roll is worse)
             const incap = sp.incapacitation && (t.level ?? 0) > 2 * (sp.rank ?? 1) ? 1 : 0;
-            const dmg = damageAgainst(t.iwr, sp.damageTypes ?? []);
+            const dmg = harmAgainst(t, sp.damageTypes ?? []);
             const raw = sp.save ? saveExpected(t.saves[sp.save.stat] ?? 0, sp.dc ?? 15, sp.avg, { basic: sp.save.basic, shift: incap, delta: dmg.delta, immune: dmg.immune })
                 : strikeExpected(sp.attack + mapFor(P.made, false), t.ac + best.seen.cover, sp.avg, { shift: -incap, delta: dmg.delta, immune: dmg.immune }); // a spell attack takes the MAP too
             const e = { expected: raw.expected * best.seen.flat * (sp.odds ?? 1) };
             const plan = { kind: "spell", title: `Cast ${sp.name} on ${nameOf(t)}`, target: t, ev: e.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, spell: sp };
             if (incap) plan.notes.push(`Incapacitation: ${nameOf(t)} is above level ${2 * sp.rank}, so one degree better for it`);
-            if (dmg.immune) plan.notes.push(`${nameOf(t)} is immune to ${sp.damageTypes.join(", ")}`);
-            else if (dmg.delta) plan.notes.push(`${nameOf(t)} ${dmg.delta > 0 ? `is weak to it: +${dmg.delta}` : `resists it: ${dmg.delta}`} per hit`);
+            if (dmg.life === "living") plan.notes.push(`${nameOf(t)} isn't undead: vitality damage doesn't hurt it`);
+            else if (dmg.life === "unknown") plan.notes.push(`Vitality damage hurts only the undead, and it isn't known yet what ${nameOf(t)} is`);
+            else if (dmg.life === "undead") plan.notes.push(`${nameOf(t)} is undead: void damage doesn't hurt it`);
+            else if (dmg.immune) plan.notes.push(`${nameOf(t)} is immune to ${sp.damageTypes.join(", ")}`);
+            else if (dmg.unsure) plan.notes.push(`Void damage does nothing to the undead, and it isn't known yet what ${nameOf(t)} is`);
+            if (!dmg.immune && dmg.delta) plan.notes.push(`${nameOf(t)} ${dmg.delta > 0 ? `is weak to it: +${dmg.delta}` : `resists it: ${dmg.delta}`} per hit`);
             if ((sp.odds ?? 1) < 1) plan.notes.push(`About ${pct(sp.odds)} to get the spell off (flat check)`);
             sightNotes(plan, best.at, t, { attack: sp.attack !== null });
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
@@ -1250,7 +1272,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
                 const each = p.strikes.each && count > 1 ? eachRun(best.at, t, count, ac, og, p.strikes.notes.includes("no MAP")) : null;
                 const run = each ?? (p.strikes.notes.includes("no MAP") ? { ...one, expected: one.expected * count } : strikeSeq(best.strikes, count, ac, { vs: t, at: best.at, offGuard: og }));
                 const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-                if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+                if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t) });
                 plan.steps.push({ cost: p.cost, text: each ? `${p.name}: ${each.text}` : `${p.name} (${count} Strike${count === 1 ? "" : "s"}${p.strikes.each ? ", each a different foe" : ""})` });
                 fillLast(board, plan, best.at, P.act - best.sq.route.actions - p.cost, t, p.strikes.notes.includes("one attack") ? 1 : each ? each.n : count);
                 plan.risk = provokeCost(board, best.sq.route.provokes);
@@ -1307,7 +1329,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
                         payAt = p.strikes.notes.includes("no MAP") ? once.expected * p.strikes.count : strikeSeq(reach, p.strikes.count, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }).expected;
                     }
                     const plan = { kind: "ability", title: `Grab ${nameOf(t)}, then ${p.name}`, target: t, ev: hit.expected + holds * payAt, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-                    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+                    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t) });
                     plan.steps.push({ cost: 1, text: `Strike ${nameOf(t)} with ${s.label} (${signed(s.bonus)}; ${s.riders.join(", ")} on a hit)` });
                     plan.steps.push({ cost: grabCost(s), text: `If it hits: ${grabCost(s) ? "Grab" : "Improved Grab (free)"} ${nameOf(t)} (Grapple: Athletics ${signed(me.athletics ?? me.level + 5)} vs Fortitude DC ${10 + (t.saves.fortitude ?? 0)})` });
                     plan.steps.push({ cost: p.cost, text: `If it holds: ${p.name}` });
@@ -1501,7 +1523,7 @@ function planSelfBuffs({ board, me, melee, plans, profiles, recharging, rectAt, 
             const n = P.act - best.sq.route.actions - p.cost;
             const run = strikeSeq(best.strikes.map((s) => ({ ...s, bonus: s.bonus + atk, avg: s.avg + dmg })), n, ac, { vs: t, at: best.at, offGuard: og });
             const plan = { kind: "ability", title: `${p.name}, then Strike ${nameOf(t)}`, target: t, ev: run.expected + (lasting ? atk * 0.5 + dmg * 0.6 : 0), steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t) });
             plan.steps.push({ cost: p.cost, text: `${p.name}${atk ? ` (+${atk} to hit` : " ("}${dmg ? `${atk ? ", " : ""}+${dmg} damage` : ""}${lasting ? "; lasts the fight" : ""})` });
             plan.steps.push({ cost: n, text: describeStrikes(run.used, nameOf(t)) });
             const acPen = /(\d+) penalty to AC/i.exec(p.text)?.[1];
@@ -1920,7 +1942,7 @@ function bestArea(board, squares, rectAt, a) {
                 const cover = coverBetween(board, origin, c, { area: true });
                 if (cover < 0) return 0;
                 const shift = a.incapacitation && ((a.incapacitation.rank && (c.level ?? 0) > 2 * a.incapacitation.rank) || (a.incapacitation.level !== undefined && (c.level ?? 0) > a.incapacitation.level)) ? 1 : 0;
-                const dmg = damageAgainst(c.iwr, a.damageTypes ?? []);
+                const dmg = harmAgainst(c, a.damageTypes ?? []);
                 const save = (c.saves?.[a.save?.stat] ?? 3) + (a.save?.stat === "reflex" ? cover : 0);
                 return a.save ? saveExpected(save, a.dc, a.avg, { basic: a.save.basic !== false, shift, delta: dmg.delta, immune: dmg.immune }).expected : (dmg.immune ? 0 : Math.max(0, a.avg + dmg.delta) * 0.6);
             };
