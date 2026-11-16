@@ -348,6 +348,39 @@ const CLASS_HANDLED = new Set([
     "trace-rune", "invoke-rune", "solitary-invocation", "engraving-strike", "remote-detonation", "pattern-flight", "swiping-trace", "engraving-maneuver", "edifying-trace", "fortifying-knock", "terrifying-invocation", "transpose-etching", "words-fly-free", "dance-of-bloody-ink", "chain-of-words", "vital-compound-invocation", "song-of-glorious-invocation", "tracing-trance",
     // exemplar
     "shift-immanence", "flowing-spirit-strike", "strike-breathe-rend", "drink-of-my-foes", "reap-the-field", "fracture-mountains", "feral-swing", "giant-felling-comet", "arrow-splits-arrow", "liars-hidden-blade", "blinding-of-the-needle", "coiling-serpents", "sever-four-dragonfly-wings", "plant-thirty-barbs", "burn-out-of-time", "rejoin-in-flight", "topple-the-pillar-of-heaven", "heaven-rains-an-ending", "fleeting-arc-through-heaven-and-earth", "ringing-challenge", "one-moment-till-glory", "break-free", "embrace-of-destiny", "marathon-dash", "raise-the-walls", "no-scar-but-this", "a-moment-unending", "captivating-charm", "tangle-in-riddle", "mark-the-center", "heavy-is-the-crown",
+    // The 4.0.0 scan (T9): actions a class read refers to that the advisor would otherwise plan from their text
+    "animal-rage", "annihilating-compound-invocation", "annihilating-swing", "apparitions-reflection", "artists-attendance", "assisting-shot",
+    "astral-compound-invocation", "black-powder-boost", "blast-lock", "blazing-streak", "blazing-talon-surge", "bleed-out", "blood-in-the-air",
+    "brandishing-draw", "brutal-crush", "buckler-dance", "cauterize", "celestial-cacophony", "channeled-protection", "channelers-stance", "chaotic-spell",
+    "clashing-compound-invocation", "cobra-envenom", "combat-assessment", "come-and-get-me", "command-undead", "complete-the-heros-journey",
+    "conduit-of-void-and-vitality", "constricting-hold", "coordinated-distraction", "coordinating-maneuvers", "corrupted-ground", "crossbow-ace",
+    "culverts-collapse", "current-spell", "dance-of-intercession", "dashing-strike", "dastardly-dash", "dazing-blow", "dazzling-display",
+    "debilitating-shot", "deep-freeze", "defend-summoner", "defensive-coordination", "defensive-recovery", "define-the-canvas", "deimatic-display",
+    "demoralizing-charge", "desperate-resuscitation", "desperate-surge", "determination", "dirty-trick", "disarming-stance", "dispelling-bullet",
+    "dispelling-slice", "disruptive-stance", "distracting-toss", "diverting-vortex", "divine-infusion", "dizzying-spell", "dragon-transformation",
+    "dragons-rage-breath", "dream-guise", "dual-handed-assault", "duo-dragon-kick", "ectoplasmic-aura", "elemental-defense", "elemental-explosion",
+    "emotional-surge", "end-it", "energy-ablation", "enforce-oath", "explosive-death-drop", "explosive-leap", "explosive-maneuver",
+    "explosive-metamorphosis", "extract-vow-of-nonviolence", "exult-in-violence", "faithful-stride", "felling-shot", "felling-strike", "finish-the-job",
+    "five-gods-ram", "flamboyant-leap", "flinging-charge", "floral-restoration", "focused-shot", "follow-up-assault", "friendly-toss", "furious-grab",
+    "garland-spell", "ghostly-stride", "godbreaker", "graceful-poise", "guarded-advance", "guardian-lion-roar", "guiding-finish", "hallowed-earth",
+    "hamstringing-strike", "harden-flesh", "head-stomp", "healing-transformation", "helts-spelldance", "henge-gate", "heroic-recovery", "impaling-thrust",
+    "incredible-aim", "incredible-ricochet", "interweave-dispel", "into-the-fray", "ironblood-surge", "jesters-gambol", "juggernaut-charge",
+    "just-one-more-thing", "knockback", "knockback-spell", "lunging-stance", "mage-hunter", "maguss-analysis", "march-of-the-dead", "martyr",
+    "meditate-on-this", "meld-into-eidolon", "merciless-rend", "momentous-charge", "mountain-stronghold", "multishot-stance", "naval-training",
+    "nightwave-springing-reload", "oversized-throw", "overwhelming-breath", "parting-shot", "passage-of-lines", "peafowl-strut", "penetrating-projectile",
+    "penetrating-shot", "perfect-distraction", "perfect-shot", "pesh-skin", "phalanx-breaker", "phase-out", "plum-deluge", "point-blank-stance",
+    "poison-weapon", "portentous-spell", "positioning-assault", "predators-pounce", "primal-howl", "protective-pose", "protective-screen",
+    "psi-catastrophe", "quick-reversal", "raise-menhir", "raise-symbol", "rebounding-assault", "rebounding-toss", "regurgitate-mutagen", "renewed-vigor",
+    "revealing-stab", "revivifying-mutagen", "ricochet-shot", "ricochet-stance-fighter", "rip-and-tear", "roaring-heart", "roll-the-bones-of-fate",
+    "running-reload", "sanctify-armament", "scintillating-spell", "scour-the-library", "secondary-detonation-array", "seize-an-advantage", "sever-magic",
+    "shake-it-off", "shattering-shot", "shielded-attrition", "shields-up", "silencing-strike", "silk-bracelet", "slip-and-sizzle", "smoke-curtain",
+    "snakebirds-shadow", "spell-protection-array", "spell-shroud", "spirits-interference", "split-shot", "steeds-toppling-strike",
+    "stone-forge-of-the-first", "sunder-spell", "surgical-shock", "surprising-leap", "swan-dive", "take-the-high-ground", "tandem-movement",
+    "tangled-forest-rake", "tap-into-blood", "targeting-shot", "through-spell", "thunderclap-spell", "time-dilation-cascade", "topple-the-titans",
+    "trance-of-celerity", "triangle-shot", "trick-shot", "twin-parry", "twirling-throw", "underhanded-assault", "unerring-runic-attraction",
+    "united-assault", "vampiric-spell", "vicious-evisceration", "vivacious-afterimage", "vivacious-bravado", "vow-of-mortal-defiance", "wait-for-it",
+    "wake-to-strife", "wall-run", "warning-shot", "wave-spiral", "whirling-in-the-summer-storm", "whirlwind-toss", "winding-flow",
+    "world-breaking-footfall", "worldsphere-gravity", "xidao-sea-mine-drop"
 ]);
 /** The board the advisor plans on for a player: foes as estimates, no threat table, the character read as sharp. */
 function adviceBoard(board, ledger) {
@@ -826,4 +859,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, guardTurn, helperApi, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, CLASS_HANDLED, estimateFoe, guardTurn, helperApi, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };
