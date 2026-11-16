@@ -8,6 +8,7 @@ import { rememberWindow } from "./kit/window-memory.mjs";
 import { storage } from "./kit/storage.mjs";
 import { gmTabs } from "./kit/gm-tabs.mjs";
 import { safe, tipAttr, labelAttr } from "./kit/safe-text.mjs";
+import { pf2eRules } from "./kit/pf2e-rules.mjs";
 const MODULE_ID = "pf2e-tactics";
 const FLAG_SCOPE = MODULE_ID;
 /** A flag of this module's on a document (getFlag throws for an inactive module's scope, so the raw flags are the fallback). */
@@ -16,6 +17,9 @@ const flagOf = (doc, key) => {
     try { v = doc?.getFlag?.(MODULE_ID, key); } catch { v = undefined; }
     return v ?? doc?.flags?.[MODULE_ID]?.[key];
 };
+/** Rules numbers read from the PF2e system at run time (kit pf2e-rules): the standard DC by level. Loaded at ready; a GM is
+ *  told once if the table can't be read. */
+const rules = pf2eRules({ module: MODULE_ID, title: "PF2e Tactics", tables: ["dcsByLevel"] });
 const POSITION_KEY = `${MODULE_ID}.window`;
 const GLYPHS = { 1: "1", 2: "2", 3: "3", reaction: "r", free: "f" };
 
@@ -76,4 +80,4 @@ const gmLeadNow = async () => (tabsStarted ? tabs.leadNow() : !!game.users?.acti
 /** Can every player see this chat card? A whispered or blind one teaches the party nothing. */
 const playersSee = (message) => !message?.blind && !((message?.whisper?.length ?? message?.whisper?.size ?? 0) > 0);
 
-export { BOARD_FIELDS, FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, gmLeadNow, isGmLead, labelAttr, link, playersSee, playersSeeName, refreshCard, rememberWindow, safe, section, setCardRefresh, setting, signed, slugOf, slugify, startGmTabs, store, tipAttr, tokensSetNames, ul };
+export { baseActorOf, BOARD_FIELDS, cap, costGlyph, esc, FLAG_SCOPE, flagOf, gmLeadNow, isGmLead, labelAttr, link, MODULE_ID, playersSee, playersSeeName, POSITION_KEY, refreshCard, rememberWindow, rules, safe, section, setCardRefresh, setting, signed, slugify, slugOf, startGmTabs, store, tipAttr, tokensSetNames, ul };

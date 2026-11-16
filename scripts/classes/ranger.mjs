@@ -14,7 +14,7 @@ import {
     focusLeft,
     has,
     hasAny,
-    standardDC,
+    standardOdds,
     level,
     markOffGuard,
     moveText,
@@ -235,7 +235,7 @@ function ranger(board, ctx, out) {
             .sort((a, b) => (b.mod ?? 0) - (a.mod ?? 0));
         const sk = has(actor, "master-monster-hunter") ? (actor.skills?.nature ?? skills[0]) : skills[0];
         if (!sk) return null;
-        const c = degreeChances((sk.mod ?? 0) + (edge === "outwit" ? (master ? 4 : 2) : 0), standardDC(lv)); // a creature of the party's level
+        const c = standardOdds((sk.mod ?? 0) + (edge === "outwit" ? (master ? 4 : 2) : 0), lv); // a creature of the party's level
         const p = has(actor, "master-monster-hunter") ? c.s + c.cs : c.cs;
         const bonus = has(actor, "legendary-monster-hunter") ? 2 : 1;
         return {

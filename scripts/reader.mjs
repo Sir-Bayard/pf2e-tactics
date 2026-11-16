@@ -7,7 +7,7 @@
  * functions where possible, so they run outside Foundry for testing. One module, several files: see pf2e-tactics.mjs
  * for the whole.
  */
-import { CONDITION_VALUE, hitWorth } from "./values.mjs";
+import { CONDITION_VALUE, FOE_GUESS, hitWorth } from "./values.mjs";
 import { FLAG_SCOPE, MODULE_ID, baseActorOf, cap, esc, flagOf } from "./shared.mjs";
 import { notesOf, rechargeLeft, tacticsOf, threatFor } from "./board-data.mjs";
 
@@ -1310,7 +1310,7 @@ function creatureOf(token, size) {
         seenMods: visibleAdjustments(a),
         reach: a.getReach?.({ action: "attack" }) ?? 5,
         reactions,
-        reactiveStrike: pcStrike ? { bonus: pcStrike.bonus, avg: pcStrike.avg } : { bonus: (a.level ?? 1) + 8, avg: 4 + (a.level ?? 1) * 1.5 },
+        reactiveStrike: pcStrike ? { bonus: pcStrike.bonus, avg: pcStrike.avg } : { bonus: FOE_GUESS.attack(a.level ?? 1), avg: FOE_GUESS.damage(a.level ?? 1) },
         rangedReach: pcRanged?.range ?? (CASTER_CLASSES.has(cls) || (a.spellcasting?.regular?.length ?? 0) > 0 ? 60 : 0),
         caster: CASTER_CLASSES.has(cls) || (a.spellcasting?.regular?.length ?? 0) > 0,
         sizeRank: SIZE_RANK[a.size] ?? 2,

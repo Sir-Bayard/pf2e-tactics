@@ -22,7 +22,8 @@ import {
     pct,
     slugOf,
     squareToReach,
-    standardDC,
+    standardOdds,
+    dcWords,
     targets,
     usesLeft,
     worth,
@@ -349,9 +350,8 @@ function summoner(board, ctx, out) {
         if (!has(actor, "extend-boost") || !(focus > 0) || eternal || frenzy || boostUp) return null;
         const skill = SKILL_OF[tradition] ?? null;
         const mod = skill ? Number(actor.skills?.[skill]?.mod) : NaN;
-        const want = standardDC(lv);
-        const c = Number.isFinite(mod) ? degreeChances(mod, want) : null;
-        return `Extend Boost (free action, 1 Focus Point of ${focus}) before the Boost: ${skill ? `${skill[0].toUpperCase()}${skill.slice(1)}` : "the tradition's skill"} against DC ${want}${c ? `, about ${pct(c.s + c.cs)} to keep it 3 rounds (${pct(c.cs)} for 4)` : ""}; on a failure it lasts the round and the point isn't spent.`;
+        const c = Number.isFinite(mod) ? standardOdds(mod, lv) : null;
+        return `Extend Boost (free action, 1 Focus Point of ${focus}) before the Boost: ${skill ? `${skill[0].toUpperCase()}${skill.slice(1)}` : "the tradition's skill"} against ${dcWords(lv)}${c ? `, about ${pct(c.s + c.cs)} to keep it 3 rounds (${pct(c.cs)} for 4)` : ""}; on a failure it lasts the round and the point isn't spent.`;
     };
     const shared = `You and ${eName} share your ${ctx.actions} action${ctx.actions === 1 ? "" : "s"}, one multiple attack penalty and one pool of Hit Points (${me.hp}/${me.maxHp}).`;
     out.notes.push(

@@ -20,7 +20,7 @@ import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } 
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
-import { REVEAL_SPELLS } from "./values.mjs";
+import { FOE_GUESS, REVEAL_SPELLS } from "./values.mjs";
 import { noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
@@ -223,8 +223,6 @@ function partyLevel(board) {
     const pcs = [board.me, ...board.allies.filter((a) => a.type === "character")];
     return Math.round(pcs.reduce((s, c) => s + (c.level ?? 1), 0) / Math.max(1, pcs.length));
 }
-/** Moderate numbers for a creature of level L (GM Core's creature building tables, roughly). */
-const MODERATE = { ac: (L) => 15 + L + (L >= 5 ? 1 : 0) + (L >= 15 ? 1 : 0), save: (L) => 5 + L + (L >= 4 ? 1 : 0) + (L >= 11 ? 1 : 0), hp: (L) => Math.max(8, 7 + 13 * L) };
 /** Does a player see this token's bars? (The GM's choice on the token.) */
 function barsVisible(e) {
     const mode = e.token?.document?.displayBars ?? 0;
@@ -234,7 +232,7 @@ function barsVisible(e) {
 /**
  * A foe as the party can judge it: AC from the party's hits and misses this fight (the middle of the bounds), saves
  * from the rolls it has made, HP from its bar when players can see it, otherwise a creature of level L (the party's,
- * unless the helperKnowsLevel setting is on). Nothing from its sheet: no weaknesses, no skills, no creature traits.
+ * unless the helperKnowsLevel setting is on; FOE_GUESS). Nothing from its sheet: no weaknesses, no skills, no creature traits.
  */
 function estimateFoe(board, e, known, L) {
     const k = known?.[e.id] ?? {};
@@ -258,13 +256,13 @@ function estimateFoe(board, e, known, L) {
         level: L,
         // the middle of the party's bounds (kept net of what shows) plus what the table can see on it now
         // (frightened, off-guard, a shown effect); without that read, -2 if it's off-guard
-        ac: mid(k.ac, MODERATE.ac(L)) + (e.shieldBonus ?? 0) + (e.seenMods ? e.seenMods.ac : (e.conditions && isOffGuard(e) ? -2 : 0)),
-        saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], MODERATE.save(L)) + (e.seenMods?.[s] ?? 0)])),
-        hp: bars ? e.hp : (e.hp > 0 ? MODERATE.hp(L) : 0), maxHp: bars ? e.maxHp : MODERATE.hp(L),
+        ac: mid(k.ac, FOE_GUESS.ac(L)) + (e.shieldBonus ?? 0) + (e.seenMods ? e.seenMods.ac : (e.conditions && isOffGuard(e) ? -2 : 0)),
+        saves: Object.fromEntries(["fortitude", "reflex", "will"].map((s) => [s, mid(k[s], FOE_GUESS.save(L)) + (e.seenMods?.[s] ?? 0)])),
+        hp: bars ? e.hp : (e.hp > 0 ? FOE_GUESS.hp(L) : 0), maxHp: bars ? e.maxHp : FOE_GUESS.hp(L),
         iwr: { weak: [], resist: [], immune: [] },
         perception: null, athletics: null,
-        // Its Reactive Strike, for weighing a square's risk: a creature of level L's
-        reactiveStrike: { bonus: L + 8, avg: 4 + L * 1.5 },
+        // Its Reactive Strike, for weighing a square's risk: a creature of level L's best melee Strike
+        reactiveStrike: { bonus: FOE_GUESS.attack(L), avg: FOE_GUESS.damage(L) },
         estimated: !bars,
     };
 }

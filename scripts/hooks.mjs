@@ -4,12 +4,13 @@
  * Turns, trigger whispers, Foundry hooks, settings and the module API. One module, several files: see
  * pf2e-tactics.mjs for the whole.
  */
-import { BOARD_FIELDS, FLAG_SCOPE, MODULE_ID, esc, gmLeadNow, isGmLead, setting, startGmTabs, flagOf } from "./shared.mjs";
+import { BOARD_FIELDS, esc, FLAG_SCOPE, flagOf, gmLeadNow, isGmLead, MODULE_ID, rules, setting, startGmTabs } from "./shared.mjs";
 import { helperApi } from "./player.mjs";
 import { HP_AT_TURN, RECENT, forgetFightReader, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
 import { currentLedger, forgetFightState, ledgerFor, ledgerTotals, onAbilityUsed, onChatForTurn, onDropped, onLearnMessage, onLearnToolbelt, onMoved, onPersistent, onSustainCast, onThreatMessage, onToolbeltSaves, setThreatRow, threatFor } from "./state.mjs";
 import { planTurn } from "./advisor.mjs";
+import { FOE_GUESS } from "./values.mjs";
 
 // --- Turns -------------------------------------------------------------------------------------
 const isNpcTurn = (c) => !!c?.actor && !c.actor.hasPlayerOwner && !c.isDefeated;
@@ -228,6 +229,8 @@ Hooks.once("init", () => {
     });
     const module = game.modules.get(MODULE_ID);
     module.api = {
+        // the formula the Turn Helper guesses an unknown foe's numbers by (T20), for _dev's check script
+        foeGuess: FOE_GUESS,
         open: openCard,
         card: (actor, token) => buildCard(actor, token),
         plan: async (token) => {
@@ -254,6 +257,7 @@ Hooks.once("ready", () => {
     const module = game.modules.get(MODULE_ID);
     module.api = Object.assign(module.api ?? {}, helperApi());
     startGmTabs();
+    rules.load();
     Hooks.callAll(`${MODULE_ID}.ready`, module.api);
 });
 

@@ -15,7 +15,7 @@ import {
     focusLeft,
     has,
     sneaky,
-    standardDC,
+    standardOdds,
     level,
     markOffGuard,
     moveText,
@@ -211,8 +211,7 @@ function rogue(board, ctx, out) {
                 if (!sq) continue;
                 const left = ctx.actions - 1 - sq.route.actions;
                 if (left < 1) continue;
-                const dc = standardDC(lv); // the level-based DC of a creature of the party's level: the GM has the real one
-                const c = degreeChances(best.mod ?? 0, dc);
+                const c = standardOdds(best.mod ?? 0, lv); // the level-based DC of a creature of the party's level: the GM has the real one
                 const p = c.s + c.cs;
                 const steps = [
                     {

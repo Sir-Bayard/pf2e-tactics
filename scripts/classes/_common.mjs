@@ -9,7 +9,7 @@
  *          [{ cost, text }], notes }), notes as plain sentences for the Your Class card
  * Wording is for the player ("you", "your"), in the house voice: plain, concrete, no exclamation marks.
  */
-import { signed, slugOf } from "../shared.mjs";
+import { rules, signed, slugOf } from "../shared.mjs";
 import { degreeChances, feetBetween, inReach, mapFor, slotsByRank, strikeExpected, saveExpected } from "../reader.mjs";
 import { CONDITION_VALUE, hitWorth } from "../values.mjs";
 import { isOffGuard, nameOf, reachableSquares } from "../advisor.mjs";
@@ -54,9 +54,23 @@ function usesLeft(actor, slug) {
     if (!i || !f || f.max == null) return null;
     return Number(f.value ?? f.max) || 0;
 }
-/** The standard DC by level (GM Core, Table 10-5), level 0 to 20. */
-const STANDARD_DC = [14, 15, 16, 18, 19, 20, 22, 23, 24, 26, 27, 28, 30, 31, 32, 34, 35, 36, 38, 39, 40];
-const standardDC = (lv) => STANDARD_DC[Math.max(0, Math.min(20, Number(lv) || 0))];
+/**
+ * The standard DC for a level, read from the PF2e system's own table (kit pf2e-rules; T20), plus adj; null when the table
+ * couldn't be read (the GM has been told). standardOdds gives even odds then, and dcWords says "the level's standard DC".
+ */
+const standardDC = (lv, adj = 0) => {
+    const dc = rules.dcByLevel(Math.max(0, Math.min(25, Math.round(Number(lv) || 0))));
+    return dc === null ? null : dc + adj;
+};
+const EVEN_ODDS = { cs: 0.05, s: 0.45, f: 0.45, cf: 0.05 };
+const standardOdds = (mod, lv, adj = 0) => {
+    const dc = standardDC(lv, adj);
+    return dc === null ? EVEN_ODDS : degreeChances(mod, dc);
+};
+const dcWords = (lv, adj = 0) => {
+    const dc = standardDC(lv, adj);
+    return dc === null ? "the level's standard DC" : `DC ${dc}`;
+};
 /** A ChoiceSet's choice on an item (item.flags.pf2e.rulesSelections[flag]), by the item's slug. */
 function choiceOf(actor, slug, flag) {
     const want = slugKey(slug);
@@ -210,7 +224,8 @@ export {
     sneaky,
     spendsSlot,
     standardDC,
-    STANDARD_DC,
+    standardOdds,
+    dcWords,
     usesLeft,
     level,
     markOffGuard,

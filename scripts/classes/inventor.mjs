@@ -16,7 +16,8 @@ import {
     level,
     pct,
     squareToReach,
-    standardDC,
+    standardOdds,
+    dcWords,
     strikeRun,
     targets,
     usesLeft,
@@ -271,8 +272,7 @@ function inventor(board, ctx, out) {
         );
 
     // ---- Overdrive, then Strike: when it isn't up
-    const sdc = standardDC(lv);
-    const c = degreeChances(craft, sdc);
+    const c = standardOdds(craft, lv);
     const expectedOd = c.cs * odDamage("critical-success") + c.s * odDamage("success") + c.f * 1;
     // after a failed Overdrive the Strikes already carry its +1: a new roll only replaces it on a success
     const gainOd = odOutcome === "failure" ? c.cs * (odDamage("critical-success") - 1) + c.s * (odDamage("success") - 1) : expectedOd;
@@ -281,7 +281,7 @@ function inventor(board, ctx, out) {
             ? (board.allies ?? []).filter((a) => a.canAct !== false && a.hasMelee !== false && feetBetween(me.rect, a.rect) <= 30 && a !== construct)
             : [];
     const odText = () =>
-        `Overdrive: Crafting ${signed(craft)} against DC ${sdc}, about ${pct(c.s + c.cs)} for +${odDamage("success")} on your Strikes for a minute (${pct(c.cs)} critical: +${odDamage("critical-success")}; a critical failure burns you for ${Math.ceil(lv / 2)} fire and locks it for 1d4 rounds)${construct ? `; ${nameOf(construct)} gets it too` : ""}${ubiquitous.length ? `; Ubiquitous Overdrive gives ${ubiquitous.map(nameOf).join(", ")} the base bonus` : ""}`;
+        `Overdrive: Crafting ${signed(craft)} against ${dcWords(lv)}, about ${pct(c.s + c.cs)} for +${odDamage("success")} on your Strikes for a minute (${pct(c.cs)} critical: +${odDamage("critical-success")}; a critical failure burns you for ${Math.ceil(lv / 2)} fire and locks it for 1d4 rounds)${construct ? `; ${nameOf(construct)} gets it too` : ""}${ubiquitous.length ? `; Ubiquitous Overdrive gives ${ubiquitous.map(nameOf).join(", ")} the base bonus` : ""}`;
     if (!odUp && canOverdrive && ctx.actions >= 2 && foes.length) {
         const forward =
             gainOd * 0.6 * 3 * (construct ? 2 : 1) + ubiquitous.length * (c.cs * int + c.s * Math.floor(int / 2)) * 0.6 * 3 - c.cf * Math.ceil(lv / 2) * 0.5;
@@ -652,7 +652,7 @@ function inventor(board, ctx, out) {
     // ---- Helpful Tinkering (10, 1 action, once per 10 minutes): an ally's weapon gets your offensive boost for a minute
     if (lv >= 10 && has(actor, "helpful-tinkering") && has(actor, "offensive-boost") && ctx.actions >= 1) {
         if (usesLeft(actor, "helpful-tinkering") !== 0) {
-            const t = degreeChances(craft, standardDC(lv) + 2);
+            const t = standardOdds(craft, lv, 2);
             const ally = (board.allies ?? [])
                 .filter((a) => a !== construct && a.canAct !== false && a.hasMelee !== false && inReach(me.rect, a.rect, 5))
                 .sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
@@ -665,7 +665,7 @@ function inventor(board, ctx, out) {
                     steps: [
                         {
                             cost: 1,
-                            text: `Helpful Tinkering: Crafting ${signed(craft)} against DC ${standardDC(lv) + 2} (about ${pct(t.s + t.cs)}): ${nameOf(ally)}'s weapon deals +1d6${boostType ? ` ${boostType}` : ""} for a minute; a critical failure deals that to them instead`
+                            text: `Helpful Tinkering: Crafting ${signed(craft)} against ${dcWords(lv, 2)} (about ${pct(t.s + t.cs)}): ${nameOf(ally)}'s weapon deals +1d6${boostType ? ` ${boostType}` : ""} for a minute; a critical failure deals that to them instead`
                         }
                     ],
                     notes: ["Once per 10 minutes; best on the first turn, on the ally who Strikes most."]

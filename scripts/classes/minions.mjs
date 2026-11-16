@@ -25,35 +25,16 @@ import {
     nameOf,
     signed
 } from "./_common.mjs";
+import { FOE_GUESS } from "../values.mjs";
 
 /**
- * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
- * damage (Monster Core).
+ * The level of creature a summon spell of a rank brings (-1 at rank 1, then rank - 1 to rank 4, then two levels a rank),
+ * and a creature of that level's best melee Strike as the system's creatures run (FOE_GUESS; T20).
  */
-const SUMMON_LEVEL = { 1: -1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 7, 7: 9, 8: 11, 9: 13, 10: 15 };
-const CREATURE_ATK = { "-1": 8, 0: 8, 1: 9, 2: 11, 3: 12, 4: 14, 5: 15, 6: 17, 7: 18, 8: 20, 9: 21, 10: 23, 11: 24, 12: 26, 13: 27, 14: 29, 15: 30 };
-const CREATURE_AVG = {
-    "-1": 3.5,
-    0: 4.5,
-    1: 5.5,
-    2: 8.5,
-    3: 10.5,
-    4: 12,
-    5: 14,
-    6: 16,
-    7: 18,
-    8: 20,
-    9: 22,
-    10: 24,
-    11: 26,
-    12: 26.5,
-    13: 28.5,
-    14: 30.5,
-    15: 32.5
-};
+const summonLevel = (rank) => (rank <= 1 ? -1 : rank <= 4 ? rank - 1 : 2 * rank - 5);
 const summonStats = (rank) => {
-    const L = SUMMON_LEVEL[Math.min(10, Math.max(1, rank))];
-    return { level: L, atk: CREATURE_ATK[L] ?? L + 10, avg: CREATURE_AVG[L] ?? 4 + L * 1.5 };
+    const L = summonLevel(Math.min(10, Math.max(1, rank)));
+    return { level: L, atk: FOE_GUESS.attack(L), avg: FOE_GUESS.damage(L) };
 };
 
 const traitsOf = (a) => [...(a.traits ?? []), ...(a.actor?.system?.traits?.value ?? [])];

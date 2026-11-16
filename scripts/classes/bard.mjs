@@ -13,6 +13,8 @@ import {
     level,
     pct,
     standardDC,
+    standardOdds,
+    dcWords,
     strikeRun,
     targets,
     worth,
@@ -202,14 +204,13 @@ function bard(board, ctx, out) {
                 const options = [];
                 if (lingering) {
                     const hi = Math.max(lv, ...allies.map((a) => a.level ?? lv));
-                    const dc = standardDC(hi);
-                    const c = degreeChances(perf, dc);
+                    const c = standardOdds(perf, hi);
                     const rounds = 4 * c.cs + 3 * c.s + 1 * (c.f + c.cf);
                     const evL = base * (1 + 0.8 * (rounds - 1)) + selfPart.ev;
                     options.push({
                         key: "lingering",
                         ev: evL,
-                        text: `Lingering Composition (free, 1 Focus Point; Performance ${signed(perf)} vs DC ${dc}: ${pct(c.s + c.cs)} for 3 rounds, ${pct(c.cs)} for 4; a failure keeps the point), then ${stepText(1)}`,
+                        text: `Lingering Composition (free, 1 Focus Point; Performance ${signed(perf)} vs ${dcWords(hi)}: ${pct(c.s + c.cs)} for 3 rounds, ${pct(c.cs)} for 4; a failure keeps the point), then ${stepText(1)}`,
                         note: `Lingering: about ${Math.round(rounds * 10) / 10} rounds of anthem for one Focus Point, instead of recasting each turn.`
                     });
                 }
@@ -557,8 +558,7 @@ function bard(board, ctx, out) {
         const top = held.slice(0, lv >= 17 ? 4 : 1);
         if (top.length) {
             // The effect's DC isn't known: guess a hard DC for a creature of your level
-            const dc = standardDC(lv) + 2;
-            const c = degreeChances(perf, dc);
+            const c = standardOdds(perf, lv, 2);
             const odds = c.s + c.cs;
             const ev = top.reduce((s, x) => s + worth(board, x.cond) * 1.5, 0) * odds;
             push(
@@ -568,7 +568,7 @@ function bard(board, ctx, out) {
                     {
                         cost: 2,
                         focus: true,
-                        text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against a DC near ${dc}`
+                        text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against ${standardDC(lv, 2) === null ? "a hard DC for your level" : `a DC near ${standardDC(lv, 2)}`}`
                     }
                 ],
                 [`A failure locks that effect out for a day. Focus Points: ${fp} left.${compNote()}`],

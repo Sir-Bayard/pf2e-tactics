@@ -29,7 +29,8 @@ const TIER_TEXT = [
 const NOTICE = [0, 0.25, 0.5, 0.6, 0.75];
 const actorTier = (a) => tierOf({ mindless: a?.traits?.has?.("mindless") ?? false, int: a?.system?.abilities?.int?.mod ?? 0 });
 
-/** About what one hit does at a level (GM Core's moderate Strike damage), so fixed amounts stay in proportion from level -1 to 25. */
+/** About what one hit does at a level (close to the system's creatures' median Strike damage, FOE_GUESS.damage), so fixed
+ *  amounts stay in proportion from level -1 to 25. */
 const hitWorth = (level) => Math.max(4, 6 + 1.6 * (Number(level) || 0));
 
 // The threat settings
@@ -46,4 +47,18 @@ const REVEAL_SPELLS = [
     { re: /^true seeing$/i, how: "you see through illusions and invisibility" },
 ];
 
-export { CONDITION_VALUE, NOTICE, REVEAL_SPELLS, TIER_TEXT, actorTier, hitWorth, isAnimal, threatDecay, threatOn, threatScale, tierOf };
+/**
+ * A creature of level L as the PF2e system's own creatures run (T20): the median of every npc in the system's packs at
+ * each level, fitted to a formula (PF2e 8.7.0: off by a point or two, or under 10%). No published table is stored;
+ * _dev's check script compares the formula with the packs after each PF2e update. ac, the middle of its three saves,
+ * hp, its best melee Strike's bonus, and that Strike's average damage.
+ */
+const FOE_GUESS = Object.freeze({
+    ac: (L) => Math.max(15, 14 + Math.floor(1.5 * L)),
+    save: (L) => 5 + Math.floor(1.45 * L),
+    hp: (L) => (L <= 5 ? Math.max(8, 6 + 14 * L) : 20 * L - 25),
+    attack: (L) => 8 + Math.floor(1.5 * L),
+    damage: (L) => Math.max(3.5, Math.round(2 * (4 + 1.8 * L)) / 2),
+});
+
+export { CONDITION_VALUE, FOE_GUESS, NOTICE, REVEAL_SPELLS, TIER_TEXT, actorTier, hitWorth, isAnimal, threatDecay, threatOn, threatScale, tierOf };

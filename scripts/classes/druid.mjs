@@ -152,10 +152,6 @@ function tierAt(form, rank) {
         .filter((r) => r <= rank);
     return ranks.length ? { rank: Math.max(...ranks), ...form.tiers[Math.max(...ranks)] } : null;
 }
-/**
- * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
- * damage (Monster Core).
- */
 /** A battle form or morph the character is already under (PF2e's spell effects). */
 const formEffect = (actor) =>
     effect(

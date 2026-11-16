@@ -22,7 +22,7 @@ import {
     myReach,
     pct,
     squareToReach,
-    standardDC,
+    standardOdds,
     strikeRun,
     targets,
     worth,
@@ -169,7 +169,7 @@ function thaumaturge(board, ctx, out) {
     const hurt = (c) => Math.max(0, (c.maxHp ?? 0) - (c.hp ?? 0));
     // the standard DC for the foe's level: the party's level unless the GM lets the helper use each creature's, never printed
     const chance = (f) => {
-        const c = degreeChances(lore, standardDC(f.level ?? lv));
+        const c = standardOdds(lore, f.level ?? lv);
         return { ok: c.s + c.cs, crit: c.cs };
     };
 
