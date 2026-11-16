@@ -592,8 +592,9 @@ function onLearnMessage(message) {
         let bounds = null;
         if (Number.isFinite(total) && ctx.outcome) {
             // PF2e: total >= AC + 10 a critical success, >= AC a success, <= AC - 10 a critical failure; a natural 20 or 1
-            // then moves the degree one step, so the bounds come from the degree before it moved
-            const o = ctx.outcome;
+            // then moves the degree one step, so the bounds come from the degree before it moved. The degree is PF2e's
+            // unadjusted one (T23): a feat or effect that shifts the result says nothing about the AC
+            const o = ctx.unadjustedOutcome ?? ctx.outcome;
             if (o === "criticalSuccess") bounds = { hi: nat === 20 ? total : total - 10 };
             else if (o === "success") bounds = nat === 20 ? { lo: total + 1, hi: total + 9 } : nat === 1 ? { hi: total - 10 } : { lo: total - 9, hi: total };
             else if (o === "failure") bounds = nat === 20 ? { lo: total + 10 } : nat === 1 ? { lo: total - 9, hi: total } : { lo: total + 1, hi: total + 9 };

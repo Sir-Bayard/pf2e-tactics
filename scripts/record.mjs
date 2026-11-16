@@ -7,7 +7,7 @@
  * (flags["pf2e-tactics"].record = { combat, spellstrike, exploited, chaliceDrained, wandBoosted, demoralized, asked }),
  * so it survives a reload and starts over with the next fight.
  */
-import { MODULE_ID, gmLeadNow, slugOf, flagOf } from "./shared.mjs";
+import { MODULE_ID, gmLeadNow, isGmLead, slugOf, flagOf } from "./shared.mjs";
 
 /** Actions that recharge Spellstrike besides the plain recharge (a conflux spell is read from its traits). */
 const RECHARGERS = new Set(["maguss-analysis", "running-recharge", "recharging-flurry", "rapid-recharge", "spell-retaliation", "recharge-spellstrike"]);
@@ -64,6 +64,31 @@ function noteOwn(message) {
     if (opts.includes("action:pointed-question") && targetToken) return save(actor, (r) => ({ ...r, asked: [...new Set([...(r.asked ?? []), targetToken])] }));
 }
 
+/**
+ * An NPC's Demoralize: the leading GM client notes on the combat which foes each NPC token has tried it on (each is
+ * immune to that NPC's Demoralize for 10 minutes), so the advisor stops offering it (T35). Kept on the combat as
+ * flags["pf2e-tactics"].demoralized = { npcTokenId: [targetTokenId] }; it goes with the combat.
+ */
+let npcChain = Promise.resolve();
+function noteNpc(message) {
+    const combat = game.combat;
+    if (!combat?.started || !isGmLead()) return;
+    const actor = message.actor;
+    if (!actor || actor.type !== "npc" || actor.hasPlayerOwner) return;
+    const ctx = message.flags?.pf2e?.context ?? {};
+    if (!(ctx.options ?? []).includes("action:demoralize")) return;
+    const target = ctx.target?.token ? String(ctx.target.token).split(".").pop() : null;
+    const npcTok = message.token?.id ?? message.speaker?.token ?? null;
+    if (!target || !npcTok) return;
+    npcChain = npcChain.then(async () => {
+        const all = foundry.utils.deepClone(flagOf(combat, "demoralized") ?? {});
+        if ((all[npcTok] ?? []).includes(target)) return;
+        all[npcTok] = [...(all[npcTok] ?? []), target];
+        await combat.setFlag(MODULE_ID, "demoralized", all);
+    }).catch((err) => console.warn(`${MODULE_ID} | couldn't note the Demoralize`, err));
+    return npcChain;
+}
+
 /** The helper's toggle, for a Spellstrike rolled without its card. */
 function setSpellstrike(actor, charged) {
     return save(actor, (r) => ({ ...r, spellstrike: !!charged }));
@@ -103,4 +128,4 @@ async function clearRecords(combat) {
 }
 Hooks.on("deleteCombat", (combat) => { clearRecords(combat).catch(() => {}); });
 
-export { clearRecords, noteOwn, ownRecord, recordForBoard, setSpellstrike };
+export { clearRecords, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike };

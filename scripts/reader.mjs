@@ -514,8 +514,10 @@ const flatCheck = (dc) => Math.max(0, Math.min(1, (21 - dc) / 20));
  */
 function strikeExpected(bonus, ac, avg, { deadly = 0, delta = 0, immune = false, shift = 0 } = {}) {
     const c = degreeChances(bonus, ac, shift);
-    if (immune) return { hit: c.s + c.cs, crit: c.cs, expected: 0 };
-    return { hit: c.s + c.cs, crit: c.cs, expected: c.s * Math.max(0, avg + delta) + c.cs * Math.max(0, avg * 2 + deadly + delta) };
+    if (immune) return { hit: c.s + c.cs, crit: c.cs, expected: 0, onHit: 0, onCrit: 0 };
+    // onHit and onCrit: the damage of one hit and one critical hit, for whoever needs the spread (dropChance)
+    const onHit = Math.max(0, avg + delta), onCrit = Math.max(0, avg * 2 + deadly + delta);
+    return { hit: c.s + c.cs, crit: c.cs, expected: c.s * onHit + c.cs * onCrit, onHit, onCrit };
 }
 
 /** Expected damage against a save. Basic saves: 2x, 1x, half, none. Others: as given. */
@@ -1583,6 +1585,8 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
         mindless: actor.traits?.has?.("mindless") ?? false,
         conditions: new Set((actor.conditions?.active ?? []).map((c) => c.slug)),
         intimidation: actor.skills?.intimidation?.mod ?? null,
+        // The foes it has Demoralized this fight (record.mjs noteNpc; a character's own record replaces this on the helper)
+        demoralized: new Set(combat?.started ? flagOf(combat, "demoralized")?.[token.id] ?? [] : []),
         deception: actor.skills?.deception?.mod ?? null,
         deceptionTrained: !!(actor.skills?.deception?.proficient || (actor.skills?.deception?.rank ?? 0) >= 1),
         athletics: actor.skills?.athletics?.mod ?? null,

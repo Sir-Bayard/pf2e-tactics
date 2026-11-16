@@ -20,7 +20,7 @@ import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } 
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
-import { noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
+import { noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 
@@ -778,6 +778,7 @@ Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); refreshHelper(100);
 Hooks.on("createChatMessage", (message) => {
     try { noteReaction(message); } catch { /* not a card we read */ }
     try { noteOwn(message); } catch { /* not a card we read */ }
+    try { noteNpc(message); } catch { /* not a card we read */ }
     const sp = message.speaker ?? {};
     if (helperWindow?.rendered && (sp.actor === helperWindow.actor?.id || sp.token === helperWindow.token?.id)) refreshHelper(300);
 });

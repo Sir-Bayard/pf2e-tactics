@@ -8,6 +8,10 @@ import { MODULE_ID, cap, signed } from "./shared.mjs";
 import { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
 import { CONDITION_VALUE, NOTICE, TIER_TEXT, actorTier, hitWorth, isAnimal, threatScale, tierOf } from "./values.mjs";
 
+/** Points on the hit scale: 1 at level 1, about five at level 20 (a hit at level 20 is five times one at level 1).
+ *  Every flat worth in a score is multiplied by it, so it weighs the same at every level (T36). */
+const lvlScaleOf = (board) => Math.max(1, hitWorth(board?.me?.level ?? 0) / 8);
+
 // The turn advisor: candidate turns from the creature's kit and the board, scored by expected
 // damage and what they set up, minus what they cost (reactions provoked, standing in reach).
 // Works on the plain board from readBoard(); no Foundry calls.
@@ -33,7 +37,8 @@ function doorsOn(board, map, x, y) {
     return n;
 }
 
-/** How to get to a square: fewest actions, then fewest reactions provoked. */
+/** How to get to a square. A thinking creature takes the way that provokes fewest reactions, then the fewest actions;
+ *  one on instinct takes the fewest actions, then the fewest reactions (T13). */
 function routeTo(board, x, y, acts = actionsOf(board)) {
     const { me, move, field } = board;
     if (x === me.rect.x && y === me.rect.y) return { actions: 0, provokes: [], via: null, feet: 0 };
@@ -41,8 +46,8 @@ function routeTo(board, x, y, acts = actionsOf(board)) {
     const st = field.step?.get(cellKey(x, y));
     // Up in the air it has to Fly to stay up, so it flies its 5 feet rather than Step
     if (st?.end && !me.airborne) options.push({ actions: 1, provokes: [], via: move.step.by ?? "Step", feet: st.feet, step: true });
-    // Animals, mindless and crude creatures (Int 0 or lower) don't plan a long way round: they get the shortest
-    // path too, and take the safe one only when it costs no more actions. Cleverer ones route round reach whenever they can.
+    // Animals, mindless and crude creatures (Int 0 or lower) don't plan a long way round: they get the shortest path
+    // too, and take the safe one only when it costs no more actions. Cleverer ones route round reach whenever they can.
     const instinct = tierOf(me) <= 1 && !!field.fast;
     const fast = field.fast?.get(cellKey(x, y));
     for (const [name, sf] of [["safe", field.safe?.get(cellKey(x, y))], ...(instinct ? [["fast", fast]] : [])]) {
@@ -68,7 +73,7 @@ function routeTo(board, x, y, acts = actionsOf(board)) {
         const via = `${move.step.by ?? "Step"} out of ${left.length ? `${left.join(" and ")}'s` : "their"} reach, then ${move.stride.by ?? (move.stride.speed === "fly" ? "Fly" : "Stride")}`;
         options.push({ actions, provokes: sf.provokes, via, feet: sf.feet + move.step.feet, avoided: [], field: "stepThen", fieldMap: f, stepSq: sq, doors: doorsOn(board, f, x, y), fly: !move.stride.by && move.stride.speed === "fly" });
     }
-    options.sort((a, b) => a.provokes.length - b.provokes.length || a.actions - b.actions);
+    options.sort(instinct ? (a, b) => a.actions - b.actions || a.provokes.length - b.provokes.length : (a, b) => a.provokes.length - b.provokes.length || a.actions - b.actions);
     return options[0] ?? null;
 }
 
@@ -386,7 +391,7 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
             const dmg = damageAgainst(vs?.iwr, s.damageTypes ?? []);
             const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
-            const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f };
+            const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f, onHit: raw.onHit, onCrit: raw.onCrit };
             if (!best || e.expected > best.e.expected) best = { s, bonus, e };
         }
         if (!best) break;
@@ -400,6 +405,8 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
 /**
  * The chance a run of Strikes (as strikeSeq chose them) deals at least hp damage, allowing for misses, crits and
  * the spread of the dice: each hit lands at about 70%, 100% or 130% of its average (a quarter, half, a quarter).
+ * A hit's damage is the one strikeSeq weighed (onHit, onCrit: weakness, resistance, immunity, sneak damage); the
+ * weapon's plain average only when a caller hands in Strikes without it (T34).
  */
 function dropChance(used, hp) {
     if (!(hp > 0)) return 1;
@@ -407,8 +414,9 @@ function dropChance(used, hp) {
     for (const u of used) {
         const hit = Math.max(0, (u.e?.hit ?? 0) - (u.e?.crit ?? 0)), crit = u.e?.crit ?? 0, miss = Math.max(0, 1 - hit - crit);
         const avg = Math.max(0, u.s?.avg ?? 0), dead = u.s?.deadly ?? 0;
+        const onHit = u.e?.onHit ?? avg, onCrit = u.e?.onCrit ?? avg * 2 + dead;
         const outcomes = [[miss, 0]];
-        for (const [p, mult] of [[0.25, 0.7], [0.5, 1], [0.25, 1.3]]) { outcomes.push([hit * p, avg * mult], [crit * p, (avg * 2 + dead) * mult]); }
+        for (const [p, mult] of [[0.25, 0.7], [0.5, 1], [0.25, 1.3]]) { outcomes.push([hit * p, onHit * mult], [crit * p, onCrit * mult]); }
         const next = new Map();
         for (const [dmg, pr] of dist) for (const [po, d] of outcomes) { if (!po) continue; const k = Math.min(hp, Math.round(dmg + d)); next.set(k, (next.get(k) ?? 0) + pr * po); }
         dist = next;
@@ -676,13 +684,13 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
         plan.leaveRisk = P.hitRun?.leave(at) ?? 0;
         actionsLeft -= 1;
     } else if (exposed && board.move.step.feet && !stuck) {
-        plan.steps.push({ cost: 1, text: `${board.move.step.by ?? "Step"} out of reach if it can`, value: 1 });
-        plan.ev += 1;
+        plan.steps.push({ cost: 1, text: `${board.move.step.by ?? "Step"} out of reach if it can`, value: lvlScaleOf(board) });
+        plan.ev += lvlScaleOf(board);
         actionsLeft -= 1;
     }
     if (actionsLeft > 0 && board.me.shield && !board.me.shieldRaised) {
         plan.steps.push({ cost: 1, text: "Raise a Shield" });
-        plan.ev += 1.5;
+        plan.ev += 1.5 * lvlScaleOf(board);
     }
 }
 
@@ -768,7 +776,7 @@ function planOne(board, { intent = null, noFollow = false, noSustain = false } =
     const strikeTargets = [...targets, ...(board.vicious ? board.downEnemies ?? [] : [])];
     const myTier = tierOf(me);
     // Bonuses tuned at low level keep their weight as damage grows (a hit at level 20 is five times one at level 1)
-    const lvlScale = Math.max(1, hitWorth(me.level) / 8);
+    const lvlScale = lvlScaleOf(board);
     // Ending its turn in their reach: about half a hit from each foe there
     const endPenalty = (at) => exposure(board, at) * 0.5 * hitWorth(me.level);
     // A thinking flier strikes and flies off when that's worth more than staying in reach
@@ -1051,7 +1059,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                         if (a.kind === "feint" && !og) {
                             // Success: off-guard to the next melee attack; critical success: to all of them this turn and next
                             const firstOff = strikeSeq(c.strikes, 1, ac - 2, { vs: t, at: c.at, offGuard: true }).expected + (k > 1 ? strikeSeq(c.strikes, k - 1, ac, { vs: t, at: c.at, made: 1 }).expected : 0);
-                            return a.chances.s * firstOff + a.chances.cs * rest(ac - 2, { offGuard: true }).expected + (a.chances.f + a.chances.cf) * plain.expected - a.chances.cf * 2;
+                            return a.chances.s * firstOff + a.chances.cs * rest(ac - 2, { offGuard: true }).expected + (a.chances.f + a.chances.cf) * plain.expected - a.chances.cf * 2 * lvlScaleOf(board);
                         }
                         return plain.expected + a.value;
                     };
@@ -1082,7 +1090,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                 if (mc.has("prone") && actions === 0 && n >= 2 && !["immobilized", "grabbed", "restrained"].some((x) => mc.has(x))) {
                     const stand = board.enemies.filter((e) => e.reactions?.some((r) => r.trigger.onMove) && inReach(e.rect, me.rect, e.reach)).map((e) => e.id);
                     const up = strikeSeq(c.strikes.map((x) => ({ ...x, bonus: x.bonus + 2 })), n - 1, ac, { vs: t, at: c.at, offGuard: og });
-                    const sp = { kind: "melee", title: `Stand, then Strike ${nameOf(t)}`, target: t, ev: up.expected + 1.5, dest: null, notes: [],
+                    const sp = { kind: "melee", title: `Stand, then Strike ${nameOf(t)}`, target: t, ev: up.expected + 1.5 * lvlScaleOf(board), dest: null, notes: [],
                         steps: [{ cost: 1, text: "Stand" }, { cost: n - 1, text: describeStrikes(up.used, nameOf(t)) }] };
                     if (stand.length) sp.notes.push(`Standing provokes ${provokeNames(board, stand).join(", ")}`);
                     sp.risk = provokeCost(board, stand);
@@ -1334,7 +1342,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
                 let value = (odds * chance * (p.inflicts.some((c) => OFF_GUARD_FROM.includes(c)) ? 3 : 2) + odds * chance * 2 * p.inflicts.filter((c) => ["stunned", "slowed", "paralyzed", "confused", "fleeing"].includes(c)).length) * Math.max(1, hitWorth(me.level) / 8);
                 // A critical failure on Trip or Shove leaves it prone
                 const backlash = check && (p.control.includes("trip") || p.control.includes("shove")) ? degreeChances((me.athletics ?? me.level + 5) + mapPen, 10 + (t.saves[check.against] ?? 0)).cf : 0;
-                value -= backlash * 3;
+                value -= backlash * 3 * Math.max(1, hitWorth(me.level) / 8);
                 const plan = { kind: "setup", title: `${press ? `Strike ${nameOf(t)}, then ` : ""}${p.name} on ${nameOf(t)}`, target: t, ev: value + (opener?.expected ?? 0), steps: [], notes: [], dest: null, ability: p };
                 if (opener) plan.steps.push({ cost: 1, text: describeStrikes(opener.used, nameOf(t)) });
                 plan.steps.push({ cost: p.cost, text: `${p.name} on ${nameOf(t)} (${p.inflicts.join(", ")}; works about ${pct(chance)} of the time${mapPen ? ", with the MAP" : ""})` });
@@ -1378,7 +1386,7 @@ function planFollowUps({ board, me, melee, plans, profiles, ranged, recharging, 
                 const works = check?.gives ? odds.s + odds.cs : 1;
                 const leaves = [...new Set([...p.inflicts, ...(check?.gives ? [check.gives] : [])])].filter((c) => OFF_GUARD_FROM.includes(c));
                 const og = isOffGuard(t);
-                const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)} now`, target: t, ev: p.damage.reduce((sum, d) => sum + averageOf(d.formula), 0) + (leaves.length && !og ? 3 * works : 0) - (check && ["Trip", "Shove"].includes(check.label) ? odds.cf * 3 : 0), steps: [], notes: [], dest: null, ability: p };
+                const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)} now`, target: t, ev: p.damage.reduce((sum, d) => sum + averageOf(d.formula), 0) + ((leaves.length && !og ? 3 * works : 0) - (check && ["Trip", "Shove"].includes(check.label) ? odds.cf * 3 : 0)) * lvlScaleOf(board), steps: [], notes: [], dest: null, ability: p };
                 plan.steps.push({ cost, text: `${p.name} now, its last Strike hit ${nameOf(t)}${check ? ` (${check.label}: Athletics ${signed(athletics)} vs ${cap(check.vs)} DC ${10 + (t.saves[check.vs] ?? 0)}${check.gives ? `, ${check.gives} about ${pct(works)} of the time` : ""})` : ""}` });
                 fillLast(board, plan, me.rect, P.act - cost, t, 0, leaves.length && !og ? 2 * works : 0);
                 plans.push(plan);
@@ -1433,10 +1441,10 @@ function planFollowUps({ board, me, melee, plans, profiles, ranged, recharging, 
                 const checkOdds = check ? degreeChances(athletics, 10 + (t.saves[check.vs] ?? 0)) : null;
                 const works = check && check.gives && !p.inflicts.includes(check.gives) ? checkOdds.s + checkOdds.cs : 1;
                 // Trip or Shove critically failed: it falls prone itself
-                if (check && ["Trip", "Shove"].includes(check.label)) plan.ev -= first.firstHit * checkOdds.cf * 3;
+                if (check && ["Trip", "Shove"].includes(check.label)) plan.ev -= first.firstHit * checkOdds.cf * 3 * lvlScaleOf(board);
                 const leaves = [...new Set([...p.inflicts, ...(check ? [check.gives] : [])])].filter((c) => OFF_GUARD_FROM.includes(c));
                 const payDmg = p.damage.reduce((sum, d) => sum + averageOf(d.formula), 0);
-                plan.ev += first.firstHit * (payDmg + (leaves.length ? 3 * works : 0));
+                plan.ev += first.firstHit * (payDmg + (leaves.length ? 3 * works * lvlScaleOf(board) : 0));
                 const how = check ? ` (${check.label}: Athletics ${signed(athletics)} vs ${cap(check.vs)} DC ${10 + (t.saves[check.vs] ?? 0)}${check.gives ? `, ${check.gives} about ${pct(works)} of the time` : ""}${free ? "; free action" : ""})` : p.inflicts.length ? ` (${p.inflicts.join(", ")})` : "";
                 plan.steps.push({ cost: cost, text: `If it hits: ${p.name}${how}` });
                 const left = P.act - best.sq.route.actions - 1 - cost;
@@ -1674,14 +1682,14 @@ function planShoves({ board, me, melee, myTier, plans, rectAt, squares, targets 
             if (!best) continue;
             const og = isOffGuard(t);
             const dc = 10 + (t.saves.fortitude ?? 0);
-            const worth = (x) => (x ? x.dmg + (x.prone ? 3 : 0) + (x.fall ? 2 : 0) : 0);
+            const worth = (x) => (x ? x.dmg + ((x.prone ? 3 : 0) + (x.fall ? 2 : 0)) * lvlScaleOf(board) : 0);
             // How many Strikes before it: each adds damage but makes the Shove less likely (the MAP)
             let pick = null;
             for (let k = 0; k <= P.act - best.sq.route.actions - 1; k++) {
                 const run = k > 0 ? strikeSeq(best.strikes, k, t.ac, { vs: t, at: best.at, offGuard: og }) : { expected: 0, used: [] };
                 const mod = ath + mapFor(P.made + run.used.length, false);
                 const c = degreeChances(mod, dc);
-                const value = c.s * worth(best.push.s) + c.cs * Math.max(worth(best.push.s), worth(best.push.cs)) - c.cf * 3;
+                const value = c.s * worth(best.push.s) + c.cs * Math.max(worth(best.push.s), worth(best.push.cs)) - c.cf * 3 * lvlScaleOf(board);
                 if (value > 0.5 && (!pick || run.expected + value > pick.run.expected + pick.value)) pick = { k, run, mod, c, value };
             }
             if (!pick) continue;
@@ -1857,7 +1865,8 @@ function scorePlans({ animal, board, endPenalty, lvlScale, me, melee, plans, rec
             plan.score -= (Math.min(...caught.map((c) => feetBetween(me.rect, c.rect))) / 5) * lvlScale;
             if (plan.dest && inReachNow.length && !caught.some((c) => inReachNow.includes(c))) plan.score -= 6 * lvlScale;
         }
-        if (plan.kind === "melee" && board.spells.some((sp) => sp.dc && (sp.avg || sp.inflicts?.length))) plan.score -= 1.5 * lvlScale; // a caster's place isn't in melee
+        // A caster's place isn't in melee: for a creature, not a player character (a magus or a warpriest belongs there, T37)
+        if (plan.kind === "melee" && !me.pc && board.spells.some((sp) => sp.dc && (sp.avg || sp.inflicts?.length))) plan.score -= 1.5 * lvlScale;
         const endAt = plan.dest ? rectAt(plan.dest) : me.rect;
         if (P.hitRun) {
             // Where it ends its turn: a thinking flier weighs it for everything it attacks with
@@ -1995,7 +2004,7 @@ function thirdActionAlternatives(board, target, at) {
         const mod = me.intimidation - (shared ? 0 : 4);
         const c = degreeChances(mod, 10 + (target.saves.will ?? 0));
         // value: what frightened is worth to the rest of the side after this turn; the Strikes it helps are counted by the caller
-        out.push({ kind: "demoralize", first: true, value: c.s * 1 + c.cs * 2.5, chances: c, after: " (AC lower if Demoralize worked)",
+        out.push({ kind: "demoralize", first: true, value: (c.s * 1 + c.cs * 2.5) * lvlScaleOf(board), chances: c, after: " (AC lower if Demoralize worked)",
             text: `Demoralize ${nameOf(target)} (Intimidation ${signed(mod)}${shared ? "" : ", -4 no shared language"} vs Will DC ${10 + (target.saves.will ?? 0)}; once per target per 10 minutes)` });
     }
     // Feint: trained Deception, in melee reach, against the target's Perception DC
@@ -2004,7 +2013,7 @@ function thirdActionAlternatives(board, target, at) {
         out.push({ kind: "feint", first: true, value: 0, chances: c, after: " (off-guard to the first if the Feint worked, all of them on a critical success)",
             text: `Feint ${nameOf(target)} (Deception ${signed(me.deception)} vs Perception DC ${10 + (target.perception ?? target.saves.will ?? 0)})` });
     }
-    if (me.shield && !me.shieldRaised && exposure(board, at)) out.push({ kind: "shield", value: 2.5, text: "Raise a Shield" });
+    if (me.shield && !me.shieldRaised && exposure(board, at)) out.push({ kind: "shield", value: 2.5 * lvlScaleOf(board), text: "Raise a Shield" });
     return out;
 }
 
