@@ -536,7 +536,8 @@ function targetBonus(board, plan, tier, engaged = []) {
     const drop = pDrop >= 0.5;
     const maybe = !drop && pDrop >= 0.25;
     // Damage past their HP is half wasted; taking them out of the fight is worth about two of its own hits
-    const add = (plan.used?.length && plan.ev > t.hp ? -(plan.ev - t.hp) * 0.5 : 0) + (plan.used?.length ? pDrop * 2 * hitWorth(me.level) : 0);
+    const aimed = plan.onTarget ?? plan.ev; // a plan that moves on to the next foe aims only part of its worth at t
+    const add = (plan.used?.length && aimed > t.hp ? -(aimed - t.hp) * 0.5 : 0) + (plan.used?.length ? pDrop * 2 * hitWorth(me.level) : 0);
     if (tier === 1) {
         // Crude: what's in front of it. Close, in its face, bleeding, down, alone, small.
         b -= feetBetween(me.rect, t.rect) / 10;
@@ -1102,6 +1103,33 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                             notes: [...plan.notes], dest: plan.dest, flyAway: true, leaveRisk: P.hitRun.leave(c.at), risk: plan.risk };
                         hr.steps.push({ cost: n - 1, text: describeStrikes(fewer.used, nameOf(t)) }, { cost: 1, fly: true, text: flyAwayText(board, c.at) });
                         plans.push(hr);
+                    }
+                }
+                // Likely down before its Strikes run out: the rest on the next foe in reach (T2). A thinking creature only;
+                // an animal keeps on what it's biting. The plan's worth: the first Strikes, then the rest on the next foe
+                // if t drops (by the dice, dropChance) or on t if it doesn't. Its chance of dropping t is the whole run's (it
+                // keeps on t until t drops), so used is the whole run; onTarget is what it aims at t, for the overkill.
+                if (!downed && n >= 2 && tierOf(me) >= 2 && run.used.length === n) {
+                    for (let k = 1; k < n; k++) {
+                        const head = run.used.slice(0, k);
+                        const pk = dropChance(head, t.hp);
+                        if (pk < 0.6) continue;
+                        const near = board.enemies.filter((e) => e !== t && e.hp > 0 && !e.objective && e.state !== "hidden" && c.strikes.some((s) => inReach(c.at, e.rect, s.reach)));
+                        let next = null;
+                        for (const e of near) {
+                            const usable = c.strikes.filter((s) => inReach(c.at, e.rect, s.reach));
+                            const r = strikeSeq(usable, n - k, acAgainst(e, !!flankingAlly(board, c.at, e)), { vs: e, at: c.at, made: k, offGuard: isOffGuard(e) || !!flankingAlly(board, c.at, e) });
+                            if (r.used.length && (!next || r.expected > next.r.expected)) next = { e, r };
+                        }
+                        if (!next) break;
+                        const headEv = head.reduce((sum, u) => sum + u.e.expected, 0);
+                        const tailOnT = run.used.slice(k).reduce((sum, u) => sum + u.e.expected, 0);
+                        const ev = headEv + pk * next.r.expected + (1 - pk) * tailOnT;
+                        const sp = { kind: "melee", title: `${actions ? "Close and Strike" : "Strike"} ${nameOf(t)}, then ${nameOf(next.e)}`, target: t, ev, used: run.used, onTarget: headEv + (1 - pk) * tailOnT,
+                            dest: plan.dest, notes: [...plan.notes, `${nameOf(t)} drops after ${k === 1 ? "the first Strike" : `${k} Strikes`} about ${pct(pk)} of the time; if not, the rest go on ${nameOf(t)}`], risk: plan.risk,
+                            steps: [...(actions ? [{ ...plan.steps[0] }] : []), { cost: k, text: describeStrikes(head, nameOf(t)) }, { cost: n - k, text: `If ${nameOf(t)} drops: ${describeStrikes(next.r.used, nameOf(next.e))}` }] };
+                        plans.push(sp);
+                        break;
                     }
                 }
                 // Prone and already in reach: Stand first (no -2 on the Strikes, not off-guard afterwards), or fight from the ground
