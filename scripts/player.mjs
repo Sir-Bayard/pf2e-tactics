@@ -466,7 +466,19 @@ function adviceSectionFor(board, adv) {
         alts.push(p);
         if (alts.length >= 3) break;
     }
-    const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", false) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")}${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
+    // Why each alternative came second, in a few words (T43): more risk, a resource spent, less damage, or what put the
+    // recommended turn ahead
+    const spends = (p) => (p.focus || p.steps?.some((x) => x.focus) ? "it spends a Focus Point" : p.spell && !p.spell.cantrip && !p.spell.focus ? "it spends a slot" : p.slot ? "it spends a slot" : null);
+    const whyNot = (p) => {
+        const dEv = (p.ev ?? 0) - (best.ev ?? 0);
+        if ((p.risk ?? 0) > (best.risk ?? 0) + 0.5) return p.notes?.find((n) => /^Provokes/.test(n)) ?? "it leaves you more exposed";
+        const cost = spends(p);
+        if (cost && !spends(best) && dEv > -0.5) return cost;
+        if (dEv < -0.5) return `about ${Math.round(-dEv * 10) / 10} less damage`;
+        if (best.why?.length) return `the first choice is ${best.why.join(", ")}`;
+        return dEv > 0.5 ? `about ${Math.round(dEv * 10) / 10} more damage, but the first choice scores higher on the rest (who it hits, where it leaves you)` : "about the same worth";
+    };
+    const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", false) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")} <span class="npt-dim">(second because ${esc(whyNot(p))})</span>${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
     const foot = `<div class="npt-dim npt-est">${adv.estimated ? "Odds are estimates from the party's rolls this fight (a creature of your level until then) and what you can see on each foe." : "Odds use the party's rolls this fight and what you can see on each foe."}</div>`;
     // Show draws the route on this player's map; it goes round only the reactions the party has seen
     return panel("Your Turn", { key, open: true, cls: "npt-act", sum: esc(titleCase(best.title)), tools: showButton(best), body: `<div class="npt-plan-title">${esc(titleCase(best.title))}</div>${stepsHtml(best.steps)}${notes}${altHtml}${foot}` });
@@ -874,4 +886,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, CLASS_HANDLED, estimateFoe, guardTurn, helperApi, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };
+export { adviceBoard, adviceSectionFor, adviseHelper, annotateBoard, buildHelper, CLASS_HANDLED, estimateFoe, guardTurn, helperApi, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };

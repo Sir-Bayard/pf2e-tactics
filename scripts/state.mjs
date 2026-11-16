@@ -30,10 +30,32 @@ function turnKey(combat = game.combat) {
     // Keyed on the combatant, not the turn index, which shifts when someone joins or leaves mid-turn
     return combat?.started && c ? `${combat.id}:${combat.round}:${c.id}` : null;
 }
+/**
+ * The turn's ledger survives a reload (T41): it's kept in this tab's session storage under the turn's key (combat, round,
+ * combatant), saved just after whatever asked for it has changed it, and read back when the page comes back on the same
+ * turn. A new turn starts a new one.
+ */
+const LEDGER_KEY = `${MODULE_ID}.ledger`;
+let ledgerSave = false;
+function keepLedger() {
+    if (ledgerSave) return;
+    ledgerSave = true;
+    queueMicrotask(() => {
+        ledgerSave = false;
+        try { if (LEDGER) globalThis.sessionStorage?.setItem(LEDGER_KEY, JSON.stringify(LEDGER)); } catch { /* storage off or full: the ledger lives until a reload */ }
+    });
+}
+function savedLedger(key) {
+    try {
+        const v = JSON.parse(globalThis.sessionStorage?.getItem(LEDGER_KEY) ?? "null");
+        return v?.key === key && Array.isArray(v.log) ? v : null;
+    } catch { return null; }
+}
 function currentLedger() {
     const key = turnKey();
     if (!key) return null;
-    if (LEDGER?.key !== key) LEDGER = { key, log: [], adjActions: 0, adjAttacks: 0, credit: { from: null, strikes: 0, moves: 0, checks: 0 } };
+    if (LEDGER?.key !== key) LEDGER = savedLedger(key) ?? { key, log: [], adjActions: 0, adjAttacks: 0, credit: { from: null, strikes: 0, moves: 0, checks: 0 } };
+    keepLedger();
     return LEDGER;
 }
 /** The ledger, if this creature is the one whose turn it is. */
