@@ -592,6 +592,12 @@ function mapFor(n, agile) {
     if (n <= 0) return 0;
     return (agile ? -4 : -5) * Math.min(n, 2);
 }
+/** A Strike's own multiple attack penalty after n attacks: its mapStep when a class read set one (Agile Grace: 3), else
+ *  the usual by agile (T7). */
+function strikeMap(s, n) {
+    if (n <= 0) return 0;
+    return s?.mapStep ? -s.mapStep * Math.min(n, 2) : mapFor(n, s?.agile);
+}
 
 const round1 = (n) => Math.round(n * 10) / 10;
 const pct = (p) => `${Math.round(p * 100)}%`;
@@ -1953,4 +1959,4 @@ function slotsByRank(actor) {
     return out;
 }
 
-export { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, forgetFightReader, gapSquares, healUse, heightOf, HP_AT_TURN, inReach, isDown, itemSpellsOf, LAST_TARGET, learnedAcBounds, learnK, mapFor, movementField, movementOptions, partialsOf, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, RECENT, rectInArea, RIDERS, round1, saveExpected, segmentsCrossProperly, slotsByRank, speedsOf, spellEffects, staffSpellsOf, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, visibleAdjustments, withVisioner };
+export { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, forgetFightReader, gapSquares, healUse, heightOf, HP_AT_TURN, inReach, isDown, itemSpellsOf, LAST_TARGET, learnedAcBounds, learnK, mapFor, movementField, movementOptions, partialsOf, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, RECENT, rectInArea, RIDERS, round1, saveExpected, segmentsCrossProperly, slotsByRank, speedsOf, spellEffects, staffSpellsOf, strikeExpected, strikeMap, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, visibleAdjustments, withVisioner };

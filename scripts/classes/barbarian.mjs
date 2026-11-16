@@ -35,7 +35,8 @@ import {
     reachableSquares,
     signed,
     abil,
-    classDC
+    classDC,
+    allyStrike
 } from "./_common.mjs";
 
 /**
@@ -596,9 +597,9 @@ function barbarian(board, ctx, out) {
     if (has(actor, "share-rage") && avail >= 1) {
         const ally = board.allies
             .filter((a) => a.hasMelee !== false && a.canAct !== false && feetBetween(me.rect, a.rect) <= 30 && !effect(a.actor, /^effect-rage$/))
-            .sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
+            .sort((a, b) => (allyStrike(b, lv).avg) - (allyStrike(a, lv).avg))[0];
         if (ally) {
-            const ev = ((ally.level ?? lv) + 2) * 0.3 + 0.1 * (ally.reactiveStrike?.avg ?? 6) * 2 * 2;
+            const ev = ((ally.level ?? lv) + 2) * 0.3 + 0.1 * (allyStrike(ally, lv).avg) * 2 * 2;
             push({
                 title: `Share Rage with ${nameOf(ally)}`,
                 target: null,

@@ -5,7 +5,7 @@
  * several files: see pf2e-tactics.mjs for the whole.
  */
 import { MODULE_ID, cap, signed } from "./shared.mjs";
-import { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
+import { strikeMap, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
 import { CONDITION_VALUE, NOTICE, REVEAL_SPELLS, TIER_TEXT, actorTier, hitWorth, isAnimal, threatScale, tierOf } from "./values.mjs";
 
 /** Points on the hit scale: 1 at level 1, about five at level 20 (a hit at level 20 is five times one at level 1).
@@ -46,6 +46,8 @@ function routeTo(board, x, y, acts = actionsOf(board)) {
     const st = field.step?.get(cellKey(x, y));
     // Up in the air it has to Fly to stay up, so it flies its 5 feet rather than Step
     if (st?.end && !me.airborne) options.push({ actions: 1, provokes: [], via: move.step.by ?? "Step", feet: st.feet, step: true });
+    // Step-only this turn (a class read says so: Relinquish Control, T4): no Stride at all
+    if (board.stepOnly) return options[0] ?? null;
     // Animals, mindless and crude creatures (Int 0 or lower) don't plan a long way round: they get the shortest path
     // too, and take the safe one only when it costs no more actions. Cleverer ones route round reach whenever they can.
     const instinct = tierOf(me) <= 1 && !!field.fast;
@@ -130,7 +132,7 @@ function reachableSquares(board, maxActions = actionsOf(board)) {
     // up there is offered again at that height, with the actions the climb or flight costs.
     const z0 = board.me.rect.z ?? 0;
     const heights = [...new Set((board.enemies ?? []).map((e) => e.rect.z ?? 0))].filter((z) => Math.abs(z - z0) >= 5);
-    if (!heights.length || !board.square) return out;
+    if (!heights.length || !board.square || board.stepOnly) return out;
     const base = out.slice();
     // On foot by a ramp: the field's way to the ramp, then on to the square up (or down) there
     const stride = board.move?.stride;
@@ -398,7 +400,8 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
     for (let i = 0; i < n; i++) {
         let best = null;
         for (const s of strikes) {
-            const bonus = s.bonus + mapFor(P.made + made + i, s.agile);
+            // its own penalty and extra damage when a class read set them (s.mapStep, s.extra, s.sneak: T7)
+            const bonus = s.bonus + strikeMap(s, P.made + made + i);
             // Cover and sight from where it stands; weakness and resistance to the Strike's damage
             const ctx = vs ? attackCtx(at, vs, { ranged: !!s.ranged }) : null;
             if (ctx?.noLine) continue;
@@ -409,7 +412,9 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
             // Prone and it moved, so it stood first: the prone -2 already in its Strikes is gone
             const stood = P.board.me.conditions?.has?.("prone") && at && (at.x !== P.board.me.rect.x || at.y !== P.board.me.rect.y) ? 2 : 0;
             const dmg = vs ? harmAgainst(vs, s.damageTypes ?? [], s.partials) : damageAgainst(null, []);
-            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg - (dmg.cut ?? 0) + extra + ((offGuard || surprise) && s.sneaky !== false && !precisionImmune ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
+            // Off-guard to this Strike only (a class read's mark, such as Gang Up for melee: s.offGuardVs, T5)
+            const ogHere = !offGuard && !surprise && !!(vs && s.offGuardVs?.has?.(vs.id) && !isOffGuard(vs));
+            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise || ogHere ? 2 : 0), s.avg - (dmg.cut ?? 0) + extra + (s.extra ?? 0) + ((offGuard || surprise || ogHere) && s.sneaky !== false && !precisionImmune ? s.sneak ?? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
             const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f, onHit: raw.onHit, onCrit: raw.onCrit };
             if (!best || e.expected > best.e.expected) best = { s, bonus, e };

@@ -10,8 +10,8 @@
  * Wording is for the player ("you", "your"), in the house voice: plain, concrete, no exclamation marks.
  */
 import { rules, signed, slugOf } from "../shared.mjs";
-import { degreeChances, feetBetween, inReach, mapFor, slotsByRank, strikeExpected, saveExpected } from "../reader.mjs";
-import { CONDITION_VALUE, hitWorth } from "../values.mjs";
+import { degreeChances, feetBetween, inReach, mapFor, slotsByRank, strikeExpected, strikeMap, saveExpected } from "../reader.mjs";
+import { CONDITION_VALUE, FOE_GUESS, hitWorth } from "../values.mjs";
 import { isOffGuard, nameOf, reachableSquares } from "../advisor.mjs";
 
 const half = (n) => Math.floor((Number(n) || 0) / 2 / 5) * 5;
@@ -99,8 +99,10 @@ const worth = (board, cond, mult = 1) => (CONDITION_VALUE[cond] ?? 2) * Math.max
 function bestStrike(board, t, { made = 0, melee = true, acAdj = 0, extra = 0 } = {}) {
     let best = null;
     for (const s of board.strikes.filter((s) => (melee ? !s.ranged : s.ranged))) {
-        const bonus = s.bonus + mapFor(made, s.agile);
-        const e = strikeExpected(bonus, t.ac + acAdj, s.avg + extra, { deadly: s.deadly });
+        const bonus = s.bonus + strikeMap(s, made);
+        // off-guard to this Strike only (s.offGuardVs: Gang Up for melee, T5); its own extra damage (s.extra, T7)
+        const og = s.offGuardVs?.has?.(t.id) && !t.offGuardWhy && !isOffGuard(t) ? -2 : 0;
+        const e = strikeExpected(bonus, t.ac + acAdj + og, s.avg + extra + (s.extra ?? 0), { deadly: s.deadly });
         if (!best || e.expected > best.e.expected) best = { s, bonus, e };
     }
     return best;
@@ -163,6 +165,25 @@ const focusLeft = (actor) => {
 };
 
 /* ---- small helpers the class reads share ---- */
+/** An effect on the sheet that's still running (not expired, time left), or null (T8). */
+function effectUp(actor, re) {
+    const e = effect(actor, re);
+    if (!e) return null;
+    const rd = e.remainingDuration;
+    if (rd && (rd.expired || (Number.isFinite(Number(rd.remaining)) && Number(rd.remaining) <= 0))) return null;
+    return e;
+}
+/** A skill: { mod, rank, label }, from the sheet, else the board's number for it; null when neither has it (T8). */
+const skillMod = (board, k) => {
+    const sk = board.me.actor?.skills?.[k];
+    const mod = sk?.mod ?? board.me[k];
+    return mod == null ? null : { mod: Number(mod) || 0, rank: sk?.rank ?? (sk?.proficient ? 1 : 0), label: sk?.label ?? k[0].toUpperCase() + k.slice(1) };
+};
+/** No one stands on that square (true when the board can't say) (T8). */
+const freeSquare = (board, x, y) => !board.occupant?.get?.(`${x},${y}`);
+/** A creature's best melee Strike, { bonus, avg }: its Reactive Strike on the board, else a creature of its level's
+ *  (FOE_GUESS) (T8, T20). */
+const allyStrike = (c, lv = 1) => c?.reactiveStrike ?? { bonus: FOE_GUESS.attack(c?.level ?? lv), avg: FOE_GUESS.damage(c?.level ?? lv) };
 /** An ability modifier from the sheet ("str", "dex"...). */
 const abil = (actor, k) => Number(actor?.abilities?.[k]?.mod ?? actor?.system?.abilities?.[k]?.mod) || 0;
 /** " twice", " three times", " 4 times" (nothing for one). */
@@ -226,6 +247,10 @@ export {
     standardDC,
     standardOdds,
     dcWords,
+    effectUp,
+    skillMod,
+    freeSquare,
+    allyStrike,
     usesLeft,
     level,
     markOffGuard,

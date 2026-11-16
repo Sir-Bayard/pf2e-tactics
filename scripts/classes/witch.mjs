@@ -956,6 +956,8 @@ function witch(board, ctx, out) {
         const plain = hexPlanOne(c, opts, false);
         if (!plain || opts.allowSpell === false) return plain ? [plain] : [];
         const slotted = hexPlanOne(c, opts, true);
+        // spell thrift weighs the slot against this same turn with the cantrip (T6)
+        if (slotted?.spell) slotted.baseline = { ev: plain.ev, name: `the same turn with the cantrip ("${plain.title}")` };
         return slotted?.spell ? [plain, slotted] : [plain];
     };
     function hexPlanOne(
@@ -1212,6 +1214,7 @@ function witch(board, ctx, out) {
         }
         const left = rest - (after?.cost ?? 0);
         // The cantrip after it, and a slot spell instead when that does more (spell thrift weighs it)
+        let plainTurn = null;
         for (const slotMode of [false, true]) {
             const f = left >= 1 && t ? fillRest(board, t, left, ctx.made, { slot: slotMode }) : { steps: [], ev: 0, spent: null };
             if (slotMode && !f.spent) break;
@@ -1225,7 +1228,10 @@ function witch(board, ctx, out) {
                 steps: [...steps, ...f.steps],
                 notes: [...notes]
             };
-            if (f.spent) spendsSlot(plan, f.spent);
+            if (f.spent) {
+                spendsSlot(plan, f.spent);
+                if (plainTurn) plan.baseline = { ev: plainTurn.ev, name: `the same turn with the cantrip ("${plainTurn.title}")` }; // T6
+            } else plainTurn = plan;
             out.plans.push(plan);
         }
     };

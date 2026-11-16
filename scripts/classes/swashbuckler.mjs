@@ -29,7 +29,9 @@ import {
     signed,
     abil,
     times,
-    classDC
+    classDC,
+    skillMod,
+    freeSquare
 } from "./_common.mjs";
 import { flanks } from "../reader.mjs";
 import { cap } from "../shared.mjs";
@@ -144,10 +146,7 @@ function swashbuckler(board, ctx, out) {
 
     // ---- skills with the bravado bonus (Stylish Combatant +1, +2 at 9); Derring-Do rolls twice while panache is already up
     const stylish = own || has(actor, "stylish-combatant") ? (has(actor, "swashbuckler-expertise") || (own && lv >= 9) ? 2 : 1) : 0;
-    const skill = (k) => {
-        const v = actor.skills?.[k]?.mod ?? me[k];
-        return v == null ? null : Number(v);
-    };
+    const skill = (k) => skillMod(board, k)?.mod ?? null;
     const trained = (k) =>
         (actor.skills?.[k]?.rank ?? 0) >= 1 || !!actor.skills?.[k]?.proficient || STYLE_SKILL[style] === k || (k === "deception" && !!me.deceptionTrained);
     const bravadoMod = (k) => (skill(k) == null ? null : skill(k) + stylish);
@@ -165,7 +164,7 @@ function swashbuckler(board, ctx, out) {
             fcy = f.rect.y + (f.rect.h - 1) / 2;
         const bx = Math.round(2 * fcx - from.x),
             by = Math.round(2 * fcy - from.y);
-        const free = (x, y) => !board.occupant?.get?.(`${x},${y}`) && inReach({ x, y, w: me.rect.w, h: me.rect.h, z: me.rect.z }, f.rect, 5);
+        const free = (x, y) => freeSquare(board, x, y) && inReach({ x, y, w: me.rect.w, h: me.rect.h, z: me.rect.z }, f.rect, 5);
         if (free(bx, by)) return { x: bx, y: by };
         const dx = Math.sign(bx - fcx),
             dy = Math.sign(by - fcy);

@@ -631,6 +631,7 @@ function wizard(board, ctx, out) {
         const rest = ctx.actions - 1;
         // Force Bolt alone, then with the cantrip, and with the slot spell when it does more (thrift weighs the slot)
         const nexts = rest >= 1 ? followUps(board, t, rest, ctx.made) : [];
+        let plainTurn = null;
         for (const next of nexts.some(Boolean) ? nexts.filter(Boolean) : [null]) {
             const steps = [first];
             let ev = avg;
@@ -654,7 +655,10 @@ function wizard(board, ctx, out) {
                 steps,
                 notes
             };
-            if (next && !next.sp.cantrip) spendsSlot(plan, next.sp);
+            if (next && !next.sp.cantrip) {
+                spendsSlot(plan, next.sp);
+                if (plainTurn) plan.baseline = { ev: plainTurn.ev, name: `the same turn with the cantrip ("${plainTurn.title}")` }; // T6
+            } else plainTurn = plan;
             out.plans.push(plan);
         }
     }

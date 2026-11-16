@@ -35,7 +35,8 @@ import {
     ordinal,
     lc,
     isSignature,
-    slotsLeft
+    slotsLeft,
+    effectUp
 } from "./_common.mjs";
 import { isOffGuard } from "../advisor.mjs";
 
@@ -225,11 +226,8 @@ const isSlot = (sp) => !sp.cantrip && !sp.focus && !sp.traits?.includes("focus")
 
 /** The Unleash Psyche effect on the sheet, still running. */
 function unleashUp(actor) {
-    const e = effect(actor, /unleash-psyche|psyche-unleashed|unleashed-psyche/);
-    if (!e || /psi-strikes/.test(slugOf(e))) return null;
-    const rd = e.remainingDuration;
-    if (rd && (rd.expired || (Number.isFinite(Number(rd.remaining)) && Number(rd.remaining) <= 0))) return null;
-    return e;
+    const e = effectUp(actor, /unleash-psyche|psyche-unleashed|unleashed-psyche/);
+    return !e || /psi-strikes/.test(slugOf(e)) ? null : e;
 }
 /** The Unleash effect's full length in seconds: its own duration (2 rounds, 4 if you doubled it with Twin Psyche), else judged from what's left. */
 function unleashLength(e, rem) {

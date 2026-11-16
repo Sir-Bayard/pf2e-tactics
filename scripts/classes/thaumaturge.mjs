@@ -33,7 +33,8 @@ import {
     saveExpected,
     nameOf,
     signed,
-    diceOf
+    diceOf,
+    freeSquare
 } from "./_common.mjs";
 import { playersSeeName, tokensSetNames } from "../shared.mjs";
 
@@ -431,7 +432,7 @@ function thaumaturge(board, ctx, out) {
 
     // --- Mirror: a second self within 15 feet, to reach a foe without moving or to flank it with yourself -----------
     if (held.includes("mirror") && ctx.actions >= 2) {
-        const free = (x, y) => !board.occupant?.get?.(`${x},${y}`) && (!board.field?.land || board.field.land.has(`${x},${y}`));
+        const free = (x, y) => freeSquare(board, x, y) && (!board.field?.land || board.field.land.has(`${x},${y}`));
         for (const f of foes) {
             const near = inReach(me.rect, f.rect, reach);
             const flanked = f.conditions?.has?.("off-guard");

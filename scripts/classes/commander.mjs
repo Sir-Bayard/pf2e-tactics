@@ -37,7 +37,8 @@ import {
     nameOf,
     reachableSquares,
     signed,
-    diceAvg
+    diceAvg,
+    allyStrike
 } from "./_common.mjs";
 
 const BANNER_FEET = 30;
@@ -101,7 +102,7 @@ function commander(board, ctx, out) {
     const inSquadAura = up.filter(inAura);
     const round = globalThis.game?.combat?.round ?? 2;
     // An ally's Strike as a reaction (its best melee Strike; a ranged one is read the same, the sheet only carries the melee numbers)
-    const allyHit = (a, f, acAdj = 0) => strikeExpected(a.reactiveStrike?.bonus ?? lv + 6, f.ac + acAdj, a.reactiveStrike?.avg ?? 4);
+    const allyHit = (a, f, acAdj = 0) => strikeExpected(allyStrike(a, lv).bonus, f.ac + acAdj, allyStrike(a, lv).avg);
     // A foe's save against your class DC; incapacitation shifts a higher-level foe one degree up
     const foeSave = (f, stat, incap = false) => {
         const c = degreeChances(f.saves?.[stat] ?? lv + 5, classDc, incap && (f.level ?? lv) > lv ? 1 : 0);
@@ -162,7 +163,7 @@ function commander(board, ctx, out) {
             const near = up.filter((a) => canMove(a) && melee(a) && feetBetween(a.rect, f.rect) <= 10);
             if (!near.length) continue;
             const adjacent = near.filter((a) => adjacentTo(a, f));
-            let ev = near.reduce((sum, a) => sum + 2 * 0.1 * (a.reactiveStrike?.avg ?? 4), 0);
+            let ev = near.reduce((sum, a) => sum + 2 * 0.1 * (allyStrike(a, lv).avg), 0);
             const steps = [
                 {
                     cost: 1,
@@ -222,7 +223,7 @@ function commander(board, ctx, out) {
             if (!fresh.length) continue;
             const f = foes.find((f) => adjacentTo(a, f));
             const b = fresh.sort((x, y) => y.hp - x.hp)[0];
-            const ev = strikeExpected(f.reactiveStrike?.bonus ?? lv + 8, a.ac ?? 10 + lv + 5, f.reactiveStrike?.avg ?? 4 + lv * 1.5).expected * 0.8;
+            const ev = strikeExpected(allyStrike(f, lv).bonus, a.ac ?? 10 + lv + 5, allyStrike(f, lv).avg).expected * 0.8;
             const t = tail(null, ctx.actions - 1);
             plan(
                 `Passage of Lines: ${nameOf(b)} relieves ${nameOf(a)}`,
@@ -252,7 +253,7 @@ function commander(board, ctx, out) {
             if (!guard.length) continue;
             const g = guard.sort((x, y) => feetBetween(x.rect, c.rect) - feetBetween(y.rect, c.rect))[0];
             const f = threat[0];
-            const ev = strikeExpected(f.reactiveStrike?.bonus ?? lv + 8, c.ac ?? 10 + lv + 3, f.reactiveStrike?.avg ?? 4 + lv * 1.5).expected;
+            const ev = strikeExpected(allyStrike(f, lv).bonus, c.ac ?? 10 + lv + 3, allyStrike(f, lv).avg).expected;
             const t = tail(f, ctx.actions - 1);
             plan(
                 `Protective Screen for ${nameOf(c)}`,
@@ -273,7 +274,7 @@ function commander(board, ctx, out) {
     if (has(actor, "reload") && ctx.actions >= 1) {
         const who = up.filter((a) => reloaders(a).length);
         if (who.length) {
-            const ev = who.reduce((s, a) => s + 0.5 * (a.reactiveStrike?.avg ?? 4), 0);
+            const ev = who.reduce((s, a) => s + 0.5 * (allyStrike(a, lv).avg), 0);
             const t = tail(foes[0] ?? null, ctx.actions - 1);
             plan(
                 `Reload! for ${list(who)}`,
@@ -368,7 +369,7 @@ function commander(board, ctx, out) {
             plan(`Strike Hard!: ${nameOf(a)} on ${nameOf(f)}`, f, h.expected + t.ev, [
                 {
                     cost: 2,
-                    text: `Strike Hard!: ${nameOf(a)} Strikes ${nameOf(f)} as a reaction (${signed(a.reactiveStrike?.bonus ?? lv + 6)}, hits about ${pct(h.hit)}; at their own multiple attack penalty if they've already attacked this round).${drill}`
+                    text: `Strike Hard!: ${nameOf(a)} Strikes ${nameOf(f)} as a reaction (${signed(allyStrike(a, lv).bonus)}, hits about ${pct(h.hit)}; at their own multiple attack penalty if they've already attacked this round).${drill}`
                 },
                 ...t.steps
             ]);
@@ -380,7 +381,7 @@ function commander(board, ctx, out) {
             for (const a of up.filter((x) => inReach(x.rect, f.rect, x.reach ?? 5))) {
                 const others = up.filter((b) => b !== a && melee(b) && feetBetween(b.rect, f.rect) <= 10);
                 if (!others.length) continue;
-                const b = others.sort((x, y) => (y.reactiveStrike?.avg ?? 0) - (x.reactiveStrike?.avg ?? 0))[0];
+                const b = others.sort((x, y) => (allyStrike(y, lv).avg) - (allyStrike(x, lv).avg))[0];
                 const p = maneuver(a, f);
                 const hit = allyHit(b, f);
                 const ev = p * hit.expected;
@@ -891,7 +892,7 @@ function commander(board, ctx, out) {
         }
     }
     if (ok("quickening-banner", "Quickening Banner") && ctx.actions >= 1 && inSquadAura.length) {
-        const ev = inSquadAura.reduce((s, a) => s + 0.6 * (a.reactiveStrike?.avg ?? 4), 0);
+        const ev = inSquadAura.reduce((s, a) => s + 0.6 * (allyStrike(a, lv).avg), 0);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan(
             `Quickening Banner for ${list(inSquadAura)}`,
@@ -908,7 +909,7 @@ function commander(board, ctx, out) {
         );
     }
     if (ok("pennant-of-victory", "Pennant of Victory") && ctx.actions >= 1 && inSquadAura.length) {
-        const ev = [me, ...inSquadAura].reduce((s, a) => s + 2 * (0.1 * (a.reactiveStrike?.avg ?? 4) * 4 + 4 * 0.6), 0) + 40 * 0.3 * (inSquadAura.length + 1);
+        const ev = [me, ...inSquadAura].reduce((s, a) => s + 2 * (0.1 * (allyStrike(a, lv).avg) * 4 + 4 * 0.6), 0) + 40 * 0.3 * (inSquadAura.length + 1);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan(
             "Pennant of Victory",
@@ -928,7 +929,7 @@ function commander(board, ctx, out) {
         const shooters = foes.filter(shoots);
         const adj = up.filter((a) => inReach(me.rect, a.rect, 5));
         if (shooters.length) {
-            const ev = (adj.length + 1) * 0.2 * (shooters[0].reactiveStrike?.avg ?? 4 + lv * 1.5);
+            const ev = (adj.length + 1) * 0.2 * allyStrike(shooters[0], lv).avg;
             const t = tail(foes[0] ?? null, ctx.actions - 1);
             plan(
                 "Banner Twirl",
@@ -1031,7 +1032,7 @@ function commander(board, ctx, out) {
     }
 
     // ===== Your own Strikes that set up an ally
-    const allyFollowAvg = Math.max(0, ...up.map((a) => a.reactiveStrike?.avg ?? 4));
+    const allyFollowAvg = Math.max(0, ...up.map((a) => allyStrike(a, lv).avg));
     const setupRider = (hit, crit) => {
         let bonus = 0;
         if (has(actor, "targeting-strike")) bonus += hit * int * 0.6;

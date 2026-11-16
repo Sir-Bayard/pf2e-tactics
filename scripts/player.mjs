@@ -739,11 +739,16 @@ function spellThrift(board, plans) {
         if (!item && !byRank[rank] && sp.entry && !(board.me.actor?.spellcasting?.regular ?? []).some((e) => e.name === sp.entry && !e.isFocusPool && !e.isInnate)) continue;
         const scarcity = sp.temporary ? 0.3 : left === null ? 0.6 : left >= 4 ? 0.3 : [1, 1, 0.7, 0.45][left];
         const decisive = (p.caught?.length ?? 0) >= 2 || (p.target && p.target.hp > 0 && p.ev >= p.target.hp);
-        const reserve = Math.round(10 * mult * (0.5 + 1.5 * rank / Math.max(1, top)) * scarcity * baseline * (decisive ? 0.5 : 1)) / 10;
-        const gain = p.ev - (bestFree?.ev ?? 0);
+        // A class plan can name its own yardstick (plan.baseline = { ev, name }, T6): what the same turn is worth without
+        // the slot, such as the Strikes it would make anyway
+        const yard = p.baseline && Number.isFinite(p.baseline.ev) ? p.baseline : null;
+        const yardEv = yard ? yard.ev : bestFree?.ev ?? 0;
+        const yardName = yard ? yard.name : freeName;
+        const reserve = Math.round(10 * mult * (0.5 + 1.5 * rank / Math.max(1, top)) * scarcity * (yard ? Math.max(4, yard.ev) : baseline) * (decisive ? 0.5 : 1)) / 10;
+        const gain = p.ev - yardEv;
         p.score = (p.score ?? p.ev) - reserve;
         p.notes = p.notes ?? [];
-        p.notes.push(`${item === "staff" ? `Spends ${rank} of your staff's ${sp.staffCharges} charges` : item === "scroll" ? `Uses up the scroll (rank ${rank}${sp.temporary ? "; a temporary one, gone at your next preparations anyway" : ""})` : item === "wand" ? `Spends the wand's use for the day (rank ${rank})` : `Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}`}: ${freeName ? `it has to beat ${freeName} (about ${Math.round(bestFree.ev)}) by about ${Math.round(reserve)} to be worth ${item ? "it" : "the slot"}; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : `, so ${bestCantrip ? "the cantrip" : "that"} keeps it`}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
+        p.notes.push(`${item === "staff" ? `Spends ${rank} of your staff's ${sp.staffCharges} charges` : item === "scroll" ? `Uses up the scroll (rank ${rank}${sp.temporary ? "; a temporary one, gone at your next preparations anyway" : ""})` : item === "wand" ? `Spends the wand's use for the day (rank ${rank})` : `Spends a rank-${rank} slot${left !== null ? ` (${left} of ${byRank[rank].max} left)` : ""}`}: ${yardName ? `it has to beat ${yardName} (about ${Math.round(yardEv)}) by about ${Math.round(reserve)} to be worth ${item ? "it" : "the slot"}; it does by ${Math.round(gain)}${gain >= reserve ? ", so spend it" : `, so ${!yard && bestCantrip ? "the cantrip" : "that"} keeps it`}` : `worth it only if the fight turns on it (about ${Math.round(reserve)} in reserve)`}${decisive ? "; it's decisive here, so the reserve is halved" : ""}.`);
         taxed++;
     }
     if (!taxed) return null;

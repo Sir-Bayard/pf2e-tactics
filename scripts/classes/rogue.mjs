@@ -123,7 +123,7 @@ function rogue(board, ctx, out) {
     }
     // Gang Up (6): a foe within reach of you and an ally is flanked: off-guard to your melee Strikes, not to a bow or a spell.
     // The board's off-guard mark reaches every attack, so it's set only when melee Strikes are all you attack with; otherwise
-    // the read plans the melee Strikes itself (below) and the foe stays as it is for the rest.
+    // each melee Strike carries it (s.offGuardVs, T5) and the advisor's plans see it on those Strikes only.
     const ganged = [];
     if (has(actor, "gang-up")) {
         const otherAttacks = board.strikes.some((s) => s.ranged) || (board.spells ?? []).some((sp) => sp.attack);
@@ -131,7 +131,10 @@ function rogue(board, ctx, out) {
             const ally = board.allies.find((a) => a.hasMelee !== false && a.canAct !== false && inReach(a.rect, f.rect, a.reach ?? 5));
             if (!ally || offGuardTo(f)) continue;
             if (!otherAttacks) markOffGuard(board, f, `Gang Up: ${nameOf(ally)} is on it`);
-            else ganged.push({ f, ally });
+            else {
+                ganged.push({ f, ally });
+                for (const s of board.strikes.filter((x) => !x.ranged)) (s.offGuardVs ??= new Set()).add(f.id);
+            }
         }
     }
     // Dread Striker (4): frightened foes are off-guard to you
@@ -182,20 +185,6 @@ function rogue(board, ctx, out) {
             text: used.length ? `Strike ${nameOf(f)} with ${used[0].s.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})` : ""
         };
     };
-
-    /* ---- Gang Up, when the board isn't marked: Stride into reach and Strike it in melee, flanked ---- */
-    for (const { f, ally } of ganged) {
-        if (ctx.actions < 1) break;
-        const sq = squareToReach(board, f, myReach(board), Math.max(0, ctx.actions - 1));
-        if (!sq) continue;
-        const left = ctx.actions - sq.route.actions;
-        if (left < 1) continue;
-        const r = sneakRun(f, left, ctx.made, 1);
-        if (!r.used.length) continue;
-        const steps = sq.route.actions ? [{ cost: sq.route.actions, text: moveText(sq, f) }] : [];
-        steps.push({ cost: r.used.length, text: `${r.text}, flanked with ${nameOf(ally)} (Gang Up), with Sneak Attack` });
-        plan(`Gang Up on ${nameOf(f)}`, f, r.ev, sq, steps, [`Off-guard only to your melee Strikes, and only while ${nameOf(ally)} has it in reach.`], 0.3);
-    }
 
     /* ---- Mastermind: Recall Knowledge, then Strike it off-guard; Analyze Weakness (6) on top when there's an action for it ---- */
     if (has(actor, "mastermind") && ctx.actions >= 2) {

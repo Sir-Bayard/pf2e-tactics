@@ -84,6 +84,8 @@ function fighter(board, ctx, out) {
     const freeActs = hasSupremacy ? acts - 1 : acts; // actions that aren't limited to a Strike
     // Agile Grace (10): -3/-6 with agile weapons. Every plan here uses this penalty.
     const agileGrace = has(actor, "agile-grace");
+    // the advisor's own Strike plans count it too (T7)
+    if (agileGrace) for (const s of board.strikes) if (s.agile) s.mapStep = 3;
     const mapOf = (n, agile) => (agile && agileGrace ? (n <= 0 ? 0 : n === 1 ? -3 : -6) : mapFor(n, agile));
     // Fearsome Brute (10): +2 x frightened value on Strikes (x3 as a master of Intimidation)
     const fearsome = has(actor, "fearsome-brute") ? ((actor.skills?.intimidation?.rank ?? 0) >= 3 ? 3 : 2) : 0;
@@ -720,6 +722,9 @@ function fighter(board, ctx, out) {
             if (!steps.some((s) => s.cost >= 1)) continue;
             if (agileGrace && board.strikes.some((s) => s.agile && !s.ranged)) notes.push("Agile Grace: your agile penalty is -3/-6, counted here.");
             if (supremacyNote) notes.push(supremacyNote);
+            // plain Strikes at your real penalty are the advisor's own plans now (Agile Grace is on the Strikes, T7);
+            // this read keeps the turns it adds: a press, or Weapon Supremacy's extra Strike
+            if (!presses.length && !supremacy) continue;
             const title = presses.length ? `Strike ${nameOf(f)}, then press` : `Strike ${nameOf(f)} at your real penalty`;
             push(title, f, ev, a.sq, steps, notes, 0.25);
         }
@@ -733,7 +738,7 @@ function fighter(board, ctx, out) {
         const agile = board.strikes.filter((s) => s.agile);
         if (agile.length)
             n(
-                `Agile Grace: -3 and -6 with ${agile.map((s) => s.label).join(", ")} instead of -4 and -8. The generic Strike plans count the usual penalty; the fighter plans here count yours.`
+                `Agile Grace: -3 and -6 with ${agile.map((s) => s.label).join(", ")} instead of -4 and -8. Every plan counts it.`
             );
     }
     if (hasSupremacy)

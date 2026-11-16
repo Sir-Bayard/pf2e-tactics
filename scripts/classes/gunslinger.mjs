@@ -37,18 +37,14 @@ import {
     signed,
     abil,
     dieOf,
-    diceOf
+    diceOf,
+    skillMod
 } from "./_common.mjs";
 
 /** This read's shots carry the Strike as { label, bonus } rather than strikeRun's { s, bonus }. */
 const strikeText = (f, used) =>
     `Strike ${nameOf(f)} with ${used[0].label}${used.length > 1 ? ` ${used.length === 2 ? "twice" : "three times"}` : ""} (${used.map((u) => signed(u.bonus)).join(", ")})`;
 
-const skill = (board, k) => {
-    const sk = board.me.actor?.skills?.[k];
-    const mod = sk?.mod ?? board.me[k];
-    return mod == null ? null : { mod: Number(mod) || 0, rank: sk?.rank ?? (sk?.proficient ? 1 : 0), label: sk?.label ?? k[0].toUpperCase() + k.slice(1) };
-};
 const usageOf = (s) => String(s.hands ?? s.item?.system?.usage?.value ?? "");
 const twoHanded = (s) => usageOf(s) === "2" || /two-hands/.test(usageOf(s));
 const dieAvg = (s) => {
@@ -254,8 +250,8 @@ function gunslinger(board, ctx, out) {
             };
         }
         if (way === "pistolero") {
-            const intim = skill(board, "intimidation"),
-                dec = skill(board, "deception");
+            const intim = skillMod(board, "intimidation"),
+                dec = skillMod(board, "deception");
             const opts = [];
             if (intim && feetBetween(at, f.rect) <= 30 && !f.conditions?.has?.("frightened") && !f.conditions?.has?.("deafened")) {
                 const c = degreeChances(intim.mod, 10 + (f.saves?.will ?? 0));
@@ -283,7 +279,7 @@ function gunslinger(board, ctx, out) {
             return { text: `Raconteur's Reload: reload ${w.label}, then ${o.text}`, ev: o.ev, acAdj: o.acAdj, attacks: 0 };
         }
         if (way === "sniper") {
-            const st = skill(board, "stealth");
+            const st = skillMod(board, "stealth");
             const dc = 10 + (f.perception ?? f.saves?.will ?? 0);
             const c = st ? degreeChances(st.mod, dc) : null;
             const p = c ? (c.s + c.cs) * 0.5 : 0; // half: the cover or concealment Hide needs isn't read here
@@ -296,7 +292,7 @@ function gunslinger(board, ctx, out) {
         }
         if (way === "spellshot") {
             const ks = ["arcana", "nature", "occultism", "religion", "society"]
-                .map((k) => skill(board, k))
+                .map((k) => skillMod(board, k))
                 .filter((s) => s && s.rank >= 1)
                 .sort((a, b) => b.mod - a.mod);
             return {
@@ -308,7 +304,7 @@ function gunslinger(board, ctx, out) {
         }
         if (way === "vanguard") {
             if (!w.two) return { ...plain, text: `Interact to reload ${w.label} (Clear a Path needs a two-handed firearm or crossbow)` };
-            const ath = skill(board, "athletics");
+            const ath = skillMod(board, "athletics");
             const adj = foes.filter((t) => inReach(at, t.rect, 5)).sort((a, b) => (a === f ? -1 : 0) - (b === f ? -1 : 0));
             if (!adj.length || !ath) return { ...plain, text: `Clear a Path with no foe adjacent is a plain Interact: reload ${w.label}` };
             const t = adj[0];
@@ -543,7 +539,7 @@ function gunslinger(board, ctx, out) {
             }
         }
     if (hasAny(actor, "ostentatious-reload") && oneHandGuns.length >= 2 && oneHandGuns.some((w) => !w.loaded || !w.loadedKnown)) {
-        const perf = skill(board, "performance");
+        const perf = skillMod(board, "performance");
         const dc = Math.max(10, 12 + lv - 2);
         const c = perf ? degreeChances(perf.mod, dc) : null;
         n(
@@ -781,7 +777,7 @@ function gunslinger(board, ctx, out) {
             inReach(me.rect, f.rect, 5) &&
             ((w.two && w.group === "crossbow") || w.kickback || w.scatter)
         ) {
-            const ath = skill(board, "athletics");
+            const ath = skillMod(board, "athletics");
             if (ath) {
                 const c = degreeChances(ath.mod + mapFor(ctx.made, false), 10 + (f.saves?.fortitude ?? 0));
                 const b = w.s.bonus + mapFor(ctx.made + 1, w.s.agile);
@@ -804,7 +800,7 @@ function gunslinger(board, ctx, out) {
             }
         }
         if (dist <= w.range && hasAny(actor, "pistol-twirl") && !w.two && ctx.actions >= 2) {
-            const dec = skill(board, "deception");
+            const dec = skillMod(board, "deception");
             if (dec && dec.rank >= 1 && !f.conditions?.has?.("off-guard")) {
                 const c = degreeChances(dec.mod, 10 + (f.perception ?? f.saves?.will ?? 0));
                 const p = c.s + c.cs;
@@ -906,7 +902,7 @@ function gunslinger(board, ctx, out) {
 
     // ---- Pistolero's Challenge (1 action, flourish): +2/+3/+4 status damage both ways against one foe
     if (hasAny(actor, "pistoleros-challenge", "pistolero-s-challenge") && ctx.actions >= 2 && !effect(actor, /pistolero-?s?-challenge/)) {
-        const sk = [skill(board, "intimidation"), skill(board, "deception")].filter(Boolean).sort((a, b) => b.mod - a.mod)[0];
+        const sk = [skillMod(board, "intimidation"), skillMod(board, "deception")].filter(Boolean).sort((a, b) => b.mod - a.mod)[0];
         if (sk)
             for (const f of foes.filter((x) => feetBetween(me.rect, x.rect) <= 30)) {
                 const w = bestGunFor(f);
@@ -993,7 +989,7 @@ function gunslinger(board, ctx, out) {
                 push({ title: `Break Them Down on ${nameOf(f)}`, target: f, ev, bias: 0.3, steps });
             }
             if (hasAny(actor, "wind-them-up") && ctx.actions >= 2) {
-                const th = skill(board, "thievery");
+                const th = skillMod(board, "thievery");
                 if (th) {
                     const c = degreeChances(th.mod - 5, 10 + (f.perception ?? f.saves?.will ?? 0));
                     const p = c.s + c.cs;
@@ -1136,7 +1132,7 @@ function gunslinger(board, ctx, out) {
     sweep("Drifter's Wake", ["drifters-wake", "drifter-s-wake"], { after: "; the movement doesn't provoke" });
     sweep("Triggerbrand Blitz", ["triggerbrand-blitz"], { combo: true, after: "; you're fatigued for a minute after" });
     if (hasAny(actor, "grim-swagger") && ctx.actions >= 2 && oneHandGuns.length) {
-        const sk = [skill(board, "intimidation"), skill(board, "deception")].filter(Boolean).sort((a, b) => b.mod - a.mod)[0];
+        const sk = [skillMod(board, "intimidation"), skillMod(board, "deception")].filter(Boolean).sort((a, b) => b.mod - a.mod)[0];
         const near = foes.filter((f) => feetBetween(me.rect, f.rect) <= 30 && !f.conditions?.has?.("frightened"));
         if (sk && near.length >= 2) {
             let ev = 0;
@@ -1315,7 +1311,7 @@ function gunslinger(board, ctx, out) {
         n("Cauterize (1 action): a shot, then the hot barrel to a bleeding wound on you or an adjacent ally for an immediate flat check at the lower DC.");
     if (hasAny(actor, "seize-an-advantage")) n("Seize an Advantage (1 action, after a Dirty Trick): a shot or a reload that doesn't provoke that foe.");
     if (hasAny(actor, "disruptive-blur")) n("Disruptive Blur: after any shot, your movement this turn doesn't provoke; shoot first, then move.");
-    if (hasAny(actor, "showstopper") && skill(board, "deception"))
+    if (hasAny(actor, "showstopper") && skillMod(board, "deception"))
         n("Showstopper: Create a Diversion (as Raconteur's Reload does) against every foe in your first range increment with one roll.");
     if (hasAny(actor, "shooters-camouflage", "shooter-s-camouflage"))
         n("Shooter's Camouflage: in your chosen terrain you Hide and Sneak without cover; Covered Reload's Hide works anywhere there.");

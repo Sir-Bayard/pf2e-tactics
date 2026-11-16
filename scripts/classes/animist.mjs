@@ -177,6 +177,8 @@ function animist(board, ctx, out) {
     const near = (c, ft, from = me) => feetBetween(from.rect, c.rect) <= ft && (!c.rect?.lvl || !from.rect?.lvl || c.rect.lvl === from.rect.lvl);
     const inStance = !!effect(actor, /channelers?-s?-?stance/);
     const relinquished = !!effect(actor, /relinquish-control/);
+    // Under Relinquish Control a Step is its only move: the advisor's own plans keep to it too (T4)
+    if (relinquished) board.stepOnly = true;
     const focus = focusLeft(actor);
     const fmax = Number(actor?.system?.resources?.focus?.max) || 0;
     const rankTop = Math.max(1, Math.min(10, Math.ceil(lv / 2)));

@@ -33,7 +33,8 @@ import {
     strikeExpected,
     saveExpected,
     nameOf,
-    signed
+    signed,
+    freeSquare
 } from "./_common.mjs";
 import { areaTest, centerOf, rectInArea } from "../reader.mjs";
 import { slotsByRank } from "../reader.mjs";
@@ -243,7 +244,7 @@ function necromancer(board, ctx, out) {
     const canFocus = (fp ?? 0) > 0 || consume;
 
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.score ?? plan.ev + (plan.bias ?? 0.4) });
-    const free = (x, y) => !board.occupant?.get?.(`${x},${y}`) && !(x >= me.rect.x && x < me.rect.x + me.rect.w && y >= me.rect.y && y < me.rect.y + me.rect.h);
+    const free = (x, y) => freeSquare(board, x, y) && !(x >= me.rect.x && x < me.rect.x + me.rect.w && y >= me.rect.y && y < me.rect.y + me.rect.h);
     const seen = (r) => !board.lineBlocked || !board.lineBlocked(centerOf(me.rect), centerOf(r));
     /** Free squares beside f, within maxFeet of you and in sight, nearest you first. */
     const ring = (f, maxFeet = 30) => {
