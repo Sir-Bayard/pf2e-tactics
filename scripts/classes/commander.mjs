@@ -98,6 +98,9 @@ function commander(board, ctx, out) {
     const glorious = hasFeat(actor, "glorious-banner");
     const planted = !!effect(actor, /plant(ed)?-banner|banner-planted/);
     // Glorious Banner: 60 feet, or an 80-foot burst planted; the usual banner 30, or 40 planted
+    // a foe reduced to 0 HP since the start of your last turn (B13): down, dead or defeated now and not down when your
+    // previous turn began (when the record knows)
+    const droppedSince = (board.downFoeIds ?? (board.downEnemies ?? []).map((e) => e.id)).some((id) => !me.downAtTurn || !me.downAtTurn.has(id));
     const auraFeet = glorious ? (planted ? 80 : 60) : BANNER_FEET + (planted ? 10 : 0);
     // A planted banner isn't in hand: the brandish tactics and banner feats are off until it's taken up again
     const offWhilePlanted = [];
@@ -160,6 +163,17 @@ function commander(board, ctx, out) {
             return {
                 steps: [{ cost: r.used.length, text: `${r.text}${acAdj ? " (off-guard)" : ""}; the first hits about ${pct(r.used[0].e.hit)}` }],
                 ev: r.ev
+            };
+        // not in reach: a Stride into reach, then Strikes with what's left
+        const sq = f && left >= 2 && !r ? squareToReach(board, f, myReach(board), 1) : null;
+        const r2 = sq && sq.route.actions === 1 ? strikeRun(board, f, left - 1, { made: ctx.made, acAdj }) : null;
+        if (r2?.used.length)
+            return {
+                steps: [
+                    { cost: 1, text: moveText(sq, f) },
+                    { cost: r2.used.length, text: `${r2.text}${acAdj ? " (off-guard)" : ""}; the first hits about ${pct(r2.used[0].e.hit)}` }
+                ],
+                ev: r2.ev
             };
         return {
             steps: [{ cost: 1, text: me.shield && !me.shieldRaised ? "Raise a Shield" : f ? `Stride toward ${nameOf(f)}, or Take Cover` : "Take Cover" }],
@@ -482,8 +496,7 @@ function commander(board, ctx, out) {
     // End It! (2, incapacitation): the squad outnumbers the foes and one went down since your last turn; everyone Steps and foes within 10 ft flee
     if (has(actor, "end-it") && ctx.actions >= 2) {
         const outnumber = up.length + 1 > foes.length;
-        // reduced to 0 HP since the start of your last turn (B13): down now and not when your previous turn began (when the record knows)
-        const downed = (board.downEnemies ?? []).some((e) => !me.downAtTurn || !me.downAtTurn.has(e.id));
+        const downed = droppedSince;
         if (outnumber && downed) {
             const near = foes.filter((f) => [me, ...inSquadAura].some((a) => feetBetween(a.rect, f.rect) <= 15));
             if (near.length) {
@@ -525,7 +538,7 @@ function commander(board, ctx, out) {
                 plan(`The Bigger They Are: ${nameOf(a)} on ${nameOf(f)}`, f, ev + t.ev, [
                     {
                         cost: 1,
-                        text: `The Bigger They Are: ${nameOf(a)} ${cond === "prone" ? "Trips" : "Shoves or Repositions"} ${nameOf(f)} with ${list(helpers)} assisting as a reaction: +${bonus} and a target up to ${bonus + 1} sizes larger (Athletics ${signed((a.athletics ?? lv + 2) + bonus)}, about ${pct(p)}).${drill}`
+                        text: `The Bigger They Are: ${nameOf(a)} ${cond === "prone" ? "Trips" : "Shoves or Repositions"} ${nameOf(f)} with ${list(helpers)} assisting as a reaction: +${bonus} and a target up to ${helpers.length + 1} sizes larger (Athletics ${signed((a.athletics ?? lv + 2) + bonus)}, about ${pct(p)}).${drill}`
                     },
                     ...t.steps
                 ]);
@@ -702,7 +715,8 @@ function commander(board, ctx, out) {
             const tripper = prone || three.length < 2 ? null : three.slice().sort((x, y) => tripChance(y, f) - tripChance(x, f))[0];
             const pProne = prone ? 1 : tripper ? tripChance(tripper, f) : 0;
             const strikers = tripper ? three.filter((a) => a !== tripper) : three;
-            const hits = strikers.map((a) => allyHit(a, f, prone || tripper ? -2 : 0));
+            // a prone foe's AC already counts off-guard; after a Trip it's off-guard only if the Trip lands
+            const hits = strikers.map((a) => allyHit(a, f, tripper ? -2 * pProne : 0));
             const pHitAny = 1 - hits.reduce((p, h) => p * (1 - h.hit), 1);
             const sv = foeSave(f, "fortitude", true);
             const dmg = hits.reduce((s, h) => s + h.expected, 0);
@@ -1061,7 +1075,7 @@ function commander(board, ctx, out) {
     if (has(actor, "demand-surrender") && ctx.actions >= 2) {
         const outnumber = up.length + 1 > foes.length;
         // a foe dropped since your last turn, or one restrained (B13)
-        const downed = (board.downEnemies ?? []).some((e) => !me.downAtTurn || !me.downAtTurn.has(e.id)) || foes.some((f) => f.conditions?.has?.("restrained"));
+        const downed = droppedSince || foes.some((f) => f.conditions?.has?.("restrained"));
         if (outnumber && downed && foes.length) {
             const f = foes.slice().sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
             const sv = foeSave(f, "will", true);

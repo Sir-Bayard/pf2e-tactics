@@ -1681,6 +1681,8 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
         downAllies: others.filter((t) => isDown(t.actor, combatantOf(t)) && !combatantOf(t)?.isDefeated && !t.actor.statuses?.has?.("dead")
             && ((t.actor.hitPoints?.value ?? 1) <= 0 || t.actor.hasCondition?.("dying")) && ["dying", "unconscious"].some((c) => t.actor.hasCondition?.(c) || t.actor.statuses?.has?.(c)) && !(actor.isEnemyOf?.(t.actor) ?? false)
             && (actor.isAllyOf?.(t.actor) ?? t.actor.alliance === actor.alliance)).map((t) => creatureOf(t, size)),
+        // Every foe at 0 HP, dead or marked defeated, by token id (End It!, Demand Surrender: who dropped since your last turn)
+        downFoeIds: others.filter((t) => (isDown(t.actor, combatantOf(t)) || t.actor.statuses?.has?.("dead") || combatantOf(t)?.isDefeated) && (actor.isEnemyOf?.(t.actor) ?? false)).map((t) => t.id),
         // Foes down but not dead: only a vicious creature goes on hitting them
         downEnemies: others.filter((t) => isDown(t.actor, combatantOf(t)) && !t.actor.statuses?.has?.("dead") && !combatantOf(t)?.isDefeated && (actor.isEnemyOf?.(t.actor) ?? false))
             .map((t) => creatureOf(t, size)),

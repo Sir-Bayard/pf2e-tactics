@@ -179,7 +179,14 @@ function thaumaturge(board, ctx, out) {
     const itemsOf = (a) => a?.items?.contents ?? (Array.isArray(a?.items) ? a.items : []);
     const weaponsHeld = itemsOf(actor).filter((i) => i.type === "weapon" && Number(i.system?.equipped?.handsHeld) > 0);
     const empowerOn = !!actor.rollOptions?.all?.["implements-empowerment"];
-    const empower = has(actor, "implements-empowerment") && !empowerOn && !me.shield && weaponsHeld.length <= 1;
+    // an implement in hand: the weapon implement held, or a hand left free for another implement (PF2e keeps no item for
+    // those, so a free hand is taken as holding it)
+    const implWeaponId = Object.keys(actor.rollOptions?.all ?? {})
+        .map((k) => /^weapon-implement:id:(.+)$/.exec(k)?.[1])
+        .find(Boolean);
+    const handsUsed = itemsOf(actor).reduce((n, i) => n + (Number(i.system?.equipped?.handsHeld) || 0), 0);
+    const implInHand = handsUsed <= 1 || weaponsHeld.some((w) => w.id === implWeaponId);
+    const empower = has(actor, "implements-empowerment") && !empowerOn && !me.shield && weaponsHeld.length <= 1 && implInHand;
     for (const s of board.strikes) {
         if (empower && !twoHands(s) && !s.empowerCounted) {
             s.empowerCounted = true;

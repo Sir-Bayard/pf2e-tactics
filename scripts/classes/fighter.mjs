@@ -401,9 +401,8 @@ function fighter(board, ctx, out) {
     if (has(actor, "lunge") && weapons.length && acts >= 1) {
         for (const f of foes) {
             if (inReach(me.rect, f.rect, reach) || !inReach(me.rect, f.rect, reach + 5)) continue;
-            const far = feetBetween(me.rect, f.rect);
             // Lunge is its own action, not a Strike; only a weapon whose reach +5 gets there
-            const r = run(f, freeActs, ctx.made, { pick: (s) => !unarmed(s) && (s.reach || 5) + 5 >= far });
+            const r = run(f, freeActs, ctx.made, { pick: (s) => !unarmed(s) && inReach(me.rect, f.rect, (s.reach || 5) + 5) });
             if (!r.used.length) continue;
             push(
                 `Lunge at ${nameOf(f)}`,
