@@ -86,15 +86,41 @@ function noteReaction(message) {
     const ctx = message.flags?.pf2e?.context ?? {};
     const isAttack = ctx.type === "attack-roll" || ctx.type === "spell-attack-roll";
     const offTurn = combat.combatant?.tokenId && combat.combatant.tokenId !== tokenId;
-    const isReaction = item?.system?.actionType?.value === "reaction"
-        || /<span class="action-glyph[^"]*">\s*[rR]\s*<\/span>/.test(message.flavor ?? "")
-        || (isAttack && offTurn && !item?.isRanged);
-    if (isReaction) bucket(SHOWN, combat.id, tokenId).add(item?.system?.actionType?.value === "reaction" ? (item?.name ?? "a reaction") : "Reactive Strike");
+    const declared = item?.system?.actionType?.value === "reaction" || /<span class="action-glyph[^"]*">\s*[rR]\s*<\/span>/.test(message.flavor ?? "");
+    if (declared) bucket(SHOWN, combat.id, tokenId).add(item?.system?.actionType?.value === "reaction" ? (item?.name ?? "a reaction") : "Reactive Strike");
+    else if (isAttack && offTurn && !item?.isRanged) guessReactive(combat, tokenId);
     const did = bucket(DID, combat.id, tokenId);
     if (item?.type === "spell" || ctx.type === "spell-attack-roll" || message.flags?.pf2e?.casting) did.add("cast");
     if (isAttack && (item?.isRanged || (item?.system?.traits?.value ?? []).some((t) => /^(range|thrown)/.test(t)))) did.add("ranged");
     if (item?.type === "spell" && (item.system?.traits?.value ?? []).includes("healing")) did.add("heal");
     keepSeen(combat);
+}
+
+/**
+ * An off-turn melee attack is taken for a Reactive Strike (T17), but only after GUARD_MS, and not when that creature's
+ * own turn ended within GUARD_MS before the roll or starts within GUARD_MS after it: the GM rolled its attack just before
+ * or after moving the tracker on. The GM can still remove a wrong guess in the fight window.
+ */
+const GUARD_MS = 8000;
+const TURN_ENDED = new Map(); // token id -> when its turn last ended
+const PENDING = new Map(); // token id -> the timer that will note the guess
+function guessReactive(combat, tokenId) {
+    if (Date.now() - (TURN_ENDED.get(tokenId) ?? -Infinity) <= GUARD_MS) return;
+    clearTimeout(PENDING.get(tokenId));
+    PENDING.set(tokenId, setTimeout(() => {
+        PENDING.delete(tokenId);
+        if (game.combat?.id !== combat.id) return;
+        bucket(SHOWN, combat.id, tokenId).add("Reactive Strike");
+        keepSeen(combat);
+        refreshHelper(100);
+    }, GUARD_MS));
+}
+/** The tracker moved on: the turn that ended is noted, and a guess about the creature whose turn starts is dropped. */
+function guardTurn(combat) {
+    const prev = combat.previous?.tokenId;
+    if (prev) TURN_ENDED.set(prev, Date.now());
+    const now = combat.combatant?.tokenId;
+    if (now && PENDING.has(now)) { clearTimeout(PENDING.get(now)); PENDING.delete(now); }
 }
 
 /* ------------------------------------------------------------------ reading the board for a PC */
@@ -753,6 +779,7 @@ const helperApi = () => ({ helper: openHelper, helperCard: (actor, token) => (ac
 Hooks.on("updateCombat", (combat, changes) => {
     if (combat !== game.combat) return;
     if ("turn" in changes || "round" in changes) {
+        guardTurn(combat);
         resetTurnFolds();
         if (!game.user.isGM) clearPath(); // last turn's route (the GM's card clears its own)
         refreshHelper(100);
@@ -766,7 +793,7 @@ Hooks.on("updateCombat", (combat, changes) => {
     }
     if ("started" in changes || changes.flags?.[MODULE_ID]?.party || changes.flags?.[MODULE_ID]?.seen) refreshHelper(250);
 });
-Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); refreshHelper(100); });
+Hooks.on("deleteCombat", () => { SHOWN.clear(); DID.clear(); for (const t of PENDING.values()) clearTimeout(t); PENDING.clear(); TURN_ENDED.clear(); refreshHelper(100); });
 Hooks.on("createChatMessage", (message) => {
     try { noteReaction(message); } catch { /* not a card we read */ }
     try { noteOwn(message); } catch { /* not a card we read */ }
@@ -794,4 +821,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, helperApi, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, estimateFoe, guardTurn, helperApi, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };
