@@ -143,7 +143,7 @@ function rogue(board, ctx, out) {
     if (marked.length) n(`Off-guard to you now: ${marked.map((f) => `${nameOf(f)} (${f.offGuardWhy.join("; ")})`).join(", ")}.`);
     if (ganged.length)
         n(
-            `Gang Up: ${ganged.map((g) => `${nameOf(g.f)} (${nameOf(g.ally)} is on it)`).join(", ")} ${ganged.length > 1 ? "are" : "is"} off-guard to your melee Strikes once you're in reach, not to your ranged ones; the Gang Up plans count it.`
+            `Gang Up: ${ganged.map((g) => `${nameOf(g.f)} (${nameOf(g.ally)} is on it)`).join(", ")} ${ganged.length > 1 ? "are" : "is"} off-guard to your melee Strikes once you're in reach, not to your ranged ones; your Strike plans count it.`
         );
     const bump = (f) => (offGuardTo(f) ? 0 : -2);
     const plan = (title, f, ev, sq, steps, notes = [], bias = 0.3) =>
@@ -158,8 +158,10 @@ function rogue(board, ctx, out) {
         const d = feetBetween(me.rect, f.rect);
         for (const s of board.strikes.filter((s) => (ranged ? s.ranged && d <= (s.range ?? 30) * 2 : !s.ranged))) {
             const bonus = s.bonus + mapFor(made, s.agile) - (ranged && d > (s.range ?? 30) ? 2 : 0);
+            // off-guard to this Strike for certain (Gang Up for melee: s.offGuardVs), else with chance p
+            const qs = !offGuardTo(f) && s.offGuardVs?.has?.(f.id) ? 1 : q;
             // Sly Striker is already in avg; an off-guard foe adds the rest of the dice
-            const e = strikeExpected(bonus, f.ac - (offGuardTo(f) ? 0 : 2 * p), s.avg + extra + (sneaky(s, racket === "ruffian") ? net * q : 0), {
+            const e = strikeExpected(bonus, f.ac - (offGuardTo(f) ? 0 : 2 * qs), s.avg + extra + (sneaky(s, racket === "ruffian") ? net * qs : 0), {
                 deadly: s.deadly
             });
             if (!b || e.expected > b.e.expected) b = { s, bonus, e };

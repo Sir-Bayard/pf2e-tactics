@@ -23,7 +23,6 @@ import {
     mapFor,
     strikeExpected,
     saveExpected,
-    CONDITION_VALUE,
     nameOf,
     signed,
     lc
@@ -632,7 +631,9 @@ function wizard(board, ctx, out) {
         // Force Bolt alone, then with the cantrip, and with the slot spell when it does more (thrift weighs the slot)
         const nexts = rest >= 1 ? followUps(board, t, rest, ctx.made) : [];
         let plainTurn = null;
-        for (const next of nexts.some(Boolean) ? nexts.filter(Boolean) : [null]) {
+        // Force Bolt alone is the baseline when there's no damaging cantrip to pair it with (C19)
+        const withCantrip = nexts.some((n) => n && n.sp.cantrip);
+        for (const next of withCantrip ? nexts.filter(Boolean) : [null, ...nexts.filter(Boolean)]) {
             const steps = [first];
             let ev = avg;
             if (next) {
@@ -664,7 +665,8 @@ function wizard(board, ctx, out) {
     }
     const hand = focusSpells.find((sp) => lc(sp.name) === "hand of the apprentice");
     if (hand && t && ctx.actions >= 1 && hand.attack !== null && hand.attack !== undefined) {
-        const weapon = board.strikes.filter((s) => !s.ranged).sort((a, b) => b.avg - a.avg)[0];
+        // a melee weapon you wield, not a fist or another unarmed attack
+        const weapon = board.strikes.filter((s) => !s.ranged && !s.traits?.includes("unarmed")).sort((a, b) => b.avg - a.avg)[0];
         if (weapon) {
             const str = actor.system?.abilities?.str?.mod ?? 0;
             const int = actor.system?.abilities?.int?.mod ?? 0;
@@ -827,9 +829,14 @@ function wizard(board, ctx, out) {
                     how = "",
                     caught = 1;
                 if (t && avg > 0 && save?.statistic) {
-                    const e = saveExpected(t.saves?.[save.statistic] ?? lv + 5, (board.spells ?? []).find((x) => x.dc)?.dc ?? 10 + lv + 4, avg, {
-                        basic: !!save.basic
-                    });
+                    const e = saveExpected(
+                        t.saves?.[save.statistic] ?? lv + 5,
+                        (board.spells ?? []).find((x) => x.dc && !x.consumable)?.dc ?? 10 + lv + 4,
+                        avg,
+                        {
+                            basic: !!save.basic
+                        }
+                    );
                     // An area: the foes near the first one, at most three, as a rough catch
                     caught = sp.system?.area
                         ? Math.min(3, Math.max(1, foes.filter((f) => feetBetween(f.rect, t.rect) <= 2 * (Number(sp.system.area.value) || 10)).length))
@@ -838,7 +845,8 @@ function wizard(board, ctx, out) {
                     how = `${save.basic ? "basic " : ""}${cap(save.statistic)} save, about ${Math.round(avg)} before it`;
                 } else if (t && avg > 0 && traits.includes("attack")) {
                     const e = strikeExpected(
-                        ((board.spells ?? []).find((x) => x.attack !== null && x.attack !== undefined)?.attack ?? lv + 6) + mapFor(ctx.made, false),
+                        ((board.spells ?? []).find((x) => x.attack !== null && x.attack !== undefined && !x.consumable)?.attack ?? lv + 6) +
+                            mapFor(ctx.made, false),
                         t.ac,
                         avg
                     );

@@ -10,32 +10,22 @@
  * Mega Bomb; and when-notes for the rest.
  */
 import {
-    bestStrike,
-    canMove,
-    castable,
     effect,
-    focusLeft,
     has,
-    half,
     level,
-    markOffGuard,
-    moveText,
     myReach,
-    allySpeed,
     pct,
-    squareToReach,
+    strikeOn,
     strikeRun,
     targets,
+    times,
     worth,
     degreeChances,
     feetBetween,
     inReach,
     mapFor,
-    strikeExpected,
     saveExpected,
-    CONDITION_VALUE,
     nameOf,
-    reachableSquares,
     signed
 } from "./_common.mjs";
 import { provokeCost } from "../advisor.mjs";
@@ -80,6 +70,7 @@ function alchemist(board, ctx, out) {
     if (!has(actor, "quick-alchemy") && !has(actor, "alchemist-dedication")) return;
     const lv = level(board);
     const me = board.me;
+    const firstPlan = out.plans.length;
     const int = actor.system?.abilities?.int?.mod ?? 3;
     const dex = actor.system?.abilities?.dex?.mod ?? 2;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
@@ -102,8 +93,12 @@ function alchemist(board, ctx, out) {
         : has(actor, "greater-field-discovery-bomber") || (field === "bomber" && lv >= 13)
           ? 10
           : 5;
-    const bigSplash = has(actor, "calculated-splash") || has(actor, "field-discovery-bomber") || (field === "bomber" && lv >= 5);
-    const splashOf = (base) => (bigSplash ? Math.max(1, int) : base) + (has(actor, "expanded-splash") ? int : 0);
+    // Calculated Splash: splash equal to Int, if that's more. Expanded Splash adds Int on top of the base amount; on top of
+    // an Int-sized splash only with the bomber's 5th-level field discovery
+    const bomberSplash = has(actor, "field-discovery-bomber") || (field === "bomber" && lv >= 5);
+    const calculated = has(actor, "calculated-splash");
+    const expanded = has(actor, "expanded-splash") ? int : 0;
+    const splashOf = (base) => (bomberSplash ? Math.max(base, int) + expanded : calculated ? Math.max(base + expanded, int) : base + expanded);
     // Manipulate: Quick Alchemy provokes from a foe with a reactive strike in reach
     const provokers = foes.filter((f) => f.reactions?.some?.((r) => r.trigger?.onManipulate) && inReach(f.rect, me.rect, f.reach ?? 5)).map((f) => f.id);
     const provoke = provokers.length ? provokeCost(board, provokers) : 0;
@@ -133,17 +128,31 @@ function alchemist(board, ctx, out) {
     const tier = bombTier(makeLevel);
     const bombAvg = tier[2] * 4.5 + 1.5 * tier[3];
     const splash = splashOf(tier[3]);
-    // a formula bomb's item bonus: lesser +0, moderate +1, greater +2, major +3
-    const bombBonus = bombs[0]?.bonus ?? lv + prof + dex + tier[3] - 1;
+    // a formula bomb's item bonus: lesser +0, moderate +1, greater +2, major +3. A carried bomb's attack shows the
+    // character's own bonus once its item bonus is taken off.
+    const itemBonusOf = (b) => {
+        const v = Number(b.item?.system?.bonus?.value);
+        if (Number.isFinite(v)) return v;
+        return /major/i.test(b.label) ? 3 : /greater/i.test(b.label) ? 2 : /moderate/i.test(b.label) ? 1 : 0;
+    };
+    const bombBonus = (bombs[0] ? bombs[0].bonus - itemBonusOf(bombs[0]) : lv + prof + dex) + tier[3] - 1;
+    // what the additives need to know about the bomb they ride on
+    const formulaBomb = { dice: tier[2], splash: tier[3], types: ["fire"], level: tier[0] };
     // the quick vial (Quick Alchemy's second mode): a bomb that costs no vial, potent until the end of this turn
     const vt = vialTier(lv);
     const vialSplash = splashOf(vt.splash);
     const vialAvg = vt.dice * 3.5;
     const vialBonus = lv + prof + dex + vt.item;
+    const vialBomb = {
+        dice: vt.dice,
+        splash: vt.splash,
+        types: field === "bomber" ? ["acid", "cold", "electricity", "fire"] : ["acid"],
+        level: lv >= 18 ? 18 : lv >= 12 ? 12 : lv >= 4 ? 4 : 1
+    };
     const free = (vials ?? 1) <= 0 && freeBombs;
     const freeField = (vials ?? 1) <= 0 && perpetualLevel > 0;
-    /** The best additive for a thrown bomb against f, by what it adds in damage terms (one additive per item). */
-    const additive = (f, hit) => {
+    /** The best additive for this bomb thrown at f, by what it adds in damage terms (one additive per item). */
+    const additive = (f, hit, bomb = formulaBomb) => {
         const opts = [];
         if (has(actor, "debilitating-bomb")) {
             const cond = has(actor, "true-debilitating-bomb")
@@ -158,17 +167,23 @@ function alchemist(board, ctx, out) {
                 ev: hit * fail * cond[1]
             });
         }
-        if (has(actor, "sticky-bomb")) opts.push({ name: `Sticky Bomb (+${tier[3]} persistent)`, ev: hit * 1.5 * tier[3] });
+        if (has(actor, "sticky-bomb")) opts.push({ name: `Sticky Bomb (+${bomb.splash} persistent)`, ev: hit * 1.5 * bomb.splash });
         if (has(actor, "sour-bomb")) {
             const c = degreeChances(f.saves?.fortitude ?? lv + 5, classDc);
             opts.push({ name: "Sour Bomb (sickened 1 on a failed save)", ev: hit * (c.f + c.cf) * worth(board, "sickened") });
         }
+        // each die one size larger (+1 a die); a DC 10 flat check or you take the item's level in acid
         if (has(actor, "unstable-concoction"))
-            opts.push({ name: `Unstable Concoction (d10s instead of d8s; you take a flat check or ${tier[0]} acid)`, ev: hit * tier[2] - 1 });
-        if (has(actor, "exploitive-bomb") && (f.iwr?.resist ?? []).some((r) => r.type === "fire"))
             opts.push({
-                name: `Exploitive Bomb (ignores ${lv} of its fire resistance)`,
-                ev: hit * Math.min(lv, f.iwr.resist.find((r) => r.type === "fire").value)
+                name: `Unstable Concoction (each damage die one size larger; a DC 10 flat check or you take ${bomb.level} acid)`,
+                ev: hit * bomb.dice - 0.45 * bomb.level
+            });
+        // the resistance it ignores, to a type the bomb deals
+        const resisted = (f.iwr?.resist ?? []).filter((r) => bomb.types.includes(r.type)).sort((a, b) => b.value - a.value)[0];
+        if (has(actor, "exploitive-bomb") && resisted)
+            opts.push({
+                name: `Exploitive Bomb (ignores ${lv} of its ${resisted.type} resistance)`,
+                ev: hit * Math.min(lv, resisted.value)
             });
         opts.sort((a, b) => b.ev - a.ev);
         return opts[0] ?? null;
@@ -181,10 +196,18 @@ function alchemist(board, ctx, out) {
         const b = bonus + pen + mapFor(made, false);
         const c = degreeChances(b, f.ac);
         const hit = c.s + c.cs;
+        // splash lands on a hit or a plain miss, on the target and everyone around it: foes, allies and you (C1, C2)
         const others = foes.filter((o) => o !== f && feetBetween(f.rect, o.rect) <= splashRadius);
-        const ev = hit * avg + c.cs * avg + (hit + c.f) * spl + hit * spl * others.length;
-        return { bonus: b, hit, ev, others, dist, pen };
+        const friends = [...(board.allies ?? []).filter((a) => a.hp > 0), me].filter((a) => feetBetween(f.rect, a.rect) <= splashRadius);
+        const splashes = hit + c.f;
+        const direct = hit * avg + c.cs * avg + splashes * spl;
+        const all = direct + splashes * spl * (others.length - friends.length);
+        // a bomber can keep the splash to the target alone, when that spares more than it costs
+        if (field === "bomber" && friends.length && spl > 0 && direct > all)
+            return { bonus: b, hit, ev: direct, others: [], friends: [], spared: friends, dist, pen };
+        return { bonus: b, hit, ev: all, others, friends: spl > 0 ? friends : [], spared: [], dist, pen };
     };
+    const who = (list) => list.map((x) => (x === me ? "you" : nameOf(x))).join(", ");
 
     // --- Bombs: the ones you carry first, while one beats a quick vial, then Quick Alchemy for the actions left -------
     // Every throw is a quick vial, which costs no vial, unless a formula bomb is worth the versatile vial it spends (or a
@@ -248,8 +271,8 @@ function alchemist(board, ctx, out) {
                 continue;
             }
             const tb = canBomb ? throwAt(f, made0) : null;
-            const addV = additive(f, tv.hit),
-                addB = tb ? additive(f, tb.hit) : null;
+            const addV = additive(f, tv.hit, vialBomb),
+                addB = tb ? additive(f, tb.hit, formulaBomb) : null;
             const evV = tv.ev + (addV?.ev ?? 0),
                 evB = tb ? tb.ev + (addB?.ev ?? 0) : -Infinity;
             const formula = !!tb && (free ? evB > evV : evB - evV >= 2);
@@ -266,7 +289,7 @@ function alchemist(board, ctx, out) {
                   };
             let ev = carriedEv + first.t.ev + (first.add?.ev ?? 0) - provoke;
             const steps = [...carriedSteps];
-            const throwText = `throw it at ${nameOf(f)} (${signed(first.t.bonus)}, hits about ${pct(first.t.hit)}${first.t.pen ? `, ${first.t.pen} for the range` : ""}${first.t.others.length ? `; the splash also catches ${first.t.others.map(nameOf).join(", ")}` : ""})`;
+            const throwText = `throw it at ${nameOf(f)} (${signed(first.t.bonus)}, hits about ${pct(first.t.hit)}${first.t.pen ? `, ${first.t.pen} for the range` : ""}${first.t.others.length ? `; the splash also catches ${first.t.others.map(nameOf).join(", ")}` : ""}${first.t.friends.length ? `; the splash also lands on ${who(first.t.friends)}` : ""}${first.t.spared.length ? `; keep the splash to ${nameOf(f)} alone (bomber) to spare ${who(first.t.spared)}` : ""})`;
             if (quickBomber) steps.push({ cost: 1, text: `Quick Bomber: Quick Alchemy ${first.what}, and ${throwText}` });
             else {
                 steps.push({ cost: 1, text: `Quick Alchemy: ${first.what}` });
@@ -307,9 +330,11 @@ function alchemist(board, ctx, out) {
                 notes.push(
                     `A ${tier[1]} formula bomb instead would add about ${Math.round(evB - evV)}, for one of your versatile vials; the quick vial is free.`
                 );
-            if (has(actor, "directional-bombs") && first.t.others.length)
-                notes.push(`Directional Bombs: aim the splash as a ${splashRadius >= 10 ? "30" : "15"}-foot cone to spare an ally next to the target.`);
-            if (field === "bomber") notes.push("Bomber: you can also keep the splash to the target alone.");
+            if (has(actor, "directional-bombs") && first.t.friends.length)
+                notes.push(
+                    `Directional Bombs: aim the splash as a ${splashRadius >= 10 ? "20" : "15"}-foot cone away from you, to spare whoever is behind you.`
+                );
+            if (field === "bomber" && !first.t.spared.length) notes.push("Bomber: you can also keep the splash to the target alone.");
             out.plans.push({
                 kind: "class",
                 title: carriedSteps.length ? `Throw your bombs at ${nameOf(f)}, then Quick Alchemy` : `Quick Alchemy a bomb for ${nameOf(f)}`,
@@ -327,12 +352,16 @@ function alchemist(board, ctx, out) {
         const useBomb = canBomb && (vials ?? 1) > 0 && bombAvg + splash > vialAvg + vialSplash;
         const avg = useBomb ? bombAvg + splash : vialAvg + vialSplash;
         let best = null;
+        const reflexOf = (x) => (x === me ? (me.actor?.saves?.reflex?.mod ?? me.saves?.reflex) : x.saves?.reflex) ?? lv + 5;
         for (const c of foes.filter((f) => feetBetween(me.rect, f.rect) <= 60)) {
             const inB = foes.filter((o) => feetBetween(c.rect, o.rect) <= 30);
-            const ev = inB.reduce((t, o) => t + saveExpected(o.saves?.reflex ?? lv + 5, classDc, avg, { basic: true }).expected, 0);
-            if (!best || ev > best.ev) best = { c, inB, ev };
+            // the burst catches allies and you as well
+            const ours = [...(board.allies ?? []).filter((a) => a.hp > 0), me].filter((a) => feetBetween(c.rect, a.rect) <= 30);
+            const hurtOf = (list) => list.reduce((t, o) => t + saveExpected(reflexOf(o), classDc, avg, { basic: true }).expected, 0);
+            const ev = hurtOf(inB) - hurtOf(ours);
+            if (!best || ev > best.ev) best = { c, inB, ours, ev };
         }
-        if (best && best.inB.length >= 2)
+        if (best && best.inB.length >= 2 && best.ev > 0)
             out.plans.push({
                 kind: "class",
                 title: `Mega Bomb on ${best.inB.length} foes`,
@@ -344,7 +373,7 @@ function alchemist(board, ctx, out) {
                     { cost: 1, text: `Quick Alchemy ${useBomb ? `a ${tier[1]} bomb (a versatile vial)` : "a quick vial"} with the Mega Bomb additive` },
                     {
                         cost: 2,
-                        text: `Mega Bomb: a 30-foot burst centered on ${nameOf(best.c)} (within 60 feet); ${best.inB.map(nameOf).join(", ")} each take the full bomb, basic Reflex against DC ${classDc}`
+                        text: `Mega Bomb: a 30-foot burst centered on ${nameOf(best.c)} (within 60 feet); ${best.inB.map(nameOf).join(", ")} each take the full bomb, basic Reflex against DC ${classDc}${best.ours.length ? `; so do ${who(best.ours)}` : ""}`
                     }
                 ],
                 notes: ["Mega Bomb isn't a Strike: no attack roll, and no splash beyond the burst."]
@@ -430,7 +459,7 @@ function alchemist(board, ctx, out) {
             out.notes.push(
                 `${mut.name} is up${has(actor, "field-discovery-mutagenist") || lv >= 5 ? "; a Fortitude save you dislike can be rerolled by ending it" : ""}${has(actor, "mutant-physique") ? "; Mutant Physique adds its extra (bestial: bigger claws, deadly d10; juggernaut: physical resistance " + Math.floor(lv / 2) + "; quicksilver: 10-foot Steps)" : ""}.`
             );
-            if (has(actor, "revivifying-mutagen") && hurt(me) >= 3 * Math.floor(lv / 2))
+            if (has(actor, "revivifying-mutagen") && ctx.actions >= 1 && hurt(me) >= 3 * Math.floor(lv / 2))
                 out.plans.push({
                     kind: "class",
                     title: "Revivifying Mutagen",
@@ -470,10 +499,20 @@ function alchemist(board, ctx, out) {
 
     // --- Toxicologist: a poison on the weapon in one action --------------------------------------------------------
     if (field === "toxicologist" && ctx.actions >= 2 && canMake) {
-        const f = foes.find((x) => inReach(me.rect, x.rect, myReach(board)));
-        const w = board.strikes.find((s) => !s.ranged && !s.traits?.includes("unarmed"));
+        // an injury poison needs a piercing or slashing weapon, and the Strikes are made with that weapon
+        const cuts = (s) => !s.damageTypes?.length || s.damageTypes.some((t) => t === "piercing" || t === "slashing");
+        const w = board.strikes.filter((s) => !s.ranged && !s.traits?.includes("unarmed") && cuts(s)).sort((a, b) => b.avg - a.avg)[0];
+        const f = w ? foes.find((x) => inReach(me.rect, x.rect, w.reach || 5)) : null;
         if (f && w) {
-            const r = strikeRun(board, f, ctx.actions - 1, { made: ctx.made });
+            const used = [];
+            let rev = 0;
+            for (let i = 0; i < ctx.actions - 1; i++) {
+                const bonus = w.bonus + mapFor(ctx.made + i, w.agile);
+                const e = strikeOn(board, w, f, bonus);
+                used.push({ s: w, bonus, e });
+                rev += e.expected;
+            }
+            const r = { used, ev: rev, text: `Strike ${nameOf(f)} with ${w.label}${times(used.length)} (${used.map((u) => signed(u.bonus)).join(", ")})` };
             if (r.used.length) {
                 const ev = r.ev + r.used[0].e.hit * (2 + lv) * 0.8;
                 out.plans.push({
@@ -520,7 +559,7 @@ function alchemist(board, ctx, out) {
         out.notes.push("Drawing a bomb is an Interact action unless it's already in hand; Quick Bomber would fold the draw into the throw.");
     if (field === "bomber" && bombs.length)
         out.notes.push(
-            `Bomber: splash ${bigSplash ? `is ${Math.max(1, int)} (your Intelligence)` : "as listed"}${has(actor, "expanded-splash") ? `, +${int} and 10 feet wide with Expanded Splash` : ""}${splashRadius >= 10 && !has(actor, "expanded-splash") ? `, ${splashRadius} feet wide` : ""}; you can keep it to the target alone, or aim it as a cone with Directional Bombs.`
+            `Bomber: splash ${bomberSplash ? `is your Intelligence (${int}) when that's more than the bomb's` : "as listed"}${has(actor, "expanded-splash") ? `, +${int} and 10 feet wide with Expanded Splash` : ""}${splashRadius >= 10 && !has(actor, "expanded-splash") ? `, ${splashRadius} feet wide` : ""}; you can keep it to the target alone, or aim it as a cone with Directional Bombs.`
         );
     if (has(actor, "uncanny-bombs"))
         out.notes.push("Uncanny Bombs: 60-foot range increment, cover counts 1 less, and no flat check against a concealed or hidden target.");
@@ -564,6 +603,11 @@ function alchemist(board, ctx, out) {
     if (has(actor, "alchemical-revivification"))
         out.notes.push("Alchemical Revivification: dying under an elixir brings you back at the start of your next turn.");
     if (has(actor, "powerful-alchemy")) out.notes.push(`Powerful Alchemy: your infused items use your class DC ${classDc} for their saves.`);
+    // Quick Alchemy needs a free hand (C9)
+    if (me.freeHand === false)
+        for (const p of out.plans.slice(firstPlan))
+            if (p.steps.some((st) => /Quick Alchemy|Quick Bomber/.test(st.text)))
+                p.notes.push("Quick Alchemy needs a free hand: take a hand off your weapon (Release, a free action) or put something away first.");
 }
 
 export { alchemist };

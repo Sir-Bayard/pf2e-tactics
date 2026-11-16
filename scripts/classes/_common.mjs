@@ -180,7 +180,9 @@ function effectUp(actor, re) {
     const e = effect(actor, re);
     if (!e) return null;
     const rd = e.remainingDuration;
-    if (rd && (rd.expired || (Number.isFinite(Number(rd.remaining)) && Number(rd.remaining) <= 0))) return null;
+    // PF2e's expired flag when it gives one (an effect ending at the end of this turn reads remaining 0, not expired);
+    // the remaining time only when it doesn't
+    if (rd && (typeof rd.expired === "boolean" ? rd.expired : Number.isFinite(Number(rd.remaining)) && Number(rd.remaining) <= 0)) return null;
     return e;
 }
 /** A skill: { mod, rank, label }, from the sheet, else the board's number for it; null when neither has it (T8). */

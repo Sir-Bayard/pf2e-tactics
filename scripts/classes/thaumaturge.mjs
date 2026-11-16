@@ -29,7 +29,6 @@ import {
     degreeChances,
     feetBetween,
     inReach,
-    strikeExpected,
     saveExpected,
     nameOf,
     signed,
@@ -38,7 +37,7 @@ import {
 } from "./_common.mjs";
 import { playersSeeName, tokensSetNames } from "../shared.mjs";
 
-const IMPLEMENTS = ["amulet", "bell", "chalice", "lantern", "mirror", "regalia", "shield", "tome", "wand", "weapon"];
+const IMPLEMENTS = ["amulet", "bell", "censer", "chalice", "lantern", "mirror", "regalia", "shield", "tome", "wand", "weapon"];
 /** A Strike whose weapon is held in two hands (by the item's hands held, or a two-hands usage). */
 const twoHands = (s) => Number(s.item?.system?.equipped?.handsHeld) === 2 || /two-hands/.test(String(s.item?.system?.usage?.value ?? ""));
 
@@ -158,12 +157,10 @@ function thaumaturge(board, ctx, out) {
         lv + 4;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
     const held = IMPLEMENTS.filter((i) => has(actor, i));
-    const adept = (i) =>
-        has(actor, `adept-benefit-${i}`) ||
-        has(actor, `${i}-adept`) ||
-        (held.length === 1 && lv >= 7 && has(actor, "implement-adept")) ||
-        (held.length === 2 && lv >= 11 && has(actor, "second-adept") && has(actor, "implement-adept"));
-    const paragon = (i) => has(actor, `paragon-benefit-${i}`) || has(actor, `${i}-paragon`) || (held.length === 1 && has(actor, "implement-paragon"));
+    // Implement Adept, Second Adept and Implement Paragon grant the chosen implement's benefit as its own feature
+    // (adept-benefit-<implement>, paragon-benefit-<implement>: PF2e 8.7.0's GrantItem), which is what's read here
+    const adept = (i) => has(actor, `adept-benefit-${i}`) || has(actor, `${i}-adept`);
+    const paragon = (i) => has(actor, `paragon-benefit-${i}`) || has(actor, `${i}-paragon`);
     const canIntensify = has(actor, "intensify-vulnerability") || has(actor, "third-implement");
     const freeEV = has(actor, "unlimited-esoterica");
     const evCost = freeEV ? 0 : 1;
@@ -171,13 +168,18 @@ function thaumaturge(board, ctx, out) {
     // the standard DC for the foe's level: the party's level unless the GM lets the helper use each creature's, never printed
     const chance = (f) => {
         const c = standardOdds(lore, f.level ?? lv);
-        return { ok: c.s + c.cs, crit: c.cs };
+        return { ok: c.s + c.cs, crit: c.cs, cf: c.cf ?? 0 };
     };
 
     // --- On your Strikes: Implement's Empowerment (2 per weapon die, one one-handed weapon and implements in hand) and
     // Regalia's adept aura (+2 status to damage, +3 at 11th, +4 at 17th); PF2e's rule elements, which the board's averages leave out
     const regaliaDmg = held.includes("regalia") && adept("regalia") ? (lv >= 17 ? 4 : lv >= 11 ? 3 : 2) : 0;
-    const empower = has(actor, "implements-empowerment");
+    // Implement's Empowerment: an implement in hand and nothing else but one one-handed weapon (no shield, no second
+    // weapon). PF2e counts it in the Strike's damage once its toggle is on, so it's added here only while that's off.
+    const itemsOf = (a) => a?.items?.contents ?? (Array.isArray(a?.items) ? a.items : []);
+    const weaponsHeld = itemsOf(actor).filter((i) => i.type === "weapon" && Number(i.system?.equipped?.handsHeld) > 0);
+    const empowerOn = !!actor.rollOptions?.all?.["implements-empowerment"];
+    const empower = has(actor, "implements-empowerment") && !empowerOn && !me.shield && weaponsHeld.length <= 1;
     for (const s of board.strikes) {
         if (empower && !twoHands(s) && !s.empowerCounted) {
             s.empowerCounted = true;
@@ -217,7 +219,9 @@ function thaumaturge(board, ctx, out) {
                 }
             ];
             if (sq.route.actions) steps.push({ cost: sq.route.actions, text: moveText(sq, f) });
-            const run = exRun(f, left, { weak: extra });
+            // a critical failure gives nothing and leaves you off-guard until your next turn
+            const run0 = exRun(f, left, { weak: extra * (1 - c.cf) });
+            const run = { ...run0, ev: run0.ev - c.cf * worth(board, "off-guard") };
             if (!run.used.length) continue;
             steps.push({ cost: run.used.length, text: `${run.text}; +${extra} on each hit` });
             const notes = [];
@@ -238,7 +242,7 @@ function thaumaturge(board, ctx, out) {
             // Exploit lasts until you use it again: the turns after this one get the bonus too. Counted for up to two more
             // turns (two Strikes each) by how long the foe looks likely to last; nothing when your standing Exploit may
             // already reach it.
-            const perTurn = exRun(f, 2, { made: 0, weak: extra }).ev - exRun(f, 2, { made: 0 }).ev;
+            const perTurn = (1 - c.cf) * (exRun(f, 2, { made: 0, weak: extra }).ev - exRun(f, 2, { made: 0 }).ev);
             const turns = cov ? 0 : (f.hp ?? 0) > 2 * run.ev ? 2 : (f.hp ?? 0) > run.ev ? 1 : 0;
             const next = perTurn * turns;
             if (next > 0)
@@ -298,7 +302,8 @@ function thaumaturge(board, ctx, out) {
                                 `This assumes your Exploit Vulnerability from an earlier turn is still on ${nameOf(f)}; PF2e doesn't record it, so the helper can't tell.`
                             ]
                           : [];
-            if (canIntensify && !intensified && left >= 1 + (freeEV ? 0 : 1) && held.length) {
+            // Intensify and Twin Weakness work only on the creature your Exploit targets, not on others its weakness covers
+            if (canIntensify && !intensified && !cv && left >= 1 + (freeEV ? 0 : 1) && held.length) {
                 const parts = [];
                 if (held.includes("weapon")) {
                     parts.push("weapon: +2 status to your attack rolls against it (the plan takes this one)");
@@ -326,7 +331,7 @@ function thaumaturge(board, ctx, out) {
                 left -= freeEV ? 0 : 1;
                 ev += 0.5;
             }
-            if (has(actor, "twin-weakness") && left >= 2) {
+            if (has(actor, "twin-weakness") && !cv && left >= 2) {
                 const b = bestStrike(board, f, { made: ctx.made, acAdj });
                 if (b) {
                     const bonus = (1 - degreeChances(b.bonus, f.ac + acAdj).cf) * extra;
@@ -439,9 +444,9 @@ function thaumaturge(board, ctx, out) {
             let sq = null,
                 why = "";
             if (near && !flanked) {
-                // the square straight across the foe from you
-                const cx = f.rect.x + (f.rect.x - me.rect.x) + (f.rect.w - 1) * Math.sign(f.rect.x - me.rect.x),
-                    cy = f.rect.y + (f.rect.y - me.rect.y) + (f.rect.h - 1) * Math.sign(f.rect.y - me.rect.y);
+                // the square straight across the foe from you: mirrored through the foe's center
+                const cx = 2 * f.rect.x + (f.rect.w - 1) - me.rect.x - ((me.rect.w ?? 1) - 1),
+                    cy = 2 * f.rect.y + (f.rect.h - 1) - me.rect.y - ((me.rect.h ?? 1) - 1);
                 if (free(cx, cy) && feetBetween(me.rect, { x: cx, y: cy, w: 1, h: 1 }) <= 15) {
                     sq = { x: cx, y: cy };
                     why = "flank";
@@ -575,6 +580,8 @@ function thaumaturge(board, ctx, out) {
     if (has(actor, "root-to-life") && ctx.actions >= 1) {
         for (const d of (board.downAllies ?? []).filter((d) => (d.hp <= 0 || d.conditions?.has?.("dying")) && inReach(me.rect, d.rect, 5))) {
             const ev = 6 + lv;
+            // the second action only adds flat checks against persistent damage
+            const two = ctx.actions >= 2 && !!(d.conditions?.has?.("persistent-damage") || d.conditions?.has?.("persistent"));
             out.plans.push({
                 kind: "class",
                 title: `Root to Life: stabilize ${nameOf(d)}`,
@@ -584,8 +591,8 @@ function thaumaturge(board, ctx, out) {
                 dest: null,
                 steps: [
                     {
-                        cost: ctx.actions >= 2 ? 2 : 1,
-                        text: `Root to Life on ${nameOf(d)}: no longer dying, at 0 HP${ctx.actions >= 2 ? "; with 2 actions, DC 10 flat checks end each persistent damage on them" : ""}`
+                        cost: two ? 2 : 1,
+                        text: `Root to Life on ${nameOf(d)}: no longer dying, at 0 HP${two ? "; with 2 actions, DC 10 flat checks end each persistent damage on them" : ""}`
                     }
                 ],
                 notes: []

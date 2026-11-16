@@ -511,6 +511,7 @@ function bard(board, ctx, out) {
                 [
                     {
                         cost: 2,
+                        focus: true,
                         text: `Hymn of Healing on ${t === me ? "yourself" : nameOf(t)} (${t.hp}/${t.maxHp}): fast healing ${per} for 4 rounds, ${per} temporary HP now and each time you Sustain it`
                     }
                 ],

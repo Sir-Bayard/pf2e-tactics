@@ -588,6 +588,8 @@ function summoner(board, ctx, out) {
             steps.push({ cost: 2, text: X.text });
         }
         if (eternalStep && X.boosted) steps.unshift(eternalStep);
+        // a focus activity marks the step that carries it (spell thrift reads the field)
+        if (X.focus) for (const st of steps) if (st.text.includes(X.text)) st.focus = true;
         const spent = steps.reduce((t, s) => t + s.cost, 0);
         if (A - spent >= 1 && X.target && X.after !== false) {
             const r = eRun(X.target, A - spent, n, { boosted: X.boosted && (!!bs || preBoosted) });
@@ -897,7 +899,8 @@ function summoner(board, ctx, out) {
                 boosted: false,
                 text: `${eName} casts Eidolon's Wrath (${5 + 2 * Math.max(0, rank - 3)}d6, basic Reflex DC ${dc}, 20 feet around it): ${hit.map(nameOf).join(", ")}`,
                 notes,
-                bias: 0.2
+                bias: 0.2,
+                focus: true
             });
         }
     }
