@@ -20,6 +20,7 @@ import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } 
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
+import { REVEAL_SPELLS } from "./values.mjs";
 import { noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
@@ -98,13 +99,6 @@ function noteReaction(message) {
 
 /* ------------------------------------------------------------------ reading the board for a PC */
 
-const REVEAL_SPELLS = [
-    { re: /^revealing light$/i, how: "a 10-foot burst, Reflex save: a foe that fails is dazzled, and if it is invisible it becomes concealed instead of hidden" },
-    { re: /^see the unseen$/i, how: "you see invisible creatures as concealed rather than hidden" },
-    { re: /^faerie fire$/i, how: "a 10-foot burst: creatures in it can't be concealed, and invisible ones are concealed instead of hidden" },
-    { re: /^glitterdust$/i, how: "a 10-foot burst, Reflex save: invisible creatures are revealed" },
-    { re: /^true seeing$/i, how: "you see through illusions and invisibility" },
-];
 
 /** What this character can see of a foe: "observed", "concealed", "hidden" or "undetected". */
 function stateOf(board, e) {

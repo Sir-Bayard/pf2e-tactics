@@ -37,4 +37,13 @@ const threatOn = () => setting("threat", true) !== false;
 const threatDecay = () => { const v = Number(setting("threatDecay", "0.5")); return v > 0 && v <= 1 ? v : 0.5; };
 const threatScale = () => Number(setting("threatWeight", "1")) || 1;
 
-export { CONDITION_VALUE, NOTICE, TIER_TEXT, actorTier, hitWorth, isAnimal, threatDecay, threatOn, threatScale, tierOf };
+/** Spells that get round a hidden or invisible foe, and how (the Turn Helper and the NPC card both use them). */
+const REVEAL_SPELLS = [
+    { re: /^revealing light$/i, how: "a 10-foot burst, Reflex save: a foe that fails is dazzled, and if it is invisible it becomes concealed instead of hidden" },
+    { re: /^see the unseen$/i, how: "you see invisible creatures as concealed rather than hidden" },
+    { re: /^faerie fire$/i, how: "a 10-foot burst: creatures in it can't be concealed, and invisible ones are concealed instead of hidden" },
+    { re: /^glitterdust$/i, how: "a 10-foot burst, Reflex save: invisible creatures are revealed" },
+    { re: /^true seeing$/i, how: "you see through illusions and invisibility" },
+];
+
+export { CONDITION_VALUE, NOTICE, REVEAL_SPELLS, TIER_TEXT, actorTier, hitWorth, isAnimal, threatDecay, threatOn, threatScale, tierOf };

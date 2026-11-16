@@ -6,7 +6,7 @@
  */
 import { MODULE_ID, cap, signed } from "./shared.mjs";
 import { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
-import { CONDITION_VALUE, NOTICE, TIER_TEXT, actorTier, hitWorth, isAnimal, threatScale, tierOf } from "./values.mjs";
+import { CONDITION_VALUE, NOTICE, REVEAL_SPELLS, TIER_TEXT, actorTier, hitWorth, isAnimal, threatScale, tierOf } from "./values.mjs";
 
 /** Points on the hit scale: 1 at level 1, about five at level 20 (a hit at level 20 is five times one at level 1).
  *  Every flat worth in a score is multiplied by it, so it weighs the same at every level (T36). */
@@ -904,6 +904,7 @@ function planOne(board, { intent = null, noFollow = false, noSustain = false } =
     planSustain({ board, costOf, intent, mc, noFollow, noSustain, plans });
 
     scorePlans({ animal, board, endPenalty, lvlScale, me, melee, plans, rectAt, targets });
+    keepToSeen({ board, me, plans, targets });
     plans.sort((a, b) => b.score - a.score);
     const top = plans[0];
     // The best it can do is next to nothing (a dagger thrown at -10): keep out of reach and wait for an opening instead
@@ -1940,6 +1941,33 @@ function planSustain({ board, costOf, intent, mc, noFollow, noSustain, plans }) 
         for (const other of plans) if (costOf(other) > 0) other.notes.push(`${su.name} ends: it doesn't Sustain it`);
         plans.push(plan);
     }
+}
+
+/**
+ * The hidden-foe rules on the NPC card, as the Turn Helper keeps them for players (T3). A foe hidden from it (it knows the
+ * square, not the creature) is a target only when no foe it can see is left, or for an area or a reveal spell; an
+ * undetected one only for an area. Other plans aimed at them go, and every plan says who it can't see and to Seek.
+ */
+function keepToSeen({ me, plans, targets }) {
+    if (me.pc || !targets.length) return;
+    const state = new Map(targets.map((t) => [t.id, attackCtx(me.rect, t, { ranged: true }).state]));
+    const unseen = targets.filter((t) => ["hidden", "undetected"].includes(state.get(t.id)));
+    if (!unseen.length) return;
+    const seenAny = targets.some((t) => ["observed", "concealed"].includes(state.get(t.id)));
+    const ok = (plan) => {
+        const st = plan.target ? state.get(plan.target.id) : null;
+        if (!st || st === "observed" || st === "concealed") return true;
+        if (plan.kind === "area") return true;
+        if (plan.spell && REVEAL_SPELLS.some((r) => r.re.test(plan.spell.name ?? ""))) return true;
+        return st === "hidden" && !seenAny;
+    };
+    const kept = plans.filter(ok);
+    plans.length = 0;
+    plans.push(...kept);
+    const hidden = unseen.filter((t) => state.get(t.id) === "hidden").map(nameOf), lost = unseen.filter((t) => state.get(t.id) === "undetected").map(nameOf);
+    const note = [hidden.length ? `Hidden from it: ${hidden.join(", ")} (it knows the square; a DC 11 flat check to target${seenAny ? ", so it goes for a foe it can see first, or Seeks" : ""})` : null,
+        lost.length ? `Undetected by it: ${lost.join(", ")} (Seek, 1 action, to find them; only an area reaches them now)` : null].filter(Boolean);
+    for (const plan of plans) for (const n of note) if (!plan.notes.includes(n)) plan.notes.push(n);
 }
 
 /** Each plan's score: expected damage, plus who it's aimed at, minus what it risks. */
