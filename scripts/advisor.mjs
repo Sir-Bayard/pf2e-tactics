@@ -267,6 +267,13 @@ function harmAgainst(c, types = [], partials = null) {
     if (only("vitality") && !undead) return { ...d, immune: true, life: known ? "living" : "unknown" };
     if (only("void") && undead) return { ...d, immune: true, life: "undead" };
     if (only("void") && !known) return { ...d, unsure: true };
+    // Part of the damage vitality or void: that part comes off where it can't hurt (vitality on the living or an unknown
+    // type, void on the undead), with the rest kept
+    if (partials?.length) {
+        const lost = partials.filter((x) => (x.type === "vitality" && !undead) || (x.type === "void" && undead)).reduce((t, x) => t + (x.avg || 0), 0);
+        if (lost) return { ...d, cut: (d.cut ?? 0) + lost, ...(types.includes("void") && !known ? { unsure: true } : {}) };
+    }
+    if (types.includes("void") && !known) return { ...d, unsure: true };
     return d;
 }
 
@@ -584,6 +591,7 @@ const hitChance = (bonus, ac) => Math.min(0.95, Math.max(0.05, (21 + bonus - ac)
 const failChance = (save, dc) => Math.min(0.95, Math.max(0.05, (dc - save - 1) / 20));
 
 /** The AC it thinks a target has: the party's average, nudged by visible armor and a raised shield. Off-guard shows. */
+// (Sharp creatures, tier 4, know the real AC: seenFactor doesn't ask this for them)
 function seenAc(board, t, tier) {
     const foes = board.enemies.filter((e) => e.hp > 0);
     const bare = (e) => e.ac + (isOffGuard(e) ? 2 : 0) - (e.shieldBonus ?? 0);
@@ -1122,7 +1130,9 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                         const head = run.used.slice(0, k);
                         const pk = dropChance(head, t.hp);
                         if (pk < 0.6) continue;
-                        const near = board.enemies.filter((e) => e !== t && e.hp > 0 && !e.objective && e.state !== "hidden" && c.strikes.some((s) => inReach(c.at, e.rect, s.reach)));
+                        // only a foe it can see from there: never one hidden from it or undetected (the hidden-foe rules, as keepToSeen)
+                        const near = board.enemies.filter((e) => e !== t && e.hp > 0 && !e.objective && e.state !== "hidden" && c.strikes.some((s) => inReach(c.at, e.rect, s.reach))
+                            && ["observed", "concealed"].includes(attackCtx(c.at, e, { ranged: false }).state));
                         let next = null;
                         for (const e of near) {
                             const usable = c.strikes.filter((s) => inReach(c.at, e.rect, s.reach));
@@ -1280,13 +1290,13 @@ function planTrample({ board, me, melee, p, plans }) {
             const free = !foes.length && !(board.allies ?? []).some((c) => c.rect && overlaps(at, c.rect));
             if (!free || !crossed.length) continue;
             const ev = crossed.reduce((t, e) => t + each(e), 0);
-            if (!best || ev > best.ev) best = { ev, at, crossed: [...crossed], provokes: [...provokes].filter((id) => !crossed.some((e) => e.id === id)) };
+            if (!best || ev > best.ev) best = { ev, at, crossed: [...crossed], provokes: [...provokes] }; // a trampled foe can still react to the move
         }
     }
     if (!best || best.ev <= 0) return;
     const names = best.crossed.map(nameOf).join(", ");
     const plan = { kind: "ability", title: `Trample ${names}`, target: best.crossed[0], caught: best.crossed, ev: best.ev, notes: [], dest: { x: best.at.x, y: best.at.y }, ability: p,
-        steps: [{ cost: p.cost, text: `Trample through ${names}: each takes ${strike.label} damage (about ${Math.round(strike.avg)}), basic Reflex DC ${dc}; it ends in a free square beyond` }] };
+        steps: [{ cost: p.cost, text: `Trample in a straight line through ${names}: each takes ${strike.label} damage (about ${Math.round(strike.avg)}), basic Reflex DC ${dc}; it ends in a free square beyond` }] };
     if (best.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, best.provokes).join(", ")}`);
     plan.risk = provokeCost(board, best.provokes);
     plans.push(plan);

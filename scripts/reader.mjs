@@ -1207,7 +1207,7 @@ function lightReader(scene, size) {
     const base = scene.isBright ?? true ? "bright" : scene.isDimlyLit ? "dim" : "dark";
     const sources = [...(canvas.effects?.lightSources?.values?.() ?? [])].filter((ls) => ls.active !== false && !/global/i.test(ls.constructor?.name ?? "") && ls !== canvas.environment?.globalLightSource);
     return (rect) => {
-        const k = `${rect.x},${rect.y},${rect.w}`;
+        const k = `${rect.x},${rect.y},${rect.w},${rect.z ?? 0}`;
         if (cache.has(k)) return cache.get(k);
         const pt = { x: (rect.x + rect.w / 2) * size, y: (rect.y + rect.h / 2) * size };
         // The darkness at the point (T1): a region that adjusts darkness counts, as PF2e reads the scene's (lit at 0.75
@@ -1217,7 +1217,7 @@ function lightReader(scene, size) {
             const dl = canvas.effects?.getDarknessLevel?.({ ...pt, elevation: rect.z ?? 0 });
             if (Number.isFinite(dl)) level = 1 - dl >= 0.75 ? "bright" : 1 - dl <= 0.25 ? "dark" : "dim";
         } catch { /* no reading here: the scene's level */ }
-        if (canvas.effects?.testInsideDarkness?.(pt)) level = "magical";
+        try { if (canvas.effects?.testInsideDarkness?.(pt)) level = "magical"; } catch { /* no reading: as it was */ }
         if (level !== "bright" && level !== "magical") {
             for (const ls of sources) {
                 const d = ls.data ?? {};
@@ -1529,8 +1529,10 @@ const RECENT = new Map();
 const HP_AT_TURN = new Map();
 /** Whom each NPC last attacked (token id -> { combatId, id, round }). */
 const LAST_TARGET = new Map();
-/** The fight is over (deleteCombat): what was kept about it goes (T24). */
-function forgetFightReader() { RECENT.clear(); HP_AT_TURN.clear(); LAST_TARGET.clear(); }
+/** A fight is over (deleteCombat): what was kept about it goes (T24), and only about it, if another fight runs on. */
+function forgetFightReader(combatId) {
+    for (const m of [RECENT, HP_AT_TURN, LAST_TARGET]) for (const [k, v] of m) if (!combatId || v?.combatId === combatId) m.delete(k);
+}
 /** A token on another level of the scene has no object on the canvas: stand in for it with its document. */
 const tokenStandIn = (doc) => ({ id: doc.id, name: doc.name, actor: doc.actor, document: doc });
 

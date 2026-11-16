@@ -5,7 +5,7 @@
  * pf2e-tactics.mjs for the whole.
  */
 import { openFight } from "./fight.mjs";
-import { BOARD_FIELDS, esc, FLAG_SCOPE, flagOf, gmLeadNow, isGmLead, MODULE_ID, rules, setting, startGmTabs } from "./shared.mjs";
+import { BOARD_FIELDS, esc, FLAG_SCOPE, flagOf, gmLater, gmLeadNow, isGmLead, MODULE_ID, rules, setting, startGmTabs } from "./shared.mjs";
 import { helperApi } from "./player.mjs";
 import { HP_AT_TURN, RECENT, forgetFightReader, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
@@ -36,7 +36,7 @@ async function onTurn(combat) {
     }
     try {
         if (m === "window") await showWindow(c.actor, c.token?.object ?? c.token);
-        else if (m === "chat" && isGmLead()) {
+        else if (m === "chat" && (isGmLead() || (await gmLeadNow()))) {
             // Keyed on the combatant, and kept on the combat, so a re-sort or a reload doesn't post it twice
             const key = `${combat.round}:${c.id}`;
             if (key === lastPosted || flagOf(combat, "posted") === key) return;
@@ -52,7 +52,8 @@ async function onTurn(combat) {
 // --- Trigger whispers: the moment a trigger comes true, even on a player's turn ---------------------
 let triggerTimer = null;
 function checkTriggersSoon() {
-    if (!game.combat?.started || !setting("triggerWhispers", true) || !isGmLead()) return;
+    if (!game.combat?.started || !setting("triggerWhispers", true)) return;
+    if (!isGmLead()) return gmLater(() => { clearTimeout(triggerTimer); triggerTimer = setTimeout(checkTriggers, 300); });
     clearTimeout(triggerTimer);
     triggerTimer = setTimeout(checkTriggers, 300);
 }
@@ -104,7 +105,7 @@ Hooks.on("updateCombat", (combat, changes) => {
     if ("round" in changes || "started" in changes) checkTriggersSoon();
     if (changes.flags?.[MODULE_ID]?.threat && combat === game.combat) refreshSoon(250);
 });
-Hooks.on("deleteCombat", () => { clearPath(); closeWindow(); forgetFightReader(); forgetFightState(); });
+Hooks.on("deleteCombat", (combat) => { clearPath(); closeWindow(); forgetFightReader(combat?.id); forgetFightState(combat?.id, (game.combats?.size ?? 0) > 0); });
 Hooks.on("deleteToken", (doc) => { if (turnWindow?.token && doc.id === turnWindow.token.id) clearPath(); });
 Hooks.on("combatStart", (combat) => onTurn(combat));
 Hooks.on("updateCombatant", () => checkTriggersSoon());

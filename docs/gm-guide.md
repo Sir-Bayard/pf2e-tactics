@@ -33,7 +33,7 @@ From PF2e's data first: action costs, traits, links to the basic actions (Step, 
 
 Abilities that need a grabbed or restrained creature (Captive Rake, Swallow Whole) are planned only on one, or after a Grab that could take hold. "A jaws Strike with each of its heads, each against a different target" (Double Bite) goes at different foes; "count as one attack", "the penalty increases only after both" and the like are read for the multiple attack penalty; "two claw Strikes and one horn Strike" is three Strikes. "All adjacent creatures" is a 5-foot emanation (Spore Cloud).
 
-Trample is read from its first line (the size it can trample and the Strike it uses) and planned as a line through the foes it can trample, each taking that Strike's damage with a basic Reflex save, ending in a free square.
+Trample is read from its first line (the size it can trample and the Strike it uses) and planned as a straight line through the foes it can trample (bent paths aren't tried), each taking that Strike's damage with a basic Reflex save, ending in a free square.
 
 Each action on the card is tagged with what it does (movement, area, sets up, follow-up...).
 
@@ -71,7 +71,7 @@ The −/+ buttons by "Actions" and "Attacks" put it right when it guesses wrong 
 
 How a creature picks its target depends on its Intelligence. The chip by its name on the card says which kind it is.
 
-- Instinct (mindless, or Int -4 or lower): takes the shortest way and doesn't route round anyone's reach (the card still says what a move provokes), goes for what's closest, won't walk away from a foe already at its jaws, and lashes back at whatever hurt it.
+- Instinct (mindless, or Int -4 or lower): takes the way with the fewest actions, going round a reach only when that costs no more (the card still says what a move provokes), goes for what's closest, won't walk away from a foe already at its jaws, and lashes back at whatever hurt it.
 - Crude (Int -3 to +0): goes by what it can see. It goes for the foe in its face, one who looks hurt, one who's down or on their own, someone smaller, someone it could drop. It takes the shortest way unless going round a reach costs no more actions.
 - Tactical (Int +1): flanks, focuses fire on foes its allies are already on, finishes off the hurt, goes for a kill it can make, and when its first Strikes will likely drop a foe, turns the rest on the next foe in reach.
 - Shrewd (Int +2): all that, and goes for healers and casters first.
@@ -117,7 +117,7 @@ The setting halves it (Lightly) or doubles it (Strongly).
 
 The Threat button on The Board sets it by hand: raise someone for a taunt or a grudge, set someone to 0 to have it forget them, or Reset.
 
-Not counted: damage typed straight onto a token's HP, and undoing damage from its card doesn't take the threat back. Only the active GM's client writes it. This replaces PF2e Threat Tracker for the tactics: you can turn that module off (its panel and markers aren't copied).
+Not counted: damage typed straight onto a token's HP, and undoing damage from its card doesn't take the threat back. Only one client writes it: the active GM's (one tab, when the GM has the world open in several). This replaces PF2e Threat Tracker for the tactics: you can turn that module off (its panel and markers aren't copied).
 
 ## Rules it follows
 
@@ -130,7 +130,7 @@ PF2e Remaster, checked against Archives of Nethys.
 - **Reactive Strike**: moving (not Step), manipulate actions (spells with the manipulate trait, reloading), ranged attacks within reach.
 - **Flanking**: both able to act, both with a melee attack and the foe in reach; never against all-around vision, and Deny Advantage against its level or lower. Flanking helps melee only.
 - **Cover**: a creature on the line between them is lesser cover (+1 AC), standard if it's two sizes bigger than both; a wall across the line is standard cover, or no line at all if every corner-to-corner line is blocked. Take Cover upgrades it. Areas ignore lesser cover; standard and greater add to Reflex against them.
-- **Light and senses**: dim light conceals to normal vision (DC 5 flat check), darkness hides (DC 11); low-light vision and darkvision see through them. Invisible creatures are hidden to anyone who can hear them. A creature that can't see the NPC is off-guard to its attacks. Hidden, undetected and concealed conditions you set are used as they are. A foe hidden from it is a target only when it can see no other, or for an area; an undetected one only for an area, and the card says to Seek.
+- **Light and senses**: dim light conceals to normal vision (DC 5 flat check), darkness hides (DC 11); low-light vision and darkvision see through them. Invisible creatures are hidden to anyone who can hear them. A creature that can't see the NPC is off-guard to its attacks. Hidden, undetected and concealed conditions you set are used as they are. A foe hidden from it is a target only when it can see no other, or for an area or a reveal spell; an undetected one only for an area, and the card says to Seek.
 - Range increments (-2 each, six at most), volley, deadly and fatal dice, weakness, resistance and immunity (a part it's immune to, such as the fire on a flaming weapon, comes off the damage; precision damage and Sneak Attack do nothing to a creature immune to precision; vitality damage hurts only the undead and void doesn't hurt them), incapacitation (one degree better for a target above twice the spell's rank), persistent damage, Pack Attack, Sneak Attack, Demoralize (-4 without a shared language, never on a deafened target, done before the Strikes it helps), Feint.
 - Tiny creatures and swarms move into others' spaces; swarm damage hits everyone in their space. A creature without a land or fly Speed swims, climbs or burrows.
 
@@ -164,7 +164,7 @@ Add (or Edit) on the Your Notes card. Kept on the world actor and shared by all 
 
 ## What the Party Knows
 
-The GM's window for the fight (Party Knows on the card, or `api.fight()`): for each foe, what the party has learned of it (its AC bounds, the save modifiers it has shown) and seen it do (reactions, casting, ranged attacks, healing), as the Turn Helper uses them. Each line has a button to take it back, for an attack taken for a Reactive Strike or a roll against the wrong foe; a reaction taken back stays out until it's seen again. The **Identified** switch puts the foe's creature traits on the Turn Helper's board, so class features that care whether it's undead or a construct use them; a player character's successful Recall Knowledge on it sets the switch too.
+The GM's window for the fight (Party Knows on the card, or `api.fight()`): for each foe, what the party has learned of it (its AC bounds, the save modifiers it has shown) and seen it do (reactions, casting, ranged attacks, healing), as the Turn Helper uses them. Each line has a button to take it back, for an attack taken for a Reactive Strike or a roll against the wrong foe; a reaction taken back stays out until it's seen again. The **Identified** switch puts the foe's creature traits on the Turn Helper's board, so class features that care whether it's undead or a construct use them; a player character's successful Recall Knowledge on it sets the switch too (rolled with PF2e's Recall Knowledge action, with the foe targeted, so the roll has a DC).
 
 ## For other modules
 

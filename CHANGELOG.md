@@ -7,7 +7,7 @@ A large update: new windows for the GM, smarter turns on both sides, and numbers
 **New**
 
 - **What the Party Knows** (GM): Party Knows on the NPC card opens a window for the fight. For each foe it lists what the party has learned (AC bounds, save modifiers) and seen (reactions, casting, ranged attacks, healing), as the Turn Helper uses them, each with a button to take it back. A reaction taken back stays out until it's seen again.
-- **Identify switch**: in that window, an identified foe's creature traits (undead, construct, mindless...) are on the Turn Helper's board again, so class advice that depends on them comes back. A player character's successful Recall Knowledge on a foe sets it too.
+- **Identify switch**: in that window, an identified foe's creature traits (undead, construct, mindless...) are on the Turn Helper's board again, so class advice that depends on them comes back. A player character's successful Recall Knowledge on a foe sets it too, when rolled with PF2e's Recall Knowledge action with the foe targeted.
 - The NPC card has a button for the next player character in the order that opens their Turn Helper, so the GM can see what it will suggest.
 - The Turn Helper says why each folded alternative came second: it provokes, it spends a slot or a Focus Point, it does less damage, or what put the first choice ahead.
 - The turn's count of actions and attacks survives a reload on the same turn.
@@ -16,7 +16,7 @@ A large update: new windows for the GM, smarter turns on both sides, and numbers
 **Smarter turns**
 
 - When its first Strikes will likely drop a foe and another is in reach, a thinking creature (or a player character) turns the rest on the next foe ("Strike Vance, then Kestrel").
-- Trample is read and planned: a line through the foes it can trample, each taking the Strike's damage with a basic Reflex save.
+- Trample is read and planned: a straight line through the foes it can trample, each taking the Strike's damage with a basic Reflex save.
 - Partial immunity counts: the fire on a flaming weapon does nothing to a fire-immune foe, while the weapon still hurts. Precision damage and Sneak Attack do nothing to a creature immune to precision. Vitality damage hurts only the undead, and void doesn't hurt them.
 - The NPC card keeps the hidden-foe rules the Turn Helper keeps: a foe hidden from the creature is a target only when it can see no other (or for an area), an undetected one only for an area, and the card says to Seek.
 - Creatures on instinct take the shortest way, as described; thinking ones still go round reach.
@@ -29,7 +29,7 @@ A large update: new windows for the GM, smarter turns on both sides, and numbers
 
 **The Turn Helper's numbers**
 
-- An unknown foe's AC, saves, HP and Reactive Strike are guessed from the median creature of its level among the PF2e system's own creatures. The old guess ran low from about level 7 (at level 20 it now expects AC 44 and 375 HP).
+- An unknown foe's AC, saves, HP and Reactive Strike are guessed from the median creature of its level among the PF2e system's own creatures. The old guess ran low from about level 7 (at level 20 it now expects AC 44 and 375 HP; the median creature there has AC 45 and 380).
 - DCs by level are read from the PF2e system's own table. If a system update moves it, the GM is told once and the odds that need it go even.
 - An attack a foe makes outside its own turn counts as a Reactive Strike after 8 seconds, and not when its own turn started or ended within 8 seconds of the roll (the GM moving the tracker on).
 

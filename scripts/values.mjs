@@ -49,14 +49,15 @@ const REVEAL_SPELLS = [
 
 /**
  * A creature of level L as the PF2e system's own creatures run (T20): the median of every npc in the system's packs at
- * each level, fitted to a formula (PF2e 8.7.0: off by a point or two, or under 10%). No published table is stored;
+ * each level, fitted to a formula (PF2e 8.7.0: AC, saves and attack within two; HP and damage within about 10%,
+ * HP exact from level -1 to 8). No published table is stored;
  * _dev's check script compares the formula with the packs after each PF2e update. ac, the middle of its three saves,
  * hp, its best melee Strike's bonus, and that Strike's average damage.
  */
 const FOE_GUESS = Object.freeze({
     ac: (L) => Math.max(15, 14 + Math.floor(1.5 * L)),
     save: (L) => 5 + Math.floor(1.45 * L),
-    hp: (L) => (L <= 5 ? Math.max(8, 6 + 14 * L) : 20 * L - 25),
+    hp: (L) => (L < 0 ? 8 : L <= 1 ? 15 + 5 * L : L <= 5 ? 15 * L : 20 * L - 25),
     attack: (L) => 8 + Math.floor(1.5 * L),
     damage: (L) => Math.max(3.5, Math.round(2 * (4 + 1.8 * L)) / 2),
 });

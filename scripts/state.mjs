@@ -6,7 +6,7 @@
  * only. One module, several files: see pf2e-tactics.mjs for the whole.
  */
 import { CONDITION_VALUE, NOTICE, actorTier, hitWorth, threatDecay, threatOn, threatScale } from "./values.mjs";
-import { refreshCard } from "./shared.mjs";
+import { gmLater, refreshCard } from "./shared.mjs";
 import { threatFor, workbenchRecharge } from "./board-data.mjs";
 import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, gmLeadNow, isGmLead, playersSee, safe, setting, tipAttr, flagOf } from "./shared.mjs";
 import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects, visibleAdjustments } from "./reader.mjs";
@@ -385,10 +385,11 @@ async function editThreat(tokenId) {
 }
 
 /** A creature starts burning or bleeding: note on the condition who did it, so its persistent damage is credited. */
-function onPersistent(item) {
+function onPersistent(item, lead = false) {
     if (item?.type !== "condition" || item.slug !== "persistent-damage" || !threatOn()) return;
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onPersistent(item, l));
     const actor = item.parent;
     const c = combat.combatants.find((x) => x.actor === actor || (actor && x.actor?.uuid === actor.uuid));
     const last = c?.tokenId ? LAST_HIT.get(c.tokenId) : null;
@@ -451,9 +452,10 @@ function saveThreat(npc, item, outcome) {
 const MANEUVER_OPTIONS = /^action:(trip|grapple|shove|disarm|reposition|demoralize|feint|bon-mot|dirty-trick|create-a-diversion)$/;
 
 /** Read a chat message for threat: damage applied, healing on a foe, an attack or maneuver aimed at a creature. */
-function onThreatMessage(message, sign = 1) {
+function onThreatMessage(message, sign = 1, lead = false) {
     const combat = game.combat;
-    if (!threatOn() || !combat?.started || !isGmLead()) return;
+    if (!threatOn() || !combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onThreatMessage(message, sign, l));
     const f = message.flags?.pf2e ?? {};
     const tokenOf = (actor) => (actor ? combat.combatants.find((c) => c.actor === actor || c.actor?.uuid === actor.uuid)?.tokenId ?? null : null);
     const applied = f.appliedDamage;
@@ -596,9 +598,10 @@ function flushLearned() {
     return learnChain;
 }
 const SAVE_STATS = ["fortitude", "reflex", "will"];
-function onLearnMessage(message) {
+function onLearnMessage(message, lead = false) {
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onLearnMessage(message, l));
     const ctx = message.flags?.pf2e?.context;
     if (!ctx || ctx.isReroll) return;
     const tokenOf = (actor) => (actor ? combat.combatants.find((c) => c.actor === actor || c.actor?.uuid === actor.uuid)?.tokenId ?? null : null);
@@ -659,10 +662,11 @@ function onLearnMessage(message) {
     }
 }
 /** Saves rolled through PF2e Toolbelt's Target Helper, against an NPC's spell or ability. */
-function onLearnToolbelt(message, changes) {
+function onLearnToolbelt(message, changes, lead = false) {
     const combat = game.combat;
     const th = changes?.flags?.["pf2e-toolbelt"]?.targetHelper;
-    if (!th || !combat?.started || !isGmLead()) return;
+    if (!th || !combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onLearnToolbelt(message, changes, l));
     const src = message.actor;
     if (!src || src.hasPlayerOwner) return;
     const counted = { ...(flagOf(message, "learnSaves") ?? {}) };
@@ -691,9 +695,10 @@ async function sustainNow(actor) {
 }
 
 /** An NPC casts a sustained spell: note it, so its later turns offer the Sustain. */
-function onSustainCast(message) {
+function onSustainCast(message, lead = false) {
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onSustainCast(message, l));
     const ctx = message.flags?.pf2e?.context;
     if (ctx && ctx.type !== "spell-cast") return;
     const item = message.item;
@@ -711,15 +716,21 @@ function onSustainCast(message) {
 
 /** One count per save, whichever way it arrives (its own message, or PF2e Toolbelt's card). */
 const SAVE_SEEN = new Set();
-/** The fight is over (deleteCombat): what was kept about it goes, and the spell readings with it (T24). */
-function forgetFightState() { LAST_HIT.clear(); EFFECTS.clear(); SAVE_SEEN.clear(); }
+/** A fight is over (deleteCombat): its counted saves go, the spell readings are read afresh, and who last hit whom is
+ *  forgotten once no fight is left (T24). */
+function forgetFightState(combatId, anyLeft = false) {
+    for (const k of SAVE_SEEN) if (!combatId || k.startsWith(`${combatId}|`)) SAVE_SEEN.delete(k);
+    EFFECTS.clear();
+    if (!anyLeft) LAST_HIT.clear();
+}
 const saveKey = (combat, item, npcTok, srcTok) => `${combat.id}|${combat.round ?? 0}|${item?.uuid ?? item?.name ?? "?"}|${npcTok}|${srcTok}`;
 
 /** Saves rolled through PF2e Toolbelt's Target Helper are written into the spell's card instead of a message of their own. */
-function onToolbeltSaves(message, changes) {
+function onToolbeltSaves(message, changes, lead = false) {
     if (!changes?.flags?.["pf2e-toolbelt"]?.targetHelper || !threatOn()) return;
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => onToolbeltSaves(message, changes, l));
     const src = message.actor;
     const srcTok = message.token?.id ?? message.speaker?.token ?? combat.combatants.find((c) => c.actor === src)?.tokenId ?? null;
     if (!src || !srcTok) return;

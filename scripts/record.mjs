@@ -7,7 +7,7 @@
  * (flags["pf2e-tactics"].record = { combat, spellstrike, exploited, chaliceDrained, wandBoosted, demoralized, asked }),
  * so it survives a reload and starts over with the next fight.
  */
-import { MODULE_ID, gmLeadNow, isGmLead, slugOf, flagOf } from "./shared.mjs";
+import { flagOf, gmLater, gmLeadNow, isGmLead, MODULE_ID, slugOf } from "./shared.mjs";
 
 /** Actions that recharge Spellstrike besides the plain recharge (a conflux spell is read from its traits). */
 const RECHARGERS = new Set(["maguss-analysis", "running-recharge", "recharging-flurry", "rapid-recharge", "spell-retaliation", "recharge-spellstrike"]);
@@ -70,9 +70,10 @@ function noteOwn(message) {
  * flags["pf2e-tactics"].demoralized = { npcTokenId: [targetTokenId] }; it goes with the combat.
  */
 let npcChain = Promise.resolve();
-function noteNpc(message) {
+function noteNpc(message, lead = false) {
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => noteNpc(message, l));
     const actor = message.actor;
     if (!actor || actor.type !== "npc" || actor.hasPlayerOwner) return;
     const ctx = message.flags?.pf2e?.context ?? {};
@@ -94,9 +95,10 @@ function noteNpc(message) {
  * on the combat, so its creature traits reach the Turn Helper's board (flags["pf2e-tactics"].identified[tokenId]). The GM
  * can also set or clear it in the fight window. A blind roll counts too: the GM's client sees its result.
  */
-function noteIdentify(message) {
+function noteIdentify(message, lead = false) {
     const combat = game.combat;
-    if (!combat?.started || !isGmLead()) return;
+    if (!combat?.started) return;
+    if (!lead && !isGmLead()) return gmLater((l) => noteIdentify(message, l));
     const actor = message.actor;
     if (!actor || actor.type !== "character") return;
     const ctx = message.flags?.pf2e?.context ?? {};

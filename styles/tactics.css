@@ -117,8 +117,9 @@
 .npt-fight { padding: 6px 10px 10px; }
 .npt-fight .npt-fight-foe { border-top: 1px solid rgba(127, 127, 127, 0.3); padding: 6px 0; }
 .npt-fight .npt-fight-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.npt-fight .npt-fight-head h3 { margin: 0; font-size: 14px; border: none; }
 .npt-fight .npt-fight-id { flex: 0 0 auto; width: auto; line-height: 22px; padding: 0 8px; }
 .npt-fight .npt-fight-id[aria-pressed="true"] { background: rgba(80, 160, 90, 0.35); }
 .npt-fight ul { margin: 4px 0 0; padding-left: 16px; }
 .npt-fight li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.npt-fight .npt-fight-x { flex: 0 0 auto; width: 22px; height: 22px; line-height: 20px; padding: 0; }
+.npt-fight .npt-fight-x { flex: 0 0 auto; width: 26px; height: 26px; line-height: 24px; padding: 0; }

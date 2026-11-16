@@ -15,7 +15,7 @@
  * tracker).
  */
 import { keyboardWindow } from "./kit/keyboard.mjs";
-import { BOARD_FIELDS, esc, flagOf, isGmLead, link, MODULE_ID, playersSee, playersSeeName, rememberWindow, setting, signed, slugify, tipAttr } from "./shared.mjs";
+import { BOARD_FIELDS, esc, flagOf, gmLater, isGmLead, link, MODULE_ID, playersSee, playersSeeName, rememberWindow, setting, signed, slugify, tipAttr } from "./shared.mjs";
 import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, slotsByRank, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
@@ -53,16 +53,17 @@ function shownDoing(combat, tokenId) {
     return new Set([...(local ?? []), ...kept].filter((x) => !gone.has(x)));
 }
 /** Seen again after the GM took it back: the leading GM client lifts the take-back. */
-function seenAgain(combat, tokenId, k, value) {
-    if (!isGmLead() || !takenBack(combat, tokenId, k).has(value)) return;
-    const all = foundry.utils.deepClone(flagOf(combat, "unseen") ?? {});
-    all[tokenId][k] = all[tokenId][k].filter((x) => x !== value);
-    combat.setFlag(MODULE_ID, "unseen", all).catch((err) => console.warn(`${MODULE_ID} | couldn't lift the take-back`, err));
+function seenAgain(combat, tokenId, k, value, lead = false) {
+    if (!takenBack(combat, tokenId, k).has(value)) return;
+    if (!lead && !isGmLead()) return gmLater((l) => seenAgain(combat, tokenId, k, value, l));
+    const list = (flagOf(combat, "unseen")?.[tokenId]?.[k] ?? []).filter((x) => x !== value);
+    combat.update({ [`flags.${MODULE_ID}.unseen.${tokenId}.${k}`]: list }).catch((err) => console.warn(`${MODULE_ID} | couldn't lift the take-back`, err));
 }
 let seenTimer = null;
 /** The GM's client writes what this client has noted into the combat's record (merged, never shrunk). */
-function keepSeen(combat) {
-    if (!combat || !isGmLead()) return;
+function keepSeen(combat, lead = false) {
+    if (!combat) return;
+    if (!lead && !isGmLead()) return gmLater((l) => keepSeen(combat, l));
     clearTimeout(seenTimer);
     seenTimer = setTimeout(async () => {
         try {
@@ -486,14 +487,24 @@ function adviceSectionFor(board, adv) {
     }
     // Why each alternative came second, in a few words (T43): more risk, a resource spent, less damage, or what put the
     // recommended turn ahead
-    const spends = (p) => (p.focus || p.steps?.some((x) => x.focus) ? "it spends a Focus Point" : p.spell && !p.spell.cantrip && !p.spell.focus ? "it spends a slot" : p.slot ? "it spends a slot" : null);
+    const ITEM_USE = { scroll: "it uses up the scroll", wand: "it spends the wand's use for the day", staff: "it spends staff charges" };
+    const spends = (p) => {
+        const sp = p.spell;
+        if (p.focus || p.steps?.some((x) => x.focus) || sp?.focus || sp?.isFocus) return "it spends a Focus Point";
+        if (sp?.consumable) return ITEM_USE[sp.consumable] ?? `it uses up the ${sp.consumable}`;
+        if (p.slot || (sp && !sp.cantrip)) return "it spends a spell slot";
+        return null;
+    };
     const whyNot = (p) => {
         const dEv = (p.ev ?? 0) - (best.ev ?? 0);
-        if ((p.risk ?? 0) > (best.risk ?? 0) + 0.5) return p.notes?.find((n) => /^Provokes/.test(n)) ?? "it leaves you more exposed";
+        if ((p.risk ?? 0) > (best.risk ?? 0) + 0.5) {
+            const prov = p.notes?.find((n) => /^Provokes /.test(n));
+            return prov ? `it p${prov.slice(1)}` : "it leaves you more exposed";
+        }
         const cost = spends(p);
         if (cost && !spends(best) && dEv > -0.5) return cost;
         if (dEv < -0.5) return `about ${Math.round(-dEv * 10) / 10} less damage`;
-        if (best.why?.length) return `the first choice is ${best.why.join(", ")}`;
+        if (best.why?.length) return `of what the first choice has going for it: ${best.why.join(", ")}`;
         return dEv > 0.5 ? `about ${Math.round(dEv * 10) / 10} more damage, but the first choice scores higher on the rest (who it hits, where it leaves you)` : "about the same worth";
     };
     const altHtml = alts.length ? `<details class="npt-alts" data-npt-fold="h-alts"${foldOpen("h-alts", false) ? " open" : ""}><summary>${alts.length} other option${alts.length === 1 ? "" : "s"}</summary><ul>${alts.map((p) => `<li><strong>${esc(titleCase(p.title))}</strong>: ${p.steps.map((s) => esc(s.text)).join("; ")} <span class="npt-dim">(second because ${esc(whyNot(p))})</span>${p.notes?.length ? ` <span class="npt-dim">(${esc(p.notes[0])})</span>` : ""}</li>`).join("")}</ul></details>` : "";
@@ -697,7 +708,8 @@ function helperClass() {
             if (titleEl) titleEl.textContent = this.title;
             if (!this._leaveBound && this.element) {
                 this._leaveBound = true;
-                this.element.addEventListener("pointerleave", () => { if (this._heldRefresh) { this._heldRefresh = false; refreshHelper(50); } });
+                this.element.addEventListener("pointerenter", (ev) => { this._mouseOver = ev.pointerType === "mouse"; });
+                this.element.addEventListener("pointerleave", () => { this._mouseOver = false; if (this._heldRefresh) { this._heldRefresh = false; refreshHelper(50); } });
             }
             // The same card as last time: leave it be, scroll, focus and all (T45)
             if (result === this._shown && content.childElementCount) return;
@@ -759,13 +771,14 @@ async function openHelper(target) {
 }
 
 let helperTimer = null;
-function refreshHelper(delay = 250) {
+function refreshHelper(delay = 250, { now = false } = {}) {
     if (!helperWindow?.rendered || !helperWindow.actor) return;
     clearTimeout(helperTimer);
     helperTimer = setTimeout(() => {
         if (!helperWindow?.rendered) return;
-        // the pointer is over it (reading, about to click): redraw when it leaves (T45)
-        if (helperWindow.element?.matches?.(":hover")) { helperWindow._heldRefresh = true; return; }
+        // a mouse over it (reading, about to click): redraw when it leaves (T45). Not for a touch screen, where :hover
+        // sticks after a tap, and not when the turn has moved on
+        if (!now && helperWindow._mouseOver && helperWindow.element?.matches?.(":hover")) { helperWindow._heldRefresh = true; return; }
         helperWindow.render();
     }, delay);
 }
@@ -865,7 +878,7 @@ Hooks.on("updateCombat", (combat, changes) => {
         guardTurn(combat);
         resetTurnFolds();
         if (!game.user.isGM) clearPath(); // last turn's route (the GM's card clears its own)
-        refreshHelper(100);
+        refreshHelper(100, { now: true });
         if (!game.user.isGM && setting("helperAutoOpen", false) && combat.started) {
             const c = combat.combatant;
             if (c?.actor?.isOwner && c.actor.type === "character" && c.actor.hasPlayerOwner) {

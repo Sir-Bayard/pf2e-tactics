@@ -16,10 +16,11 @@ import { keyboardWindow } from "./kit/keyboard.mjs";
 const DID_TEXT = { cast: "casts spells", ranged: "attacks at range", heal: "heals" };
 const SAVE_TEXT = { fortitude: "Fortitude", reflex: "Reflex", will: "Will" };
 
-/** The foes in this fight: NPC combatants no player owns. */
+/** The foes in this fight, in turn order: NPC combatants no player owns. */
 function foesOf(combat) {
     const seen = new Set();
-    return (combat?.combatants?.contents ?? [...(combat?.combatants ?? [])]).filter((c) => {
+    const list = combat?.turns?.length ? combat.turns : (combat?.combatants?.contents ?? [...(combat?.combatants ?? [])]);
+    return list.filter((c) => {
         if (!c.tokenId || seen.has(c.tokenId) || !c.actor || c.actor.hasPlayerOwner || c.actor.type !== "npc") return false;
         seen.add(c.tokenId);
         return true;
@@ -63,8 +64,8 @@ function fightHtml(combat) {
         for (const r of (seen[tok]?.r ?? []).filter((x) => !(gone.r ?? []).includes(x))) items.push(`<li>Reaction seen: ${esc(r)} ${remove(tok, "r", r, `${name}'s ${r}`)}</li>`);
         for (const d of (seen[tok]?.d ?? []).filter((x) => !(gone.d ?? []).includes(x))) items.push(`<li>Seen: ${esc(DID_TEXT[d] ?? d)} ${remove(tok, "d", d, `${name} ${DID_TEXT[d] ?? d}`)}</li>`);
         const isId = !!identified[tok];
-        const idBtn = `<button type="button" class="npt-fight-id" data-fight-identify="${esc(tok)}" aria-pressed="${isId ? "true" : "false"}"${tipAttr("Identified: its creature traits (undead, construct, mindless...) are on the Turn Helper's board. A successful Recall Knowledge on it sets this too.")}><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Identified</button>`;
-        return `<section class="npt-fight-foe"><div class="npt-fight-head"><strong>${esc(name)}</strong>${idBtn}</div>${items.length ? `<ul>${items.join("")}</ul>` : `<p class="npt-dim">Nothing learned or seen yet.</p>`}</section>`;
+        const idBtn = `<button type="button" class="npt-fight-id" data-fight-identify="${esc(tok)}" aria-pressed="${isId ? "true" : "false"}" aria-label="${esc(`${name}: identified`)}"${tipAttr("Identified: its creature traits (undead, construct, mindless...) are on the Turn Helper's board. A successful Recall Knowledge on it sets this too.")}><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Identified</button>`;
+        return `<section class="npt-fight-foe"><div class="npt-fight-head"><h3>${esc(name)}</h3>${idBtn}</div>${items.length ? `<ul>${items.join("")}</ul>` : `<p class="npt-dim">Nothing learned or seen yet.</p>`}</section>`;
     });
     return `<div class="npt-card npt-fight"><p class="npt-dim">What the party has learned and seen this fight, as the Turn Helper uses it. Take back anything that's wrong (an attack taken for a Reactive Strike, a roll against the wrong foe).</p>${rows.join("")}</div>`;
 }
@@ -77,11 +78,10 @@ async function takeBack(combat, tok, kind, key) {
         return;
     }
     if (kind !== "r" && kind !== "d") return;
-    const all = foundry.utils.deepClone(flagOf(combat, "unseen") ?? {});
-    const row = (all[tok] ??= { r: [], d: [] });
-    row[kind] ??= [];
-    if (!row[kind].includes(key)) row[kind].push(key);
-    await combat.setFlag(MODULE_ID, "unseen", all);
+    // one list written, not the whole record, so a sighting written at the same moment isn't lost
+    const list = [...(flagOf(combat, "unseen")?.[tok]?.[kind] ?? [])];
+    if (list.includes(key)) return;
+    await combat.update({ [`flags.${MODULE_ID}.unseen.${tok}.${kind}`]: [...list, key] });
 }
 
 /** The identify switch. */

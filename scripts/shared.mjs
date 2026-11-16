@@ -76,8 +76,16 @@ function startGmTabs() {
 const isGmLead = () => (tabsStarted ? tabs.isLead() : !!game.users?.activeGM?.isSelf);
 /** The same for work on an event that can wait a moment: waits out a new tab's first 1.5 s and asks a silent lead. */
 const gmLeadNow = async () => (tabsStarted ? tabs.leadNow() : !!game.users?.activeGM?.isSelf);
+/**
+ * GM work on an event that found no lead at once (a new tab's first moments, or a lead tab that vanished without saying
+ * goodbye): ask (leadNow, up to 3 s) and run it then if this tab leads, so the work isn't silently dropped. fn gets true.
+ */
+const gmLater = (fn) => {
+    if (!tabsStarted || !game.users?.activeGM?.isSelf) return;
+    tabs.leadNow().then((lead) => { if (lead) fn(true); }).catch(() => {});
+};
 
 /** Can every player see this chat card? A whispered or blind one teaches the party nothing. */
 const playersSee = (message) => !message?.blind && !((message?.whisper?.length ?? message?.whisper?.size ?? 0) > 0);
 
-export { baseActorOf, BOARD_FIELDS, cap, costGlyph, esc, FLAG_SCOPE, flagOf, gmLeadNow, isGmLead, labelAttr, link, MODULE_ID, playersSee, playersSeeName, POSITION_KEY, refreshCard, rememberWindow, rules, safe, section, setCardRefresh, setting, signed, slugify, slugOf, startGmTabs, store, tipAttr, tokensSetNames, ul };
+export { baseActorOf, BOARD_FIELDS, cap, costGlyph, esc, FLAG_SCOPE, flagOf, gmLater, gmLeadNow, isGmLead, labelAttr, link, MODULE_ID, playersSee, playersSeeName, POSITION_KEY, refreshCard, rememberWindow, rules, safe, section, setCardRefresh, setting, signed, slugify, slugOf, startGmTabs, store, tipAttr, tokensSetNames, ul };
