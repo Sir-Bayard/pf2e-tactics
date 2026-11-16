@@ -6,7 +6,25 @@
  * when it names the character as its master (system.master or flags.pf2e.master), or, failing that, when it shares a
  * player owner.
  */
-import { bestStrike, castable, has, level, markOffGuard, myReach, allySpeed, spendsSlot, squareToReach, strikeRun, targets, feetBetween, inReach, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
+import {
+    bestStrike,
+    castable,
+    has,
+    level,
+    markOffGuard,
+    myReach,
+    allySpeed,
+    spendsSlot,
+    squareToReach,
+    strikeRun,
+    targets,
+    feetBetween,
+    inReach,
+    strikeExpected,
+    saveExpected,
+    nameOf,
+    signed
+} from "./_common.mjs";
 
 /**
  * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
@@ -14,8 +32,29 @@ import { bestStrike, castable, has, level, markOffGuard, myReach, allySpeed, spe
  */
 const SUMMON_LEVEL = { 1: -1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 7, 7: 9, 8: 11, 9: 13, 10: 15 };
 const CREATURE_ATK = { "-1": 8, 0: 8, 1: 9, 2: 11, 3: 12, 4: 14, 5: 15, 6: 17, 7: 18, 8: 20, 9: 21, 10: 23, 11: 24, 12: 26, 13: 27, 14: 29, 15: 30 };
-const CREATURE_AVG = { "-1": 3.5, 0: 4.5, 1: 5.5, 2: 8.5, 3: 10.5, 4: 12, 5: 14, 6: 16, 7: 18, 8: 20, 9: 22, 10: 24, 11: 26, 12: 26.5, 13: 28.5, 14: 30.5, 15: 32.5 };
-const summonStats = (rank) => { const L = SUMMON_LEVEL[Math.min(10, Math.max(1, rank))]; return { level: L, atk: CREATURE_ATK[L] ?? L + 10, avg: CREATURE_AVG[L] ?? 4 + L * 1.5 }; };
+const CREATURE_AVG = {
+    "-1": 3.5,
+    0: 4.5,
+    1: 5.5,
+    2: 8.5,
+    3: 10.5,
+    4: 12,
+    5: 14,
+    6: 16,
+    7: 18,
+    8: 20,
+    9: 22,
+    10: 24,
+    11: 26,
+    12: 26.5,
+    13: 28.5,
+    14: 30.5,
+    15: 32.5
+};
+const summonStats = (rank) => {
+    const L = SUMMON_LEVEL[Math.min(10, Math.max(1, rank))];
+    return { level: L, atk: CREATURE_ATK[L] ?? L + 10, avg: CREATURE_AVG[L] ?? 4 + L * 1.5 };
+};
 
 const traitsOf = (a) => [...(a.traits ?? []), ...(a.actor?.system?.traits?.value ?? [])];
 const masterOf = (a) => a.actor?.system?.master?.id ?? a.actor?.flags?.pf2e?.master ?? null;
@@ -23,7 +62,9 @@ const masterOf = (a) => a.actor?.system?.master?.id ?? a.actor?.flags?.pf2e?.mas
 function playerOwners(actor) {
     const own = actor?.ownership ?? {};
     const lv = globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 3;
-    return Object.entries(own).filter(([id, v]) => id !== "default" && v >= lv && !globalThis.game?.users?.get?.(id)?.isGM).map(([id]) => id);
+    return Object.entries(own)
+        .filter(([id, v]) => id !== "default" && v >= lv && !globalThis.game?.users?.get?.(id)?.isGM)
+        .map(([id]) => id);
 }
 /** Is this ally the character's own? Its master says so, or (no master named) it shares a player owner with the character. */
 function isMine(board, a) {
@@ -37,13 +78,15 @@ function isMine(board, a) {
 }
 /** The character's animal companion on the field (not an eidolon, construct or thrall: their classes read those). */
 function companionOf(board) {
-    return board.allies.find((a) => {
-        if (!(a.hp > 0) || !a.actor || a.type === "familiar") return false;
-        const t = traitsOf(a);
-        if (t.includes("summoned") || t.includes("eidolon") || t.includes("thrall") || ["eidolon", "construct-companion"].includes(a.cls)) return false;
-        const companion = a.cls === "animal-companion" || (t.includes("minion") && t.includes("animal"));
-        return companion && isMine(board, a);
-    }) ?? null;
+    return (
+        board.allies.find((a) => {
+            if (!(a.hp > 0) || !a.actor || a.type === "familiar") return false;
+            const t = traitsOf(a);
+            if (t.includes("summoned") || t.includes("eidolon") || t.includes("thrall") || ["eidolon", "construct-companion"].includes(a.cls)) return false;
+            const companion = a.cls === "animal-companion" || (t.includes("minion") && t.includes("animal"));
+            return companion && isMine(board, a);
+        }) ?? null
+    );
 }
 /** A creature the character summoned and still has about. */
 const summonedOf = (board) => board.allies.find((a) => a.hp > 0 && traitsOf(a).includes("summoned") && isMine(board, a)) ?? null;
@@ -54,10 +97,11 @@ const twoStrikes = (bonus, avg, f) => strikeExpected(bonus, f.ac, avg).expected 
 /** A free square next to f for a Medium creature, when the board says who stands where (true when it can't say). */
 function squareBeside(board, f) {
     if (!board.occupant) return true;
-    for (let dx = -1; dx <= f.rect.w; dx++) for (let dy = -1; dy <= f.rect.h; dy++) {
-        if (dx >= 0 && dx < f.rect.w && dy >= 0 && dy < f.rect.h) continue;
-        if (!board.occupant.has(`${f.rect.x + dx},${f.rect.y + dy}`)) return true;
-    }
+    for (let dx = -1; dx <= f.rect.w; dx++)
+        for (let dy = -1; dy <= f.rect.h; dy++) {
+            if (dx >= 0 && dx < f.rect.w && dy >= 0 && dy < f.rect.h) continue;
+            if (!board.occupant.has(`${f.rect.x + dx},${f.rect.y + dy}`)) return true;
+        }
     return false;
 }
 /** The best 1- or 2-action damage spell against f (cantrips only unless cantripOnly is false): { sp, e }. */
@@ -67,7 +111,8 @@ function bestCast(board, f, { cantripOnly = true } = {}) {
         if (sp.range != null && sp.range > 0 && feetBetween(board.me.rect, f.rect) > sp.range) continue;
         let e = 0;
         if (sp.attack != null) e = strikeExpected(sp.attack, f.ac, sp.avg).expected;
-        else if (sp.save?.stat) e = saveExpected(f.saves?.[sp.save.stat] ?? level(board) + 5, sp.dc ?? 10 + level(board) + 4, sp.avg, { basic: sp.save.basic }).expected;
+        else if (sp.save?.stat)
+            e = saveExpected(f.saves?.[sp.save.stat] ?? level(board) + 5, sp.dc ?? 10 + level(board) + 4, sp.avg, { basic: sp.save.basic }).expected;
         else continue;
         if (!best || e > best.e) best = { sp, e };
     }
@@ -76,13 +121,29 @@ function bestCast(board, f, { cantripOnly = true } = {}) {
 /** Your own two actions after a Command or Sustain, at the same foe: two Strikes in reach, a Stride and a Strike, two shots, or a cantrip. */
 function yourTwo(board, f, ctx, made = ctx.made) {
     const opts = [];
-    if (board.strikes.some((s) => !s.ranged && inReach(board.me.rect, f.rect, s.reach || 5))) { const r = strikeRun(board, f, 2, { made }); if (r.used.length) opts.push({ ev: r.ev, steps: [{ cost: r.used.length, text: r.text }] }); }
-    else {
+    if (board.strikes.some((s) => !s.ranged && inReach(board.me.rect, f.rect, s.reach || 5))) {
+        const r = strikeRun(board, f, 2, { made });
+        if (r.used.length) opts.push({ ev: r.ev, steps: [{ cost: r.used.length, text: r.text }] });
+    } else {
         const sq = squareToReach(board, f, myReach(board), 1);
-        if (sq && sq.route.actions === 1) { const r = strikeRun(board, f, 1, { made }); if (r.used.length) opts.push({ ev: r.ev, steps: [{ cost: 1, text: `Stride into reach of ${nameOf(f)}` }, { cost: 1, text: r.text }], dest: { x: sq.x, y: sq.y } }); }
+        if (sq && sq.route.actions === 1) {
+            const r = strikeRun(board, f, 1, { made });
+            if (r.used.length)
+                opts.push({
+                    ev: r.ev,
+                    steps: [
+                        { cost: 1, text: `Stride into reach of ${nameOf(f)}` },
+                        { cost: 1, text: r.text }
+                    ],
+                    dest: { x: sq.x, y: sq.y }
+                });
+        }
     }
     const shot = bestStrike(board, f, { made, melee: false });
-    if (shot && feetBetween(board.me.rect, f.rect) <= (shot.s.range ?? 30)) { const r = strikeRun(board, f, 2, { made, melee: false }); if (r.used.length) opts.push({ ev: r.ev, steps: [{ cost: r.used.length, text: r.text }] }); }
+    if (shot && feetBetween(board.me.rect, f.rect) <= (shot.s.range ?? 30)) {
+        const r = strikeRun(board, f, 2, { made, melee: false });
+        if (r.used.length) opts.push({ ev: r.ev, steps: [{ cost: r.used.length, text: r.text }] });
+    }
     const c = bestCast(board, f);
     if (c) opts.push({ ev: c.e, steps: [{ cost: 2, text: `Cast ${c.sp.name} at ${nameOf(f)} (about ${Math.round(c.e)})` }] });
     return opts.sort((a, b) => b.ev - a.ev)[0] ?? null;
@@ -103,7 +164,10 @@ function minions(board, ctx, out) {
         const strike = comp.reactiveStrike ?? { bonus: lv + 6, avg: 4 + lv };
         const reach = comp.reach ?? 5;
         // Side by Side: a foe adjacent to both of you is flanked, whatever the geometry
-        if (anySlug(/^side-by-side/)) for (const f of foes) if (inReach(me.rect, f.rect, myReach(board)) && inReach(comp.rect, f.rect, reach)) markOffGuard(board, f, `Side by Side: ${nameOf(comp)} and you are both on it`);
+        if (anySlug(/^side-by-side/))
+            for (const f of foes)
+                if (inReach(me.rect, f.rect, myReach(board)) && inReach(comp.rect, f.rect, reach))
+                    markOffGuard(board, f, `Side by Side: ${nameOf(comp)} and you are both on it`);
         if (ctx.actions >= 1 && comp.canAct !== false) {
             const speed = allySpeed(comp);
             for (const f of foes) {
@@ -115,15 +179,37 @@ function minions(board, ctx, out) {
                 const one = strikeExpected(strike.bonus, f.ac, strike.avg).expected;
                 const second = strikeExpected(strike.bonus - 5, f.ac, strike.avg).expected;
                 const ev = adjacent ? (mature ? second : full) : one;
-                const what = adjacent ? `Strikes ${nameOf(f)} twice (${signed(strike.bonus)}, ${signed(strike.bonus - 5)}; about ${Math.round(strike.avg)} a hit)` : `Strides to ${nameOf(f)} and Strikes (${signed(strike.bonus)}, about ${Math.round(strike.avg)})`;
+                const what = adjacent
+                    ? `Strikes ${nameOf(f)} twice (${signed(strike.bonus)}, ${signed(strike.bonus - 5)}; about ${Math.round(strike.avg)} a hit)`
+                    : `Strides to ${nameOf(f)} and Strikes (${signed(strike.bonus)}, about ${Math.round(strike.avg)})`;
                 const notes = [];
-                if (mature) notes.push(adjacent ? `Mature companion: it Strikes once on its own if you don't Command it; the command is worth its second Strike, about ${Math.round(second)}.` : "Mature companion: without the command it only Strides or Strikes, not both.");
-                if (has(actor, "primal-howl")) notes.push("Primal Howl: it can Howl instead (Demoralize all within 30 feet) when the foes are fresh and unfrightened.");
+                if (mature)
+                    notes.push(
+                        adjacent
+                            ? `Mature companion: it Strikes once on its own if you don't Command it; the command is worth its second Strike, about ${Math.round(second)}.`
+                            : "Mature companion: without the command it only Strides or Strikes, not both."
+                    );
+                if (has(actor, "primal-howl"))
+                    notes.push("Primal Howl: it can Howl instead (Demoralize all within 30 feet) when the foes are fresh and unfrightened.");
                 const steps = [{ cost: 1, text: `Command an Animal: ${nameOf(comp)} ${what}` }];
-                let total = ev, dest = null;
+                let total = ev,
+                    dest = null;
                 const rest = ctx.actions >= 3 ? yourTwo(board, f, ctx) : null;
-                if (rest) { steps.push(...rest.steps); total += rest.ev; dest = rest.dest ?? null; }
-                out.plans.push({ kind: "class", title: `Command ${nameOf(comp)} at ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest, steps, notes });
+                if (rest) {
+                    steps.push(...rest.steps);
+                    total += rest.ev;
+                    dest = rest.dest ?? null;
+                }
+                out.plans.push({
+                    kind: "class",
+                    title: `Command ${nameOf(comp)} at ${nameOf(f)}`,
+                    target: f,
+                    ev: total,
+                    score: total + 0.3,
+                    dest,
+                    steps,
+                    notes
+                });
             }
         }
     }
@@ -138,11 +224,30 @@ function minions(board, ctx, out) {
             const adjacent = inReach(active.rect, f.rect, active.reach ?? 5);
             const value = adjacent ? twoStrikes(st.bonus, st.avg, f) : strikeExpected(st.bonus, f.ac, st.avg).expected;
             if (board.sustain && /^summon/i.test(board.sustain.name ?? "")) board.sustain.value = Math.max(board.sustain.value ?? 0, value);
-            const steps = [{ cost: 1, text: `Sustain your summon: ${nameOf(active)} ${adjacent ? `Strikes ${nameOf(f)} twice` : `closes on ${nameOf(f)} and Strikes`} (about ${signed(st.bonus)}, ${Math.round(st.avg)} a hit)` }];
-            let total = value, dest = null;
+            const steps = [
+                {
+                    cost: 1,
+                    text: `Sustain your summon: ${nameOf(active)} ${adjacent ? `Strikes ${nameOf(f)} twice` : `closes on ${nameOf(f)} and Strikes`} (about ${signed(st.bonus)}, ${Math.round(st.avg)} a hit)`
+                }
+            ];
+            let total = value,
+                dest = null;
             const rest = ctx.actions >= 3 ? yourTwo(board, f, ctx) : null;
-            if (rest) { steps.push(...rest.steps); total += rest.ev; dest = rest.dest ?? null; }
-            out.plans.push({ kind: "class", title: `Sustain ${nameOf(active)} at ${nameOf(f)}`, target: f, ev: total, score: total + 0.3, dest, steps, notes: ["Let it lapse only when it can't reach anything or you need all three actions; it goes at 0 HP and the spell lasts a minute."] });
+            if (rest) {
+                steps.push(...rest.steps);
+                total += rest.ev;
+                dest = rest.dest ?? null;
+            }
+            out.plans.push({
+                kind: "class",
+                title: `Sustain ${nameOf(active)} at ${nameOf(f)}`,
+                target: f,
+                ev: total,
+                score: total + 0.3,
+                dest,
+                steps,
+                notes: ["Let it lapse only when it can't reach anything or you need all three actions; it goes at 0 HP and the spell lasts a minute."]
+            });
         }
     } else if (summons.length && ctx.actions >= 3 && foes.length) {
         for (const f of foes) {
@@ -151,10 +256,33 @@ function minions(board, ctx, out) {
             const s = summonStats(sp.rank ?? 1);
             const ev = twoStrikes(s.atk, s.avg, f);
             const cantrip = bestCast(board, f);
-            const notes = [`Each later turn, Sustain (1 action) buys its two actions, about ${Math.round(ev)} against this foe, and leaves you two for ${cantrip ? `a cantrip (${cantrip.sp.name}, about ${Math.round(cantrip.e)})` : "Strikes"}. It has the minion trait and goes at 0 HP; the spell lasts a minute.`];
-            if (has(actor, "primal-summons")) notes.push("Primal Summons: give it air (fly 60 feet), earth (burrow, +1d6 bludgeoning), fire (+1d6 fire, fire resistance) or water (swim, +1d6 bludgeoning) as you summon it.");
-            out.plans.push(spendsSlot({ kind: "class", title: `${sp.name} beside ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null,
-                steps: [{ cost: 3, text: `Cast ${sp.name} (rank ${sp.rank}): a level ${s.level} creature appears next to ${nameOf(f)} and Strikes twice at once (about ${signed(s.atk)}, ${Math.round(s.avg)} a hit)` }], notes }, sp));
+            const notes = [
+                `Each later turn, Sustain (1 action) buys its two actions, about ${Math.round(ev)} against this foe, and leaves you two for ${cantrip ? `a cantrip (${cantrip.sp.name}, about ${Math.round(cantrip.e)})` : "Strikes"}. It has the minion trait and goes at 0 HP; the spell lasts a minute.`
+            ];
+            if (has(actor, "primal-summons"))
+                notes.push(
+                    "Primal Summons: give it air (fly 60 feet), earth (burrow, +1d6 bludgeoning), fire (+1d6 fire, fire resistance) or water (swim, +1d6 bludgeoning) as you summon it."
+                );
+            out.plans.push(
+                spendsSlot(
+                    {
+                        kind: "class",
+                        title: `${sp.name} beside ${nameOf(f)}`,
+                        target: f,
+                        ev,
+                        score: ev + 0.3,
+                        dest: null,
+                        steps: [
+                            {
+                                cost: 3,
+                                text: `Cast ${sp.name} (rank ${sp.rank}): a level ${s.level} creature appears next to ${nameOf(f)} and Strikes twice at once (about ${signed(s.atk)}, ${Math.round(s.avg)} a hit)`
+                            }
+                        ],
+                        notes
+                    },
+                    sp
+                )
+            );
             break;
         }
     }
@@ -162,7 +290,9 @@ function minions(board, ctx, out) {
     /* ---------------------------------------------------------------- a familiar: it acts when Commanded */
     const fam = familiarOf(board);
     if (fam && !has(actor, "witch-spellcasting") && (board.me.actor?.class?.slug ?? "") !== "witch") {
-        out.notes.push(`${nameOf(fam)} (your familiar) acts only when you Command it (1 action, two actions for it): to carry an item, Aid, or use its familiar abilities; it doesn't attack.`);
+        out.notes.push(
+            `${nameOf(fam)} (your familiar) acts only when you Command it (1 action, two actions for it): to carry an item, Aid, or use its familiar abilities; it doesn't attack.`
+        );
     }
 }
 

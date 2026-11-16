@@ -8,19 +8,52 @@
  * push), Explode, Megavolt, Searing Restoration, Tamper then Strike, Oil Fire, Electrify Armor, Wukong Extension, Overdrive
  * Ally, Helpful Tinkering, Command (and Lock On), Engine of Destruction, Devastating Weaponry. The rest are when-notes.
  */
-import { choiceOf, effect, has, hasAny, level, pct, squareToReach, standardDC, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, classDC, strikeText, dieOf } from "./_common.mjs";
+import {
+    choiceOf,
+    effect,
+    has,
+    hasAny,
+    level,
+    pct,
+    squareToReach,
+    standardDC,
+    strikeRun,
+    targets,
+    usesLeft,
+    worth,
+    degreeChances,
+    feetBetween,
+    inReach,
+    mapFor,
+    strikeExpected,
+    saveExpected,
+    nameOf,
+    signed,
+    abil,
+    classDC,
+    strikeText,
+    dieOf
+} from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 
-const crafting = (actor, lv) => { const c = actor?.skills?.crafting; return c && c.mod != null ? Number(c.mod) || 0 : lv + abil(actor, "int") + (lv >= 15 ? 8 : lv >= 7 ? 6 : lv >= 3 ? 4 : 2); };
+const crafting = (actor, lv) => {
+    const c = actor?.skills?.crafting;
+    return c && c.mod != null ? Number(c.mod) || 0 : lv + abil(actor, "int") + (lv >= 15 ? 8 : lv >= 7 ? 6 : lv >= 3 ? 4 : 2);
+};
 /** The flat check after an unstable action: DC 17, so one roll in five keeps the innovation going; 7 or less is a critical failure. */
-const UNSTABLE_PASS = 0.2, UNSTABLE_CRIT = 0.35;
+const UNSTABLE_PASS = 0.2,
+    UNSTABLE_CRIT = 0.35;
 /** Rect centers in feet, for the line of a Megavolt. */
 const center = (r) => ({ x: (r.x + r.w / 2) * 5, y: (r.y + r.h / 2) * 5 });
 /** Foes on a line of the given length from origin o through the center of foe f (the line is 5 feet wide). */
 function onLine(o, f, candidates, length) {
-    const O = center(o), T = center(f.rect);
-    const dx = T.x - O.x, dy = T.y - O.y, len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
+    const O = center(o),
+        T = center(f.rect);
+    const dx = T.x - O.x,
+        dy = T.y - O.y,
+        len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len,
+        uy = dy / len;
     return candidates.filter((g) => {
         const G = center(g.rect);
         const t = (G.x - O.x) * ux + (G.y - O.y) * uy;
@@ -48,16 +81,50 @@ function findConstruct(board) {
 function constructStrikes(c) {
     let list = [];
     try {
-        list = (c.actor?.system?.actions ?? []).filter((s) => s.item && s.type === "strike" && s.ready !== false).map((s) => {
-            const item = s.item, traits = item.system?.traits?.value ?? [];
-            const rolls = Object.values(item.system?.damageRolls ?? {});
-            let avg = rolls.reduce((t, d) => t + averageOf(d.damage), 0);
-            if (!rolls.length && item.system?.damage) { const d = item.system.damage; const die = Number(String(d.die ?? "").replace("d", "")) || 0; avg = (die ? (Number(d.dice) || 0) * (die + 1) / 2 : Number(d.dice) || 0) + (Number(d.modifier) || 0) + (Number(c.actor.system?.abilities?.str?.mod) || 0); }
-            const ranged = !!(item.isRanged ?? traits.some((t) => t.startsWith("range")));
-            return { label: s.label ?? item.name, bonus: s.totalModifier ?? 0, avg: Number.isFinite(avg) ? avg : 0, agile: traits.includes("agile"), ranged, reach: ranged ? 0 : (c.actor.getReach?.({ action: "attack", weapon: item }) ?? c.reach ?? 5), traits, deadly: 0 };
-        }).filter((s) => !s.ranged);
-    } catch { list = []; }
-    if (!list.length) list = [{ label: `${nameOf(c)}'s Strike`, bonus: c.reactiveStrike?.bonus ?? 0, avg: c.reactiveStrike?.avg ?? 4, agile: false, ranged: false, reach: c.reach ?? 5, traits: [], deadly: 0 }];
+        list = (c.actor?.system?.actions ?? [])
+            .filter((s) => s.item && s.type === "strike" && s.ready !== false)
+            .map((s) => {
+                const item = s.item,
+                    traits = item.system?.traits?.value ?? [];
+                const rolls = Object.values(item.system?.damageRolls ?? {});
+                let avg = rolls.reduce((t, d) => t + averageOf(d.damage), 0);
+                if (!rolls.length && item.system?.damage) {
+                    const d = item.system.damage;
+                    const die = Number(String(d.die ?? "").replace("d", "")) || 0;
+                    avg =
+                        (die ? ((Number(d.dice) || 0) * (die + 1)) / 2 : Number(d.dice) || 0) +
+                        (Number(d.modifier) || 0) +
+                        (Number(c.actor.system?.abilities?.str?.mod) || 0);
+                }
+                const ranged = !!(item.isRanged ?? traits.some((t) => t.startsWith("range")));
+                return {
+                    label: s.label ?? item.name,
+                    bonus: s.totalModifier ?? 0,
+                    avg: Number.isFinite(avg) ? avg : 0,
+                    agile: traits.includes("agile"),
+                    ranged,
+                    reach: ranged ? 0 : (c.actor.getReach?.({ action: "attack", weapon: item }) ?? c.reach ?? 5),
+                    traits,
+                    deadly: 0
+                };
+            })
+            .filter((s) => !s.ranged);
+    } catch {
+        list = [];
+    }
+    if (!list.length)
+        list = [
+            {
+                label: `${nameOf(c)}'s Strike`,
+                bonus: c.reactiveStrike?.bonus ?? 0,
+                avg: c.reactiveStrike?.avg ?? 4,
+                agile: false,
+                ranged: false,
+                reach: c.reach ?? 5,
+                traits: [],
+                deadly: 0
+            }
+        ];
     return list;
 }
 
@@ -70,7 +137,15 @@ function inventor(board, ctx, out) {
     const int = abil(actor, "int");
     const dc = classDC(actor, lv);
     const craft = crafting(actor, lv);
-    const kind = has(actor, "weapon-innovation") ? "weapon" : has(actor, "armor-innovation") ? "armor" : has(actor, "construct-innovation") ? "construct" : has(actor, "light-mortar-innovation") ? "mortar" : null;
+    const kind = has(actor, "weapon-innovation")
+        ? "weapon"
+        : has(actor, "armor-innovation")
+          ? "armor"
+          : has(actor, "construct-innovation")
+            ? "construct"
+            : has(actor, "light-mortar-innovation")
+              ? "mortar"
+              : null;
     const breakthrough = lv >= 7 && has(actor, "breakthrough-innovation");
     const revolutionary = lv >= 15 && has(actor, "revolutionary-innovation");
     const push = (plan) => out.plans.push({ kind: "class", dest: null, notes: [], ...plan, score: plan.ev + (plan.bias ?? 0.3) });
@@ -80,16 +155,36 @@ function inventor(board, ctx, out) {
     // PF2e names the weapon innovation in roll options ("weapon-innovation:id:<item id>", "weapon-innovation:slug:<slug>"),
     // else a flag; failing both, the unique-rarity weapon, then the hardest-hitting weapon Strike (never a shield or unarmed).
     const roll = Object.keys(actor?.rollOptions?.all ?? {});
-    const innovationId = roll.find((k) => k.startsWith("weapon-innovation:id:"))?.slice("weapon-innovation:id:".length) ?? actor?.flags?.pf2e?.innovationId ?? actor?.flags?.system?.innovationId ?? null;
+    const innovationId =
+        roll.find((k) => k.startsWith("weapon-innovation:id:"))?.slice("weapon-innovation:id:".length) ??
+        actor?.flags?.pf2e?.innovationId ??
+        actor?.flags?.system?.innovationId ??
+        null;
     const innovationSlug = roll.find((k) => k.startsWith("weapon-innovation:slug:"))?.slice("weapon-innovation:slug:".length) ?? null;
     const strikeSlug = (s) => s.item?.slug ?? s.slug ?? null;
     const named = !!(innovationId || innovationSlug);
-    const innovation = kind !== "weapon" ? null
-        : named ? (board.strikes.find((s) => s.id && s.id === innovationId) ?? (innovationSlug ? board.strikes.find((s) => strikeSlug(s) === innovationSlug) : null) ?? null)
-        : (board.strikes.find((s) => s.item?.system?.traits?.rarity === "unique" || s.innovation)
-            ?? board.strikes.filter((s) => !s.traits?.includes("unarmed") && s.item?.type !== "shield" && !/shield/i.test(s.label ?? "")).sort((a, b) => b.avg - a.avg)[0] ?? null);
-    const innovationItem = kind === "weapon" && named && !innovation ? (actor?.items?.find?.((i) => i.id === innovationId) ?? (innovationSlug ? actor?.items?.find?.((i) => i.type === "weapon" && i.slug === innovationSlug) : null)) ?? null : null;
-    if (innovationItem) out.notes.push(`Your innovation (${innovationItem.name}) isn't in hand, so its boosts and Megaton Strike are off the table; draw it (1 Interact) if you'll be Striking.`);
+    const innovation =
+        kind !== "weapon"
+            ? null
+            : named
+              ? (board.strikes.find((s) => s.id && s.id === innovationId) ??
+                (innovationSlug ? board.strikes.find((s) => strikeSlug(s) === innovationSlug) : null) ??
+                null)
+              : (board.strikes.find((s) => s.item?.system?.traits?.rarity === "unique" || s.innovation) ??
+                board.strikes
+                    .filter((s) => !s.traits?.includes("unarmed") && s.item?.type !== "shield" && !/shield/i.test(s.label ?? ""))
+                    .sort((a, b) => b.avg - a.avg)[0] ??
+                null);
+    const innovationItem =
+        kind === "weapon" && named && !innovation
+            ? (actor?.items?.find?.((i) => i.id === innovationId) ??
+              (innovationSlug ? actor?.items?.find?.((i) => i.type === "weapon" && i.slug === innovationSlug) : null) ??
+              null)
+            : null;
+    if (innovationItem)
+        out.notes.push(
+            `Your innovation (${innovationItem.name}) isn't in hand, so its boosts and Megaton Strike are off the table; draw it (1 Interact) if you'll be Striking.`
+        );
     const construct = kind === "construct" || has(actor, "prototype-companion") ? findConstruct(board) : null;
     const broken = (kind === "weapon" && innovation?.item?.isBroken) || !!effect(actor, /^effect-broken-innovation/);
     const locked = !!effect(actor, /unstable-check-failure/);
@@ -97,13 +192,17 @@ function inventor(board, ctx, out) {
     /** Strikes that carry the innovation's boosts: the weapon innovation; with the armor, melee unarmed Strikes (and one weapon chosen at daily preparations, which the sheet doesn't name). */
     const boosted = (s) => (kind === "weapon" ? s === innovation : kind === "armor" ? !s.ranged && !!s.traits?.includes("unarmed") : false);
     // Explode's damage type: the system's flag (fire, or Variable Core's choice), else the feat's own selection
-    const coreType = actor?.flags?.system?.inventor?.explode ?? (has(actor, "variable-core") ? (choiceOf(actor, "variable-core", "variableCore") ?? "acid, cold or electricity (your core's type)") : "fire");
+    const coreType =
+        actor?.flags?.system?.inventor?.explode ??
+        (has(actor, "variable-core") ? (choiceOf(actor, "variable-core", "variableCore") ?? "acid, cold or electricity (your core's type)") : "fire");
 
     // ---- Overdrive: up, or the plan
     const od = effect(actor, /^effect-overdrive$/);
     const odOutcome = od ? (od.flags?.pf2e?.rulesSelections?.baseDamage ?? od.rulesSelections?.baseDamage ?? "success") : null;
-    const tier = lv >= 15 && has(actor, "legendary-overdrive") ? 3 : lv >= 7 && has(actor, "master-overdrive") ? 2 : lv >= 3 && has(actor, "expert-overdrive") ? 1 : 0;
-    const odDamage = (outcome) => (outcome === "critical-success" ? int + tier : outcome === "success" ? Math.floor(int / 2) + tier : outcome === "failure" ? 1 : 0);
+    const tier =
+        lv >= 15 && has(actor, "legendary-overdrive") ? 3 : lv >= 7 && has(actor, "master-overdrive") ? 2 : lv >= 3 && has(actor, "expert-overdrive") ? 1 : 0;
+    const odDamage = (outcome) =>
+        outcome === "critical-success" ? int + tier : outcome === "success" ? Math.floor(int / 2) + tier : outcome === "failure" ? 1 : 0;
     const odUp = od && odOutcome !== "failure";
     // Overdrive is once a round: the action item carries the frequency (the class feature of the same slug doesn't). A
     // dedication has no Overdrive at all. The critical failure's 1d4-round lock and the minute after an Overdrive ends
@@ -112,27 +211,64 @@ function inventor(board, ctx, out) {
     const canOverdrive = has(actor, "overdrive") && odUses !== 0;
     if (od) {
         const dmg = odDamage(odOutcome);
-        for (const s of board.strikes) if (!s.overdriveCounted) { s.overdriveCounted = true; s.avg += dmg; }
-        if (odOutcome === "failure") out.notes.push(`Overdrive failed: +1 fire damage on your Strikes for the minute, nothing more. ${canOverdrive ? "Overdrive again (1 action, once a round) for the real bonus" : "Next round, Overdrive again (1 action) for the real bonus"}; a critical failure ends it.`);
-        else out.notes.push(`${odOutcome === "critical-success" ? "Critical overdrive" : "Overdrive"}: +${dmg} damage on every Strike for a minute${kind === "weapon" ? ", fire if you choose" : ""}; the plans count it.${construct ? ` ${nameOf(construct)} gets the same.` : ""}${odOutcome === "success" && int + tier > dmg ? ` Overdrive again only to try for a critical (+${int + tier}); a critical failure ends it.` : ""}`);
-        if (kind === "armor" && has(actor, "muscular-exoskeleton") && me.athletics != null && !me.exoCounted) { me.exoCounted = true; me.athletics += craft >= lv + 12 ? 2 : 1; }
+        for (const s of board.strikes)
+            if (!s.overdriveCounted) {
+                s.overdriveCounted = true;
+                s.avg += dmg;
+            }
+        if (odOutcome === "failure")
+            out.notes.push(
+                `Overdrive failed: +1 fire damage on your Strikes for the minute, nothing more. ${canOverdrive ? "Overdrive again (1 action, once a round) for the real bonus" : "Next round, Overdrive again (1 action) for the real bonus"}; a critical failure ends it.`
+            );
+        else
+            out.notes.push(
+                `${odOutcome === "critical-success" ? "Critical overdrive" : "Overdrive"}: +${dmg} damage on every Strike for a minute${kind === "weapon" ? ", fire if you choose" : ""}; the plans count it.${construct ? ` ${nameOf(construct)} gets the same.` : ""}${odOutcome === "success" && int + tier > dmg ? ` Overdrive again only to try for a critical (+${int + tier}); a critical failure ends it.` : ""}`
+            );
+        if (kind === "armor" && has(actor, "muscular-exoskeleton") && me.athletics != null && !me.exoCounted) {
+            me.exoCounted = true;
+            me.athletics += craft >= lv + 12 ? 2 : 1;
+        }
     }
     // Offensive Boost (9): +1d6 on the innovation's Strikes; Persistent Boost (16): +1d8 persistent on a boosted hit
-    const boostType = actor?.flags?.system?.inventor?.offensiveBoost ?? choiceOf(actor, "offensive-boost", "offensiveBoostDamage") ?? Object.keys(actor?.rollOptions?.all ?? {}).find((k) => k.startsWith("offensive-boost:"))?.slice("offensive-boost:".length) ?? null;
+    const boostType =
+        actor?.flags?.system?.inventor?.offensiveBoost ??
+        choiceOf(actor, "offensive-boost", "offensiveBoostDamage") ??
+        Object.keys(actor?.rollOptions?.all ?? {})
+            .find((k) => k.startsWith("offensive-boost:"))
+            ?.slice("offensive-boost:".length) ??
+        null;
     if (lv >= 9 && has(actor, "offensive-boost") && kind !== "construct") {
         const persistent = lv >= 16 && has(actor, "persistent-boost");
         let marked = 0;
-        for (const s of board.strikes) if (boosted(s) && !s.boostCounted) { s.boostCounted = true; s.avg += 3.5 + (persistent ? 1.5 * 4.5 : 0); marked += 1; }
-        if (marked) out.notes.push(`Offensive Boost: +1d6${boostType ? ` ${boostType}` : ""} damage on ${kind === "weapon" ? `${innovation?.label ?? "your innovation"}` : "your unarmed Strikes (and the weapon you chose at daily preparations, which the plans don't count)"}${persistent ? ", and Persistent Boost adds 1d8 persistent of the same type on a hit" : ""}; the plans count it.${has(actor, "boost-modulation") ? " Boost Modulation: an Interact swaps the type among your three against a foe that resists it." : ""}`);
-    } else if (lv >= 9 && has(actor, "offensive-boost") && construct) out.notes.push(`Offensive Boost: ${nameOf(construct)}'s Strikes deal +1d6${boostType ? ` ${boostType}` : ""} damage${lv >= 16 && has(actor, "persistent-boost") ? ", plus 1d8 persistent on a hit" : ""}.`);
+        for (const s of board.strikes)
+            if (boosted(s) && !s.boostCounted) {
+                s.boostCounted = true;
+                s.avg += 3.5 + (persistent ? 1.5 * 4.5 : 0);
+                marked += 1;
+            }
+        if (marked)
+            out.notes.push(
+                `Offensive Boost: +1d6${boostType ? ` ${boostType}` : ""} damage on ${kind === "weapon" ? `${innovation?.label ?? "your innovation"}` : "your unarmed Strikes (and the weapon you chose at daily preparations, which the plans don't count)"}${persistent ? ", and Persistent Boost adds 1d8 persistent of the same type on a hit" : ""}; the plans count it.${has(actor, "boost-modulation") ? " Boost Modulation: an Interact swaps the type among your three against a foe that resists it." : ""}`
+            );
+    } else if (lv >= 9 && has(actor, "offensive-boost") && construct)
+        out.notes.push(
+            `Offensive Boost: ${nameOf(construct)}'s Strikes deal +1d6${boostType ? ` ${boostType}` : ""} damage${lv >= 16 && has(actor, "persistent-boost") ? ", plus 1d8 persistent on a hit" : ""}.`
+        );
 
     // ---- the unstable economy: one a fight unless the flat check passed
     const unstableOK = !locked;
     const riskCost = UNSTABLE_CRIT * lv * 0.5; // the critical failure's fire damage to you, at half weight
-    const unstableNote = redundancies ? `Unstable: Unstable Redundancies passes the DC 17 flat check for you once (then 10 minutes to reset them); after that one, a failure locks your innovation out of unstable actions until you retune it for 10 minutes, and a 7 or less also burns you for ${lv} fire.`
+    const unstableNote = redundancies
+        ? `Unstable: Unstable Redundancies passes the DC 17 flat check for you once (then 10 minutes to reset them); after that one, a failure locks your innovation out of unstable actions until you retune it for 10 minutes, and a 7 or less also burns you for ${lv} fire.`
         : `Unstable: after it, a DC 17 flat check (about ${pct(UNSTABLE_PASS)} to pass); a failure locks your innovation out of unstable actions until you retune it for 10 minutes, and a 7 or less also burns you for ${lv} fire. One unstable action a fight unless the check passed; make it the one that matters.`;
-    if (locked) out.notes.push("Your innovation failed its unstable flat check: no unstable actions (Explode, Megaton's unstable function, Searing Restoration) until you spend 10 minutes retuning it.");
-    if (broken) out.notes.push(`Your innovation is broken${has(actor, "haphazard-repair") ? ": Haphazard Repair (1 action, unstable) repairs it on the spot, no flat surface needed" : ": Repair it (10 minutes) when the fight allows"}.`);
+    if (locked)
+        out.notes.push(
+            "Your innovation failed its unstable flat check: no unstable actions (Explode, Megaton's unstable function, Searing Restoration) until you spend 10 minutes retuning it."
+        );
+    if (broken)
+        out.notes.push(
+            `Your innovation is broken${has(actor, "haphazard-repair") ? ": Haphazard Repair (1 action, unstable) repairs it on the spot, no flat surface needed" : ": Repair it (10 minutes) when the fight allows"}.`
+        );
 
     // ---- Overdrive, then Strike: when it isn't up
     const sdc = standardDC(lv);
@@ -140,10 +276,15 @@ function inventor(board, ctx, out) {
     const expectedOd = c.cs * odDamage("critical-success") + c.s * odDamage("success") + c.f * 1;
     // after a failed Overdrive the Strikes already carry its +1: a new roll only replaces it on a success
     const gainOd = odOutcome === "failure" ? c.cs * (odDamage("critical-success") - 1) + c.s * (odDamage("success") - 1) : expectedOd;
-    const ubiquitous = lv >= 20 && has(actor, "ubiquitous-overdrive") ? (board.allies ?? []).filter((a) => a.canAct !== false && a.hasMelee !== false && feetBetween(me.rect, a.rect) <= 30 && a !== construct) : [];
-    const odText = () => `Overdrive: Crafting ${signed(craft)} against DC ${sdc}, about ${pct(c.s + c.cs)} for +${odDamage("success")} on your Strikes for a minute (${pct(c.cs)} critical: +${odDamage("critical-success")}; a critical failure burns you for ${Math.ceil(lv / 2)} fire and locks it for 1d4 rounds)${construct ? `; ${nameOf(construct)} gets it too` : ""}${ubiquitous.length ? `; Ubiquitous Overdrive gives ${ubiquitous.map(nameOf).join(", ")} the base bonus` : ""}`;
+    const ubiquitous =
+        lv >= 20 && has(actor, "ubiquitous-overdrive")
+            ? (board.allies ?? []).filter((a) => a.canAct !== false && a.hasMelee !== false && feetBetween(me.rect, a.rect) <= 30 && a !== construct)
+            : [];
+    const odText = () =>
+        `Overdrive: Crafting ${signed(craft)} against DC ${sdc}, about ${pct(c.s + c.cs)} for +${odDamage("success")} on your Strikes for a minute (${pct(c.cs)} critical: +${odDamage("critical-success")}; a critical failure burns you for ${Math.ceil(lv / 2)} fire and locks it for 1d4 rounds)${construct ? `; ${nameOf(construct)} gets it too` : ""}${ubiquitous.length ? `; Ubiquitous Overdrive gives ${ubiquitous.map(nameOf).join(", ")} the base bonus` : ""}`;
     if (!odUp && canOverdrive && ctx.actions >= 2 && foes.length) {
-        const forward = gainOd * 0.6 * 3 * (construct ? 2 : 1) + ubiquitous.length * (c.cs * int + c.s * Math.floor(int / 2)) * 0.6 * 3 - c.cf * Math.ceil(lv / 2) * 0.5;
+        const forward =
+            gainOd * 0.6 * 3 * (construct ? 2 : 1) + ubiquitous.length * (c.cs * int + c.s * Math.floor(int / 2)) * 0.6 * 3 - c.cf * Math.ceil(lv / 2) * 0.5;
         const odPlans = [];
         for (const f of foes) {
             const spare = ctx.actions - 1;
@@ -158,12 +299,26 @@ function inventor(board, ctx, out) {
             const steps = [{ cost: 1, text: odText() }];
             if (moveActs) steps.push({ cost: moveActs, text: `${sq.route.via ?? "Stride"}${moveActs > 1 ? ` ×${moveActs}` : ""} into reach of ${nameOf(f)}` });
             steps.push({ cost: r.used.length, text: `${strikeText(f, r.used)}, about +${Math.round(gainOd * 10) / 10} each from the Overdrive` });
-            odPlans.push({ title: `Overdrive, then Strike ${nameOf(f)}`, target: f, ev: r.ev + forward, bias: 0.4, dest: moveActs ? { x: sq.x, y: sq.y } : null, steps, notes: ["Overdrive lasts a minute; the plan's value counts this turn's Strikes and about three more hits later in the fight. A plain failure only smokes; a critical failure locks it for 1d4 rounds.", "Not open if an Overdrive critically failed in the last 1d4 rounds, or one ended less than a minute ago: the sheet shows neither, so skip this plan then."] });
+            odPlans.push({
+                title: `Overdrive, then Strike ${nameOf(f)}`,
+                target: f,
+                ev: r.ev + forward,
+                bias: 0.4,
+                dest: moveActs ? { x: sq.x, y: sq.y } : null,
+                steps,
+                notes: [
+                    "Overdrive lasts a minute; the plan's value counts this turn's Strikes and about three more hits later in the fight. A plain failure only smokes; a critical failure locks it for 1d4 rounds.",
+                    "Not open if an Overdrive critically failed in the last 1d4 rounds, or one ended less than a minute ago: the sheet shows neither, so skip this plan then."
+                ]
+            });
         }
         odPlans.sort((a, b) => b.ev - a.ev);
         for (const pl of odPlans.slice(0, 3)) push(pl);
     } else if (!odUp && canOverdrive && ctx.actions === 1 && foes.length) out.notes.push(`${odText()}.`);
-    else if (!odUp && has(actor, "overdrive") && odUses === 0 && !od) out.notes.push("Overdrive is spent this round (a critical failure leaves nothing running): next round at the earliest, and a critical failure locks it for 1d4 rounds.");
+    else if (!odUp && has(actor, "overdrive") && odUses === 0 && !od)
+        out.notes.push(
+            "Overdrive is spent this round (a critical failure leaves nothing running): next round at the earliest, and a critical failure locks it for 1d4 rounds."
+        );
 
     /** A run of Strikes with the innovation (or any melee Strike with the armor) at f: the best boosted Strike each time. */
     const innovationRun = (f, n, made, { extra = 0, at = me.rect } = {}) => {
@@ -179,7 +334,8 @@ function inventor(board, ctx, out) {
                 if (!best || e.expected > best.e.expected) best = { s, bonus: b, e };
             }
             if (!best) break;
-            used.push(best); ev += best.e.expected;
+            used.push(best);
+            ev += best.e.expected;
         }
         return { used, ev };
     };
@@ -192,22 +348,48 @@ function inventor(board, ctx, out) {
             const base = innovationRun(f, 1, ctx.made);
             if (!base.used.length) continue;
             const s = base.used[0].s;
-            const die = dieOf(s, 8), per = (die + 1) / 2;
+            const die = dieOf(s, 8),
+                per = (die + 1) / 2;
             const stable = strikeExpected(base.used[0].bonus, f.ac, s.avg + dice * per, { deadly: s.deadly });
             const after = ctx.actions >= 3 ? innovationRun(f, 1, ctx.made + 1) : { used: [], ev: 0 };
             const tail = after.used.length ? [{ cost: 1, text: strikeText(f, after.used) }] : [];
-            push({ title: `Megaton Strike ${nameOf(f)}`, target: f, ev: stable.expected + after.ev, bias: 0.3,
-                steps: [{ cost: 2, text: `Megaton Strike ${nameOf(f)} with ${s.label} (${signed(base.used[0].bonus)}): +${dice}d${die} on the hit${kind === "armor" ? " (unarmed, or the weapon you rigged at daily preparations)" : ""}` }, ...tail],
-                notes: [`Two actions for one Strike: it beats two Strikes when the second would land at ${signed(mapFor(ctx.made + 1, s.agile))}.`] });
+            push({
+                title: `Megaton Strike ${nameOf(f)}`,
+                target: f,
+                ev: stable.expected + after.ev,
+                bias: 0.3,
+                steps: [
+                    {
+                        cost: 2,
+                        text: `Megaton Strike ${nameOf(f)} with ${s.label} (${signed(base.used[0].bonus)}): +${dice}d${die} on the hit${kind === "armor" ? " (unarmed, or the weapon you rigged at daily preparations)" : ""}`
+                    },
+                    ...tail
+                ],
+                notes: [`Two actions for one Strike: it beats two Strikes when the second would land at ${signed(mapFor(ctx.made + 1, s.agile))}.`]
+            });
             if (unstableOK) {
                 const un = strikeExpected(base.used[0].bonus, f.ac, s.avg + (dice + 1) * per, { deadly: s.deadly });
                 const pushWorth = gigaton ? (1 - degreeChances(f.saves?.fortitude ?? 0, dc).cs - degreeChances(f.saves?.fortitude ?? 0, dc).s * 0.5) * 1.5 : 0;
-                push({ title: `Megaton Strike ${nameOf(f)}, unstable`, target: f, ev: un.expected + after.ev + un.hit * pushWorth - riskCost, bias: 0.2,
-                    steps: [{ cost: 2, text: `Megaton Strike ${nameOf(f)} with ${s.label} (${signed(base.used[0].bonus)}), unstable function: +${dice + 1}d${die} on the hit${gigaton ? `; Gigaton Strike: on a hit it saves Fortitude against DC ${dc} or is pushed 5 feet (10 on a failure, 20 on a critical failure)` : ""}` }, ...tail],
-                    notes: [unstableNote] });
+                push({
+                    title: `Megaton Strike ${nameOf(f)}, unstable`,
+                    target: f,
+                    ev: un.expected + after.ev + un.hit * pushWorth - riskCost,
+                    bias: 0.2,
+                    steps: [
+                        {
+                            cost: 2,
+                            text: `Megaton Strike ${nameOf(f)} with ${s.label} (${signed(base.used[0].bonus)}), unstable function: +${dice + 1}d${die} on the hit${gigaton ? `; Gigaton Strike: on a hit it saves Fortitude against DC ${dc} or is pushed 5 feet (10 on a failure, 20 on a critical failure)` : ""}`
+                        },
+                        ...tail
+                    ],
+                    notes: [unstableNote]
+                });
             }
         }
-    } else if (has(actor, "megaton-strike") && kind === "construct" && construct) out.notes.push(`Megaton Strike (2 actions): ${nameOf(construct)} Strikes with +${lv >= 18 ? 3 : lv >= 10 ? 2 : 1} weapon ${lv >= 10 ? "dice" : "die"} (one more with the unstable function${lv >= 8 && has(actor, "gigaton-strike") ? ", and Gigaton pushes the foe" : ""}); it's your action, not a Command.`);
+    } else if (has(actor, "megaton-strike") && kind === "construct" && construct)
+        out.notes.push(
+            `Megaton Strike (2 actions): ${nameOf(construct)} Strikes with +${lv >= 18 ? 3 : lv >= 10 ? 2 : 1} weapon ${lv >= 10 ? "dice" : "die"} (one more with the unstable function${lv >= 8 && has(actor, "gigaton-strike") ? ", and Gigaton pushes the foe" : ""}); it's your action, not a Command.`
+        );
 
     // ---- Explode (2 actions, unstable): fire in an emanation around you (or the construct)
     const origin = kind === "construct" && construct ? construct : me;
@@ -226,9 +408,24 @@ function inventor(board, ctx, out) {
         }
         if (best && best.hit.length >= 2 - (foes.length === 1 ? 1 : 0)) {
             const hurtFriends = best.friends.length || best.selfHit;
-            push({ title: `Explode on ${best.hit.length} ${best.hit.length === 1 ? "foe" : "foes"}`, target: best.hit[0], ev: best.ev - riskCost, bias: best.hit.length >= 2 ? 0.4 : 0.1,
-                steps: [{ cost: 2, text: `Explode (${best.r}-foot emanation around ${origin === me ? "you" : nameOf(origin)}): ${best.hit.map(nameOf).join(", ")} take ${Math.max(2, lv)}d6 ${coreType}, basic Reflex DC ${dc}${hurtFriends ? `; it also catches ${[...best.friends.map(nameOf), ...(best.selfHit ? ["you"] : [])].join(", ")}` : ""}` }],
-                notes: [best.hit.length >= 2 ? "Worth your one unstable action when two or more foes are packed around you." : "One foe only: Megaton Strike or a plain Strike is usually the better use of the unstable action.", unstableNote] });
+            push({
+                title: `Explode on ${best.hit.length} ${best.hit.length === 1 ? "foe" : "foes"}`,
+                target: best.hit[0],
+                ev: best.ev - riskCost,
+                bias: best.hit.length >= 2 ? 0.4 : 0.1,
+                steps: [
+                    {
+                        cost: 2,
+                        text: `Explode (${best.r}-foot emanation around ${origin === me ? "you" : nameOf(origin)}): ${best.hit.map(nameOf).join(", ")} take ${Math.max(2, lv)}d6 ${coreType}, basic Reflex DC ${dc}${hurtFriends ? `; it also catches ${[...best.friends.map(nameOf), ...(best.selfHit ? ["you"] : [])].join(", ")}` : ""}`
+                    }
+                ],
+                notes: [
+                    best.hit.length >= 2
+                        ? "Worth your one unstable action when two or more foes are packed around you."
+                        : "One foe only: Megaton Strike or a plain Strike is usually the better use of the unstable action.",
+                    unstableNote
+                ]
+            });
         }
     }
 
@@ -241,8 +438,13 @@ function inventor(board, ctx, out) {
             for (const f of foes) {
                 if (feetBetween(origin.rect, f.rect) > length) continue;
                 const hit = onLine(origin.rect, f, foes, length);
-                const friends = onLine(origin.rect, f, (board.allies ?? []).filter((a) => a !== origin && a.hp > 0), length);
-                const avg = dice * (faces + 1) / 2;
+                const friends = onLine(
+                    origin.rect,
+                    f,
+                    (board.allies ?? []).filter((a) => a !== origin && a.hp > 0),
+                    length
+                );
+                const avg = (dice * (faces + 1)) / 2;
                 let ev = 0;
                 for (const g of hit) ev += saveExpected(g.saves?.reflex ?? 0, dc, avg).expected;
                 ev -= friends.length * avg * 0.5;
@@ -250,9 +452,19 @@ function inventor(board, ctx, out) {
             }
             if (!best) continue;
             if (unstable && best.hit.length < 2) continue;
-            push({ title: `Megavolt${unstable ? ", unstable," : ""} through ${best.hit.map(nameOf).join(", ")}`, target: best.f, ev: best.ev - (unstable ? riskCost : 0), bias: unstable ? 0.2 : 0.3,
-                steps: [{ cost: 2, text: `Megavolt${unstable ? " (unstable function)" : ""}: a ${length}-foot line from ${origin === me ? "you" : nameOf(origin)} through ${nameOf(best.f)}: ${best.hit.map(nameOf).join(", ")} take ${dice}d${faces} electricity, basic Reflex DC ${dc}${best.friends.length ? `; it also catches ${best.friends.map(nameOf).join(", ")}` : ""}${lv >= 12 && has(actor, "gigavolt") ? "; Gigavolt bounces it off walls for the rest of its length" : ""}` }],
-                notes: unstable ? [unstableNote] : ["Aim the line so it leaves your allies out; a foe behind another is in it too."] });
+            push({
+                title: `Megavolt${unstable ? ", unstable," : ""} through ${best.hit.map(nameOf).join(", ")}`,
+                target: best.f,
+                ev: best.ev - (unstable ? riskCost : 0),
+                bias: unstable ? 0.2 : 0.3,
+                steps: [
+                    {
+                        cost: 2,
+                        text: `Megavolt${unstable ? " (unstable function)" : ""}: a ${length}-foot line from ${origin === me ? "you" : nameOf(origin)} through ${nameOf(best.f)}: ${best.hit.map(nameOf).join(", ")} take ${dice}d${faces} electricity, basic Reflex DC ${dc}${best.friends.length ? `; it also catches ${best.friends.map(nameOf).join(", ")}` : ""}${lv >= 12 && has(actor, "gigavolt") ? "; Gigavolt bounces it off walls for the rest of its length" : ""}`
+                    }
+                ],
+                notes: unstable ? [unstableNote] : ["Aim the line so it leaves your allies out; a foe behind another is in it too."]
+            });
         }
     }
 
@@ -261,31 +473,65 @@ function inventor(board, ctx, out) {
         const heal = 5.5 * Math.max(1, Math.ceil(lv / 2));
         const healer = kind === "construct" && construct ? construct : me;
         const living = (a) => !(a.traits ?? []).includes("construct") && !(a.actor?.system?.traits?.value ?? []).includes("construct");
-        const cands = [...(healer === me ? [me] : []), ...(board.allies ?? []).filter((a) => a !== construct && a.hp > 0 && living(a) && inReach(healer.rect, a.rect, 5))];
+        const cands = [
+            ...(healer === me ? [me] : []),
+            ...(board.allies ?? []).filter((a) => a !== construct && a.hp > 0 && living(a) && inReach(healer.rect, a.rect, 5))
+        ];
         let best = null;
-        for (const a of cands) { const missing = Math.max(0, (a.maxHp ?? 0) - (a.hp ?? 0)); const ev = 0.8 * Math.min(heal, missing); if (missing >= heal * 0.4 && (!best || ev > best.ev)) best = { a, ev, missing }; }
-        if (best) push({ title: `Searing Restoration on ${best.a === me ? "yourself" : nameOf(best.a)}`, target: null, ev: best.ev - riskCost, bias: 0.3,
-            steps: [{ cost: 1, text: `Searing Restoration${healer !== me ? ` from ${nameOf(healer)}` : ""}: ${best.a === me ? "you regain" : `${nameOf(best.a)} regains`} ${Math.max(1, Math.ceil(lv / 2))}d10 (about ${Math.round(heal)}; ${best.a.hp}/${best.a.maxHp} now), and a flat check against persistent bleed` }],
-            notes: ["A heal for one action, but it's unstable: take it when the HP matter more than your Megaton or Explode this fight.", unstableNote] });
+        for (const a of cands) {
+            const missing = Math.max(0, (a.maxHp ?? 0) - (a.hp ?? 0));
+            const ev = 0.8 * Math.min(heal, missing);
+            if (missing >= heal * 0.4 && (!best || ev > best.ev)) best = { a, ev, missing };
+        }
+        if (best)
+            push({
+                title: `Searing Restoration on ${best.a === me ? "yourself" : nameOf(best.a)}`,
+                target: null,
+                ev: best.ev - riskCost,
+                bias: 0.3,
+                steps: [
+                    {
+                        cost: 1,
+                        text: `Searing Restoration${healer !== me ? ` from ${nameOf(healer)}` : ""}: ${best.a === me ? "you regain" : `${nameOf(best.a)} regains`} ${Math.max(1, Math.ceil(lv / 2))}d10 (about ${Math.round(heal)}; ${best.a.hp}/${best.a.maxHp} now), and a flat check against persistent bleed`
+                    }
+                ],
+                notes: ["A heal for one action, but it's unstable: take it when the HP matter more than your Megaton or Explode this fight.", unstableNote]
+            });
     }
 
     // ---- Tamper (1 action, a free hand): Crafting against its Reflex DC; its armor makes it off-guard and slow, its weapon -2
     if (has(actor, "tamper") && ctx.actions >= 2 && foes.length) {
         const freeHand = actor?.handsFree == null || actor.handsFree > 0 || board.strikes.some((s) => s.traits?.includes("free-hand"));
         if (!freeHand) out.notes.push("Tamper needs a free hand; Release or stow something first (an Integrated Gauntlet would free it).");
-        else for (const f of foes.filter((f) => inReach(me.rect, f.rect, 5) && !f.conditions?.has?.("off-guard"))) {
-            const t = degreeChances(craft, 10 + (f.saves?.reflex ?? 0));
-            const p = t.s + t.cs;
-            const left = ctx.actions - 1;
-            const plain = strikeRun(board, f, left, { made: ctx.made });
-            const off = strikeRun(board, f, left, { made: ctx.made, acAdj: -2 });
-            if (!off.used.length) continue;
-            const allyGain = (board.allies ?? []).some((a) => a.canAct !== false && a.hasMelee !== false && inReach(a.rect, f.rect, a.reach ?? 5)) ? worth(board, "off-guard") * 0.5 : 0;
-            const ev = p * (off.ev + allyGain + 1) + (1 - p) * plain.ev - t.cf * lv * 0.5;
-            push({ title: `Tamper with ${nameOf(f)}'s armor, then Strike`, target: f, ev, bias: 0.2,
-                steps: [{ cost: 1, text: `Tamper with ${nameOf(f)}'s armor: Crafting ${signed(craft)} against its Reflex DC (about ${pct(p)}): it's off-guard and 10 feet slower until your next turn (until it Interacts, on a critical success); a critical failure burns you for ${lv} fire` }, { cost: off.used.length, text: `${strikeText(f, off.used)}, off-guard if the Tamper took` }],
-                notes: ["If it wears no armor, tamper with its weapon instead: -2 to its attack and damage rolls with it. Your allies get the off-guard too."] });
-        }
+        else
+            for (const f of foes.filter((f) => inReach(me.rect, f.rect, 5) && !f.conditions?.has?.("off-guard"))) {
+                const t = degreeChances(craft, 10 + (f.saves?.reflex ?? 0));
+                const p = t.s + t.cs;
+                const left = ctx.actions - 1;
+                const plain = strikeRun(board, f, left, { made: ctx.made });
+                const off = strikeRun(board, f, left, { made: ctx.made, acAdj: -2 });
+                if (!off.used.length) continue;
+                const allyGain = (board.allies ?? []).some((a) => a.canAct !== false && a.hasMelee !== false && inReach(a.rect, f.rect, a.reach ?? 5))
+                    ? worth(board, "off-guard") * 0.5
+                    : 0;
+                const ev = p * (off.ev + allyGain + 1) + (1 - p) * plain.ev - t.cf * lv * 0.5;
+                push({
+                    title: `Tamper with ${nameOf(f)}'s armor, then Strike`,
+                    target: f,
+                    ev,
+                    bias: 0.2,
+                    steps: [
+                        {
+                            cost: 1,
+                            text: `Tamper with ${nameOf(f)}'s armor: Crafting ${signed(craft)} against its Reflex DC (about ${pct(p)}): it's off-guard and 10 feet slower until your next turn (until it Interacts, on a critical success); a critical failure burns you for ${lv} fire`
+                        },
+                        { cost: off.used.length, text: `${strikeText(f, off.used)}, off-guard if the Tamper took` }
+                    ],
+                    notes: [
+                        "If it wears no armor, tamper with its weapon instead: -2 to its attack and damage rolls with it. Your allies get the off-guard too."
+                    ]
+                });
+            }
     }
 
     // ---- Oil Fire (2, armor, 1 action, unstable): a foe you've grabbed burns
@@ -293,9 +539,19 @@ function inventor(board, ctx, out) {
         for (const f of foes.filter((f) => f.conditions?.has?.("grabbed") && inReach(me.rect, f.rect, 5))) {
             const t = degreeChances(f.saves?.reflex ?? 0, dc);
             const ev = 1.5 * (t.f * Math.floor(lv / 2) + t.cf * lv + t.s * 1) - riskCost;
-            push({ title: `Oil Fire on ${nameOf(f)}`, target: f, ev, bias: 0.2,
-                steps: [{ cost: 1, text: `Oil Fire on ${nameOf(f)} (grabbed): Reflex DC ${dc}; a failure gives it ${Math.floor(lv / 2)} persistent fire (${lv} on a critical failure); on a success the grab ends` }],
-                notes: ["Only while it's grabbed by you; the grab ends on its success.", unstableNote] });
+            push({
+                title: `Oil Fire on ${nameOf(f)}`,
+                target: f,
+                ev,
+                bias: 0.2,
+                steps: [
+                    {
+                        cost: 1,
+                        text: `Oil Fire on ${nameOf(f)} (grabbed): Reflex DC ${dc}; a failure gives it ${Math.floor(lv / 2)} persistent fire (${lv} on a critical failure); on a success the grab ends`
+                    }
+                ],
+                notes: ["Only while it's grabbed by you; the grab ends on its success.", unstableNote]
+            });
         }
     }
 
@@ -305,9 +561,21 @@ function inventor(board, ctx, out) {
         if (near.length) {
             const dice = revolutionary ? 2 : 1;
             const perRound = near.length * 1.2 * 0.6; // about one melee attack each, landing a little over half the time
-            push({ title: `Electrify Armor against ${near.length} ${near.length === 1 ? "foe" : "foes"} on you`, target: near[0], ev: perRound * dice * 2.5, bias: 0.1,
-                steps: [{ cost: 1, text: `Electrify Armor: for a round, any foe that touches you or hits you with an unarmed or non-reach melee attack takes ${dice}d4 electricity${unstableOK ? ` (unstable function: ${dice}d12 for a minute)` : ""}` }],
-                notes: ["A third action when foes crowd you; the unstable version is worth your one unstable action only when two or more will keep hitting you for the whole fight."] });
+            push({
+                title: `Electrify Armor against ${near.length} ${near.length === 1 ? "foe" : "foes"} on you`,
+                target: near[0],
+                ev: perRound * dice * 2.5,
+                bias: 0.1,
+                steps: [
+                    {
+                        cost: 1,
+                        text: `Electrify Armor: for a round, any foe that touches you or hits you with an unarmed or non-reach melee attack takes ${dice}d4 electricity${unstableOK ? ` (unstable function: ${dice}d12 for a minute)` : ""}`
+                    }
+                ],
+                notes: [
+                    "A third action when foes crowd you; the unstable version is worth your one unstable action only when two or more will keep hitting you for the whole fight."
+                ]
+            });
         }
     }
 
@@ -316,7 +584,14 @@ function inventor(board, ctx, out) {
         for (const f of foes.filter((f) => !inReach(me.rect, f.rect, innovation.reach || 5) && feetBetween(me.rect, f.rect) <= 30)) {
             const b = innovation.bonus + mapFor(ctx.made, innovation.agile);
             const e = strikeExpected(b, f.ac, innovation.avg, { deadly: innovation.deadly });
-            push({ title: `Wukong Extension at ${nameOf(f)}`, target: f, ev: e.expected - riskCost, bias: 0.2, steps: [{ cost: 1, text: `Wukong Extension: Strike ${nameOf(f)} with ${innovation.label} (${signed(b)}) at 30 feet without moving` }], notes: [unstableNote] });
+            push({
+                title: `Wukong Extension at ${nameOf(f)}`,
+                target: f,
+                ev: e.expected - riskCost,
+                bias: 0.2,
+                steps: [{ cost: 1, text: `Wukong Extension: Strike ${nameOf(f)} with ${innovation.label} (${signed(b)}) at 30 feet without moving` }],
+                notes: [unstableNote]
+            });
         }
     }
 
@@ -327,7 +602,19 @@ function inventor(board, ctx, out) {
             const b = innovation.bonus + mapFor(ctx.made, innovation.agile);
             let ev = 0;
             for (const f of hit) ev += strikeExpected(b, f.ac, innovation.avg, { deadly: innovation.deadly }).expected;
-            push({ title: `Devastating Weaponry on ${hit.length} foes`, target: hit[0], ev, bias: 0.4, steps: [{ cost: 3, text: `Devastating Weaponry: Strike ${hit.map(nameOf).join(", ")} with ${innovation.label}, each at ${signed(b)}${!innovation.ranged ? "; the weapon flies to those out of reach and returns (keep a hand free for it)" : ""}` }], notes: ["All of the attacks count toward your penalty afterward, so it's the turn's last thing."] });
+            push({
+                title: `Devastating Weaponry on ${hit.length} foes`,
+                target: hit[0],
+                ev,
+                bias: 0.4,
+                steps: [
+                    {
+                        cost: 3,
+                        text: `Devastating Weaponry: Strike ${hit.map(nameOf).join(", ")} with ${innovation.label}, each at ${signed(b)}${!innovation.ranged ? "; the weapon flies to those out of reach and returns (keep a hand free for it)" : ""}`
+                    }
+                ],
+                notes: ["All of the attacks count toward your penalty afterward, so it's the turn's last thing."]
+            });
         }
     }
 
@@ -336,19 +623,53 @@ function inventor(board, ctx, out) {
         const dmg = odOutcome === "critical-success" ? int : Math.floor(int / 2);
         const shared = lv >= 12 && has(actor, "shared-overdrive");
         const already = (a) => a.actor?.items?.some?.((i) => i.type === "effect" && /effect-overdrive-ally/.test(i.slug ?? i.system?.slug ?? ""));
-        const ally = (board.allies ?? []).filter((a) => a !== construct && a.canAct !== false && a.hasMelee !== false && feetBetween(me.rect, a.rect) <= 30 && !already(a) && !ubiquitous.includes(a)).sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
-        if (ally && dmg > 0) push({ title: `Overdrive Ally: ${nameOf(ally)}`, target: null, ev: dmg * 0.6 * (shared ? 6 : 2), bias: 0.2,
-            steps: [{ cost: 1, text: `Overdrive Ally (${nameOf(ally)}, within 30 feet): +${dmg} on their Strikes ${shared ? "for the rest of your Overdrive (Shared Overdrive, first use)" : "until the end of their next turn"}` }],
-            notes: ["Worth a spare action when the ally will Strike twice or more before it fades; a martial ally over a caster."] });
+        const ally = (board.allies ?? [])
+            .filter(
+                (a) =>
+                    a !== construct &&
+                    a.canAct !== false &&
+                    a.hasMelee !== false &&
+                    feetBetween(me.rect, a.rect) <= 30 &&
+                    !already(a) &&
+                    !ubiquitous.includes(a)
+            )
+            .sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
+        if (ally && dmg > 0)
+            push({
+                title: `Overdrive Ally: ${nameOf(ally)}`,
+                target: null,
+                ev: dmg * 0.6 * (shared ? 6 : 2),
+                bias: 0.2,
+                steps: [
+                    {
+                        cost: 1,
+                        text: `Overdrive Ally (${nameOf(ally)}, within 30 feet): +${dmg} on their Strikes ${shared ? "for the rest of your Overdrive (Shared Overdrive, first use)" : "until the end of their next turn"}`
+                    }
+                ],
+                notes: ["Worth a spare action when the ally will Strike twice or more before it fades; a martial ally over a caster."]
+            });
     }
     // ---- Helpful Tinkering (10, 1 action, once per 10 minutes): an ally's weapon gets your offensive boost for a minute
     if (lv >= 10 && has(actor, "helpful-tinkering") && has(actor, "offensive-boost") && ctx.actions >= 1) {
         if (usesLeft(actor, "helpful-tinkering") !== 0) {
             const t = degreeChances(craft, standardDC(lv) + 2);
-            const ally = (board.allies ?? []).filter((a) => a !== construct && a.canAct !== false && a.hasMelee !== false && inReach(me.rect, a.rect, 5)).sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
-            if (ally) push({ title: `Helpful Tinkering on ${nameOf(ally)}'s weapon`, target: null, ev: (t.s + t.cs) * 3.5 * 0.6 * 5 - t.cf * 3.5, bias: 0.1,
-                steps: [{ cost: 1, text: `Helpful Tinkering: Crafting ${signed(craft)} against DC ${standardDC(lv) + 2} (about ${pct(t.s + t.cs)}): ${nameOf(ally)}'s weapon deals +1d6${boostType ? ` ${boostType}` : ""} for a minute; a critical failure deals that to them instead` }],
-                notes: ["Once per 10 minutes; best on the first turn, on the ally who Strikes most."] });
+            const ally = (board.allies ?? [])
+                .filter((a) => a !== construct && a.canAct !== false && a.hasMelee !== false && inReach(me.rect, a.rect, 5))
+                .sort((a, b) => (b.reactiveStrike?.avg ?? 0) - (a.reactiveStrike?.avg ?? 0))[0];
+            if (ally)
+                push({
+                    title: `Helpful Tinkering on ${nameOf(ally)}'s weapon`,
+                    target: null,
+                    ev: (t.s + t.cs) * 3.5 * 0.6 * 5 - t.cf * 3.5,
+                    bias: 0.1,
+                    steps: [
+                        {
+                            cost: 1,
+                            text: `Helpful Tinkering: Crafting ${signed(craft)} against DC ${standardDC(lv) + 2} (about ${pct(t.s + t.cs)}): ${nameOf(ally)}'s weapon deals +1d6${boostType ? ` ${boostType}` : ""} for a minute; a critical failure deals that to them instead`
+                        }
+                    ],
+                    notes: ["Once per 10 minutes; best on the first turn, on the ally who Strikes most."]
+                });
         }
     }
 
@@ -363,9 +684,15 @@ function inventor(board, ctx, out) {
             let ev = 0;
             for (let i = 0; i < n; i++) {
                 let best = null;
-                for (const s of cs) { if (!inReach(at, f.rect, s.reach || 5)) continue; const b = s.bonus + bonus + mapFor(used.length, s.agile); const e = strikeExpected(b, f.ac, s.avg + (odUp ? odDamage(odOutcome) : 0), { deadly: s.deadly }); if (!best || e.expected > best.e.expected) best = { s, bonus: b, e }; }
+                for (const s of cs) {
+                    if (!inReach(at, f.rect, s.reach || 5)) continue;
+                    const b = s.bonus + bonus + mapFor(used.length, s.agile);
+                    const e = strikeExpected(b, f.ac, s.avg + (odUp ? odDamage(odOutcome) : 0), { deadly: s.deadly });
+                    if (!best || e.expected > best.e.expected) best = { s, bonus: b, e };
+                }
                 if (!best) break;
-                used.push(best); ev += best.e.expected;
+                used.push(best);
+                ev += best.e.expected;
             }
             return { used, ev };
         };
@@ -384,10 +711,27 @@ function inventor(board, ctx, out) {
                     if (!r.used.length) continue;
                     const baseline = advanced ? runC(f, here ? 1 : 0).ev : 0;
                     const steps = [];
-                    if (lockOn) steps.push({ cost: 1, text: `Lock On: ${nameOf(f)}; ${nameOf(construct)} gets +${lockOn} on its attacks against it this turn if you Command it next` });
-                    steps.push({ cost: cmd, text: `Command ${nameOf(construct)} (${cmd} action${cmd > 1 ? "s" : ""}, ${acts} of its actions): ${here ? "" : `it Strides to ${nameOf(f)}, then `}${r.used.length === 1 ? "Strikes" : `Strikes ${r.used.length === 2 ? "twice" : "three times"}`} with ${r.used[0].s.label} (${r.used.map((u) => signed(u.bonus)).join(", ")})` });
-                    push({ title: `${lockOn ? "Lock On and " : ""}Command ${nameOf(construct)} at ${nameOf(f)}`, target: f, ev: r.ev - baseline, bias: 0.3, steps,
-                        notes: [advanced ? "Advanced Construct Companion: uncommanded it still Strides or Strikes once on your turn; the plan's value is what the Command adds." : "Uncommanded, it does nothing this round."] });
+                    if (lockOn)
+                        steps.push({
+                            cost: 1,
+                            text: `Lock On: ${nameOf(f)}; ${nameOf(construct)} gets +${lockOn} on its attacks against it this turn if you Command it next`
+                        });
+                    steps.push({
+                        cost: cmd,
+                        text: `Command ${nameOf(construct)} (${cmd} action${cmd > 1 ? "s" : ""}, ${acts} of its actions): ${here ? "" : `it Strides to ${nameOf(f)}, then `}${r.used.length === 1 ? "Strikes" : `Strikes ${r.used.length === 2 ? "twice" : "three times"}`} with ${r.used[0].s.label} (${r.used.map((u) => signed(u.bonus)).join(", ")})`
+                    });
+                    push({
+                        title: `${lockOn ? "Lock On and " : ""}Command ${nameOf(construct)} at ${nameOf(f)}`,
+                        target: f,
+                        ev: r.ev - baseline,
+                        bias: 0.3,
+                        steps,
+                        notes: [
+                            advanced
+                                ? "Advanced Construct Companion: uncommanded it still Strides or Strikes once on your turn; the plan's value is what the Command adds."
+                                : "Uncommanded, it does nothing this round."
+                        ]
+                    });
                 }
             }
         }
@@ -396,65 +740,177 @@ function inventor(board, ctx, out) {
             if (near.length >= 2) {
                 let ev = 0;
                 const shown = [];
-                for (const f of near) { const s = cs[0]; const b = s.bonus + 2; const e = strikeExpected(b, f.ac, s.avg + (odUp ? odDamage(odOutcome) : 0), { deadly: s.deadly }); ev += e.expected; shown.push(`${nameOf(f)} ${signed(b)}`); }
-                push({ title: `Engine of Destruction: ${nameOf(construct)} on ${near.length} foes`, target: near[0], ev, bias: 0.4, steps: [{ cost: 3, text: `Engine of Destruction: ${nameOf(construct)} Strides once, then Strikes every foe within 30 feet of it at +2 with ${cs[0].label}: ${shown.join(", ")}; its penalty doesn't climb until after` }], notes: ["It needs a stride that leaves two or more foes within 30 feet of it."] });
+                for (const f of near) {
+                    const s = cs[0];
+                    const b = s.bonus + 2;
+                    const e = strikeExpected(b, f.ac, s.avg + (odUp ? odDamage(odOutcome) : 0), { deadly: s.deadly });
+                    ev += e.expected;
+                    shown.push(`${nameOf(f)} ${signed(b)}`);
+                }
+                push({
+                    title: `Engine of Destruction: ${nameOf(construct)} on ${near.length} foes`,
+                    target: near[0],
+                    ev,
+                    bias: 0.4,
+                    steps: [
+                        {
+                            cost: 3,
+                            text: `Engine of Destruction: ${nameOf(construct)} Strides once, then Strikes every foe within 30 feet of it at +2 with ${cs[0].label}: ${shown.join(", ")}; its penalty doesn't climb until after`
+                        }
+                    ],
+                    notes: ["It needs a stride that leaves two or more foes within 30 feet of it."]
+                });
             }
         }
-        if (has(actor, "duo-dragon-kick") && inReach(me.rect, construct.rect, 5)) out.notes.push(`Duo Dragon Kick (2 actions, ${nameOf(construct)} adjacent): you both Leap the same way and each make an unarmed Strike; it spends its actions for the turn.`);
-        if (has(actor, "no-no-i-created-you")) out.notes.push(`No! No! I Created You! (reaction, once a minute): when ${nameOf(construct)} would be confused or controlled, counteract it with Crafting ${signed(craft)}.`);
-        if (has(actor, "construct-shell")) out.notes.push(`Construct Shell: riding ${nameOf(construct)} gives you lesser cover from everything, and its emanations can leave you out.`);
-        if (has(actor, "distracting-explosion")) out.notes.push(`Distracting Explosion (reaction): ${nameOf(construct)} can take it for you, with your reaction.`);
-    } else if (kind === "construct" || has(actor, "prototype-companion")) out.notes.push("Your construct companion isn't on the field (or isn't marked as yours): no Command plans.");
+        if (has(actor, "duo-dragon-kick") && inReach(me.rect, construct.rect, 5))
+            out.notes.push(
+                `Duo Dragon Kick (2 actions, ${nameOf(construct)} adjacent): you both Leap the same way and each make an unarmed Strike; it spends its actions for the turn.`
+            );
+        if (has(actor, "no-no-i-created-you"))
+            out.notes.push(
+                `No! No! I Created You! (reaction, once a minute): when ${nameOf(construct)} would be confused or controlled, counteract it with Crafting ${signed(craft)}.`
+            );
+        if (has(actor, "construct-shell"))
+            out.notes.push(`Construct Shell: riding ${nameOf(construct)} gives you lesser cover from everything, and its emanations can leave you out.`);
+        if (has(actor, "distracting-explosion"))
+            out.notes.push(`Distracting Explosion (reaction): ${nameOf(construct)} can take it for you, with your reaction.`);
+    } else if (kind === "construct" || has(actor, "prototype-companion"))
+        out.notes.push("Your construct companion isn't on the field (or isn't marked as yours): no Command plans.");
 
     // ---- when-notes
-    if (lv >= 6 && has(actor, "clockwork-celerity") && ctx.actions >= 3 && ctx.made === 0) out.notes.push(`Clockwork Celerity (free as your turn begins, unstable): quickened this turn, the extra action for ${kind === "weapon" ? "a Strike with your innovation or its reload" : kind === "armor" ? "a Step or Stride" : "a Command"}; ${locked ? "not while your innovation is locked out" : "it spends your one safe unstable action before the Strikes"}.`);
-    if (lv >= 20 && has(actor, "full-automation")) out.notes.push(`Full Automation: you're always quickened; the extra action is ${kind === "weapon" ? "a Strike with your innovation" : kind === "armor" ? "a Stride or Step (or your armor's Fly or Swim)" : "a Command of your construct"}.`);
-    if (has(actor, "explosive-leap") && unstableOK) out.notes.push("Explosive Leap (1 action, unstable): a 30-foot jump in any direction, landing on solid ground or you fall after your next action; an escape or a climb for the price of your unstable action.");
+    if (lv >= 6 && has(actor, "clockwork-celerity") && ctx.actions >= 3 && ctx.made === 0)
+        out.notes.push(
+            `Clockwork Celerity (free as your turn begins, unstable): quickened this turn, the extra action for ${kind === "weapon" ? "a Strike with your innovation or its reload" : kind === "armor" ? "a Step or Stride" : "a Command"}; ${locked ? "not while your innovation is locked out" : "it spends your one safe unstable action before the Strikes"}.`
+        );
+    if (lv >= 20 && has(actor, "full-automation"))
+        out.notes.push(
+            `Full Automation: you're always quickened; the extra action is ${kind === "weapon" ? "a Strike with your innovation" : kind === "armor" ? "a Stride or Step (or your armor's Fly or Swim)" : "a Command of your construct"}.`
+        );
+    if (has(actor, "explosive-leap") && unstableOK)
+        out.notes.push(
+            "Explosive Leap (1 action, unstable): a 30-foot jump in any direction, landing on solid ground or you fall after your next action; an escape or a climb for the price of your unstable action."
+        );
     if (lv >= 10 && has(actor, "distracting-explosion") && has(actor, "offensive-boost")) {
         const casters = foes.filter((f) => f.caster && inReach(me.rect, f.rect, Math.max(5, ...melee().map((s) => s.reach || 5))));
-        if (casters.length) out.notes.push(`Distracting Explosion (reaction): when ${casters.map(nameOf).join(" or ")} uses a concentrate action in your reach, a boosted melee Strike with no penalty; the unstable function disrupts the action on a hit.`);
+        if (casters.length)
+            out.notes.push(
+                `Distracting Explosion (reaction): when ${casters.map(nameOf).join(" or ")} uses a concentrate action in your reach, a boosted melee Strike with no penalty; the unstable function disrupts the action on a hit.`
+            );
     }
     if (lv >= 14 && has(actor, "explosive-maneuver") && innovation) {
         const m = ["grapple", "shove", "trip"].filter((t) => innovation.traits?.includes(t));
-        if (m.length) out.notes.push(`Explosive Maneuver (1 action, right after a hit with ${innovation.label}): ${m.map((x) => x[0].toUpperCase() + x.slice(1)).join(" or ")} the same foe at the penalty that Strike had, not the next one.`);
+        if (m.length)
+            out.notes.push(
+                `Explosive Maneuver (1 action, right after a hit with ${innovation.label}): ${m.map((x) => x[0].toUpperCase() + x.slice(1)).join(" or ")} the same foe at the penalty that Strike had, not the next one.`
+            );
     }
-    if (innovation && !innovation.ranged && innovation.traits?.includes("backstabber")) out.notes.push(`${innovation.label} has backstabber: +${lv >= 12 ? 2 : 1} precision damage on an off-guard foe.`);
-    if (innovation?.traits?.includes("ranged-trip")) out.notes.push(`${innovation.label} can Trip at range (ranged trip): a Trip with your attack roll against its Reflex DC, from its range.`);
-    if (innovation?.traits?.includes("modular") || has(actor, "modular-head") || has(actor, "segmented-frame")) out.notes.push("Modular head: an Interact switches the weapon among bludgeoning, piercing and slashing (and nonlethal); worth it against a foe that resists one.");
-    if (lv >= 7 && has(actor, "manifold-alloy")) { const w = foes.filter((f) => (f.iwr?.weak ?? []).some((x) => /silver|cold-iron|cold iron/i.test(x.type))); if (w.length) out.notes.push(`Manifold Alloy: ${innovation?.label ?? "your innovation"} is silver and cold iron; ${w.map(nameOf).join(", ")} ${w.length === 1 ? "has" : "have"} a weakness to it.`); }
-    if (lv >= 15 && has(actor, "impossible-alloy")) { const w = foes.filter((f) => (f.iwr?.weak ?? []).some((x) => /abysium|adamantine|djezet|inubrix|noqual|orichalcum|siccatite|skymetal/i.test(x.type))); if (w.length) out.notes.push(`Impossible Alloy: ${innovation?.label ?? "your innovation"} counts as every skymetal; ${w.map(nameOf).join(", ")} ${w.length === 1 ? "has" : "have"} a weakness to one.`); }
-    if (lv >= 15 && has(actor, "momentum-enhancer") && innovation?.reload > 0) out.notes.push(`Momentum Enhancer: one reload of ${innovation.label} each round is a free action.`);
-    if (lv >= 15 && has(actor, "attack-refiner") && innovation) out.notes.push(`Attack Refiner: ${innovation.label} is forceful (+${innovation.item?.system?.damage?.dice ?? 1} damage on your second attack, double on the third) and backswing (+1 to hit after a miss).`);
-    if (has(actor, "dual-form-weapon") && innovation) out.notes.push(`Dual-Form Weapon: two Interact actions turn ${innovation.label} into its other configuration; the second can wait for a later turn.`);
-    if (lv >= 6 && has(actor, "silk-bracelet")) out.notes.push(`Silk Bracelet (2 actions): a melee Strike; on a hit the foe saves Fortitude DC ${dc} or is 10 feet slower for a round, takes ${lv >= 18 ? 3 : lv >= 12 ? 2 : 1}d4 poison on a failure, and is held until the end of its next turn on a critical failure.`);
-    if (lv >= 8 && has(actor, "guardian-lion-roar")) out.notes.push(`Guardian Lion Roar (2 actions): a 20-foot line of sonic, basic Fortitude DC ${dc}; foes that fail are off-guard for a round. The unstable function makes it 60 feet and catches those that merely succeed too.`);
-    if (lv >= 12 && has(actor, "deep-freeze")) out.notes.push(`Deep Freeze (2 actions): one foe within 60 feet takes ${lv} cold, Reflex DC ${dc}, and is slower for a round (slowed 1 on a critical failure). The unstable function makes it a 60-foot cone for ${2 * lv}: that's a fight-winning use of your unstable action against three or more.`);
-    if (lv >= 12 && has(actor, "celestial-cacophony")) out.notes.push(`Celestial Cacophony (3 actions): a cone of fire and sonic, Reflex DC ${dc}, that leaves difficult terrain until your next turn; the unstable function widens it and raises the dice to d8s.`);
+    if (innovation && !innovation.ranged && innovation.traits?.includes("backstabber"))
+        out.notes.push(`${innovation.label} has backstabber: +${lv >= 12 ? 2 : 1} precision damage on an off-guard foe.`);
+    if (innovation?.traits?.includes("ranged-trip"))
+        out.notes.push(`${innovation.label} can Trip at range (ranged trip): a Trip with your attack roll against its Reflex DC, from its range.`);
+    if (innovation?.traits?.includes("modular") || has(actor, "modular-head") || has(actor, "segmented-frame"))
+        out.notes.push(
+            "Modular head: an Interact switches the weapon among bludgeoning, piercing and slashing (and nonlethal); worth it against a foe that resists one."
+        );
+    if (lv >= 7 && has(actor, "manifold-alloy")) {
+        const w = foes.filter((f) => (f.iwr?.weak ?? []).some((x) => /silver|cold-iron|cold iron/i.test(x.type)));
+        if (w.length)
+            out.notes.push(
+                `Manifold Alloy: ${innovation?.label ?? "your innovation"} is silver and cold iron; ${w.map(nameOf).join(", ")} ${w.length === 1 ? "has" : "have"} a weakness to it.`
+            );
+    }
+    if (lv >= 15 && has(actor, "impossible-alloy")) {
+        const w = foes.filter((f) => (f.iwr?.weak ?? []).some((x) => /abysium|adamantine|djezet|inubrix|noqual|orichalcum|siccatite|skymetal/i.test(x.type)));
+        if (w.length)
+            out.notes.push(
+                `Impossible Alloy: ${innovation?.label ?? "your innovation"} counts as every skymetal; ${w.map(nameOf).join(", ")} ${w.length === 1 ? "has" : "have"} a weakness to one.`
+            );
+    }
+    if (lv >= 15 && has(actor, "momentum-enhancer") && innovation?.reload > 0)
+        out.notes.push(`Momentum Enhancer: one reload of ${innovation.label} each round is a free action.`);
+    if (lv >= 15 && has(actor, "attack-refiner") && innovation)
+        out.notes.push(
+            `Attack Refiner: ${innovation.label} is forceful (+${innovation.item?.system?.damage?.dice ?? 1} damage on your second attack, double on the third) and backswing (+1 to hit after a miss).`
+        );
+    if (has(actor, "dual-form-weapon") && innovation)
+        out.notes.push(`Dual-Form Weapon: two Interact actions turn ${innovation.label} into its other configuration; the second can wait for a later turn.`);
+    if (lv >= 6 && has(actor, "silk-bracelet"))
+        out.notes.push(
+            `Silk Bracelet (2 actions): a melee Strike; on a hit the foe saves Fortitude DC ${dc} or is 10 feet slower for a round, takes ${lv >= 18 ? 3 : lv >= 12 ? 2 : 1}d4 poison on a failure, and is held until the end of its next turn on a critical failure.`
+        );
+    if (lv >= 8 && has(actor, "guardian-lion-roar"))
+        out.notes.push(
+            `Guardian Lion Roar (2 actions): a 20-foot line of sonic, basic Fortitude DC ${dc}; foes that fail are off-guard for a round. The unstable function makes it 60 feet and catches those that merely succeed too.`
+        );
+    if (lv >= 12 && has(actor, "deep-freeze"))
+        out.notes.push(
+            `Deep Freeze (2 actions): one foe within 60 feet takes ${lv} cold, Reflex DC ${dc}, and is slower for a round (slowed 1 on a critical failure). The unstable function makes it a 60-foot cone for ${2 * lv}: that's a fight-winning use of your unstable action against three or more.`
+        );
+    if (lv >= 12 && has(actor, "celestial-cacophony"))
+        out.notes.push(
+            `Celestial Cacophony (3 actions): a cone of fire and sonic, Reflex DC ${dc}, that leaves difficult terrain until your next turn; the unstable function widens it and raises the dice to d8s.`
+        );
     if (lv >= 6 && has(actor, "xidao-sea-mine-drop")) out.notes.push("Xidao Sea Mine Drop: only underwater; two mines a day.");
-    if (lv >= 10 && has(actor, "geobukseon-retaliation") && unstableOK) out.notes.push(`Geobukseon Retaliation (reaction, unstable): when you'd take damage, +4 AC and resistance 2 to physical until your next turn, and spiked chains hit everything around you (Reflex DC ${dc}).`);
-    if (lv >= 18 && has(actor, "negate-damage") && kind === "armor") out.notes.push(`Negate Damage (reaction): when you'd take damage, 15 less${unstableOK ? "; the unstable function takes 50 off a blow that would drop you" : ""}.`);
-    if (lv >= 16 && has(actor, "you-failed-to-account-for-this")) { const cdc = 10 + craft; out.notes.push(`You Failed to Account For... This! (reaction): an attack on you targets your Crafting DC ${cdc} instead of your AC ${me.ac}${cdc > me.ac ? ": take it on any attack" : cdc === me.ac ? ": only when a penalty drags your AC down" : ": only when your AC is penalized below that"}.`); }
-    if (lv >= 16 && has(actor, "just-the-thing")) out.notes.push(`Just the Thing! (once an hour): one skill action of a minute or less with Crafting ${signed(craft)} in place of the skill, a device of your telling.`);
-    if (lv >= 6 && has(actor, "visual-fidelity") && foes.some((f) => f.state === "hidden" || f.state === "concealed")) out.notes.push("Visual Fidelity: you see invisible things as translucent shapes (concealed, not hidden), and blinding must counteract your class DC.");
+    if (lv >= 10 && has(actor, "geobukseon-retaliation") && unstableOK)
+        out.notes.push(
+            `Geobukseon Retaliation (reaction, unstable): when you'd take damage, +4 AC and resistance 2 to physical until your next turn, and spiked chains hit everything around you (Reflex DC ${dc}).`
+        );
+    if (lv >= 18 && has(actor, "negate-damage") && kind === "armor")
+        out.notes.push(
+            `Negate Damage (reaction): when you'd take damage, 15 less${unstableOK ? "; the unstable function takes 50 off a blow that would drop you" : ""}.`
+        );
+    if (lv >= 16 && has(actor, "you-failed-to-account-for-this")) {
+        const cdc = 10 + craft;
+        out.notes.push(
+            `You Failed to Account For... This! (reaction): an attack on you targets your Crafting DC ${cdc} instead of your AC ${me.ac}${cdc > me.ac ? ": take it on any attack" : cdc === me.ac ? ": only when a penalty drags your AC down" : ": only when your AC is penalized below that"}.`
+        );
+    }
+    if (lv >= 16 && has(actor, "just-the-thing"))
+        out.notes.push(
+            `Just the Thing! (once an hour): one skill action of a minute or less with Crafting ${signed(craft)} in place of the skill, a device of your telling.`
+        );
+    if (lv >= 6 && has(actor, "visual-fidelity") && foes.some((f) => f.state === "hidden" || f.state === "concealed"))
+        out.notes.push("Visual Fidelity: you see invisible things as translucent shapes (concealed, not hidden), and blinding must counteract your class DC.");
     if (kind === "armor") {
-        if (lv >= 15 && has(actor, "automated-impediments")) out.notes.push("Automated Impediments: every square next to you is difficult terrain for your foes; they can't Step up to you and a Stride past you costs double.");
-        if (lv >= 15 && has(actor, "multisensory-mask")) out.notes.push("Multisensory Mask: you're concealed from everything until you take a hostile action; one action with the manipulate trait restores it.");
-        if (lv >= 7 && has(actor, "camouflage-pigmentation")) out.notes.push("Camouflage Pigmentation: you can Hide without cover or concealment while you stand still.");
+        if (lv >= 15 && has(actor, "automated-impediments"))
+            out.notes.push(
+                "Automated Impediments: every square next to you is difficult terrain for your foes; they can't Step up to you and a Stride past you costs double."
+            );
+        if (lv >= 15 && has(actor, "multisensory-mask"))
+            out.notes.push(
+                "Multisensory Mask: you're concealed from everything until you take a hostile action; one action with the manipulate trait restores it."
+            );
+        if (lv >= 7 && has(actor, "camouflage-pigmentation"))
+            out.notes.push("Camouflage Pigmentation: you can Hide without cover or concealment while you stand still.");
         if (lv >= 14 && has(actor, "soaring-armor")) out.notes.push("Soaring Armor: a fly Speed equal to your land Speed; the plans' moves can be flights.");
         if (has(actor, "diving-armor")) out.notes.push("Diving Armor: you breathe underwater and swim at your land Speed.");
-        if (has(actor, "muscular-exoskeleton") && odUp) out.notes.push(`Muscular Exoskeleton: +${craft >= lv + 12 ? 2 : 1} on Athletics while in Overdrive; the plans' Trips and Grapples count it.`);
+        if (has(actor, "muscular-exoskeleton") && odUp)
+            out.notes.push(`Muscular Exoskeleton: +${craft >= lv + 12 ? 2 : 1} on Athletics while in Overdrive; the plans' Trips and Grapples count it.`);
         if (has(actor, "subtle-dampeners") && odUp) out.notes.push(`Subtle Dampeners: +${craft >= lv + 12 ? 2 : 1} on Stealth while in Overdrive.`);
         if (lv >= 7 && has(actor, "hyper-boosters")) out.notes.push(`Hyper Boosters: +10 feet of Speed, +${craft >= lv + 16 ? 30 : 20} while in Overdrive.`);
         else if (has(actor, "speed-boosters")) out.notes.push("Speed Boosters: +5 feet of Speed, +10 while in Overdrive.");
-        if (lv >= 15 && has(actor, "perfect-fortification")) out.notes.push("Perfect Fortification: a DC 17 flat check turns a critical hit on you into a hit.");
+        if (lv >= 15 && has(actor, "perfect-fortification"))
+            out.notes.push("Perfect Fortification: a DC 17 flat check turns a critical hit on you into a hit.");
     }
-    if (kind === "mortar") out.notes.push("Light mortar innovation: the helper doesn't plan the mortar's Aim, Load and Launch; deploy it with an Interact, then Load and Launch at foes beyond its minimum range.");
+    if (kind === "mortar")
+        out.notes.push(
+            "Light mortar innovation: the helper doesn't plan the mortar's Aim, Load and Launch; deploy it with an Interact, then Load and Launch at foes beyond its minimum range."
+        );
     if (lv >= 4 && has(actor, "gadget-specialist")) {
-        const gadgets = (actor.items ?? []).filter((i) => i.type === "consumable" && (i.system?.traits?.value ?? []).includes("gadget") && (i.system?.quantity ?? 1) > 0);
-        if (gadgets.length) out.notes.push(`Gadgets ready: ${gadgets.map((g) => g.name).join(", ")}${lv >= 12 && has(actor, "contingency-gadgets") ? "; a contingency gadget becomes whichever you need when you draw it" : ""}.`);
+        const gadgets = (actor.items ?? []).filter(
+            (i) => i.type === "consumable" && (i.system?.traits?.value ?? []).includes("gadget") && (i.system?.quantity ?? 1) > 0
+        );
+        if (gadgets.length)
+            out.notes.push(
+                `Gadgets ready: ${gadgets.map((g) => g.name).join(", ")}${lv >= 12 && has(actor, "contingency-gadgets") ? "; a contingency gadget becomes whichever you need when you draw it" : ""}.`
+            );
     }
-    if (has(actor, "haphazard-repair") && !broken && unstableOK) out.notes.push("Haphazard Repair (1 action, unstable): fixes your innovation on the spot if it breaks.");
-    if (lv >= 20 && has(actor, "ubiquitous-overdrive") && odUp && ubiquitous.length) out.notes.push(`Ubiquitous Overdrive: ${ubiquitous.map(nameOf).join(", ")} ${ubiquitous.length === 1 ? "shares" : "share"} your Overdrive's base bonus while within 30 feet.`);
+    if (has(actor, "haphazard-repair") && !broken && unstableOK)
+        out.notes.push("Haphazard Repair (1 action, unstable): fixes your innovation on the spot if it breaks.");
+    if (lv >= 20 && has(actor, "ubiquitous-overdrive") && odUp && ubiquitous.length)
+        out.notes.push(
+            `Ubiquitous Overdrive: ${ubiquitous.map(nameOf).join(", ")} ${ubiquitous.length === 1 ? "shares" : "share"} your Overdrive's base bonus while within 30 feet.`
+        );
 }
 
 export { inventor };
