@@ -534,7 +534,7 @@ function summoner(board, ctx, out) {
         const fh = 4 + 2 * Math.max(0, rank - 2);
         const missing = me.maxHp - me.hp;
         const ev = 0.8 * Math.min(missing, 2.5 * fh);
-        push({ title: "Lifelink Surge", target: null, ev, bias: 0.2, steps: [{ cost: 1, text: `Lifelink Surge (1 action, 1 Focus Point of ${focus}): fast healing ${fh} for 4 rounds on ${eName}, which is your shared pool (${me.hp}/${me.maxHp})` }], notes: ["It heals at the start of each of its turns: the earlier in the fight, the more it returns. It has the manipulate trait."] });
+        push({ title: "Lifelink Surge", target: null, ev, bias: 0.2, steps: [{ cost: 1, focus: true, text: `Lifelink Surge (1 action, 1 Focus Point of ${focus}): fast healing ${fh} for 4 rounds on ${eName}, which is your shared pool (${me.hp}/${me.maxHp})` }], notes: ["It heals at the start of each of its turns: the earlier in the fight, the more it returns. It has the manipulate trait."] });
     }
 
     summonerNotes(board, ctx, out, { actor, me, lv, foes, focus, kind, eid: E, dedication, tradition, rank, dc, reach, speed, primary, fromSheet, tandem });

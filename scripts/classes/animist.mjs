@@ -233,7 +233,7 @@ function animist(board, ctx, out) {
         const swapTo = vesselOf(name).name;
         const pushV = (title, target, ev, steps, notes, dest, bias) => (swap
             ? push(`Circle of Spirits to ${swapTo}, then ${title}`, target, ev, [{ cost: 1, text: `Circle of Spirits: ${swapTo} becomes your primary apparition${primaries.length ? ` in place of ${list(primaries.map((p) => p.name))}` : ""}` }, ...steps], [...notes, `${list(primaries.map((p) => p.name)) || "Your old primary"}'s vessel spell is off until you swap back.`], dest, bias)
-            : push(title, target, ev, steps, notes, dest, bias));
+            : push(title, target, ev, steps, notes, dest, bias), out.plans[out.plans.length - 1].focus = true); // every vessel cast spends a Focus Point
         const stanceNow = inStance ? 1 : 0;
         switch (vesselOf(name).vessel) {
             case "Earth's Bile": {

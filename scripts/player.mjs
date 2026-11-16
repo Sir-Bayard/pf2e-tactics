@@ -700,9 +700,8 @@ function spellThrift(board, plans) {
     // its own slot (Spellstrike) sets plan.thrifted. Plans that spend nothing are the baseline when there's no cantrip.
     const spellOf = (p) => p.spell ?? (p.slot ? { name: p.slot.name, rank: p.slot.rank } : null) ?? (p.kind === "area" ? spells.find((sp) => p.title.startsWith(`${sp.name}:`)) : null);
     // The yardstick is a turn that spends nothing: no slot, no Focus Point (a focus spell, Untamed Form, an amp...), no scroll
-    // or wand. A class plan that spends a Focus Point says so in its steps or notes.
-    const textOf = (p) => [...(p.steps ?? []).map((st) => st.text ?? ""), ...(p.notes ?? [])].join(" ");
-    const spendsFocus = (p) => { const sp = spellOf(p); return !!(sp?.focus || sp?.isFocus || p.spell?.focus) || /\bFocus Points?\b/i.test(textOf(p)); };
+    // or wand. A class plan that spends a Focus Point marks it: plan.focus, or focus on the step that spends it.
+    const spendsFocus = (p) => { const sp = spellOf(p); return !!(sp?.focus || sp?.isFocus || p.spell?.focus || p.focus || p.steps?.some((st) => st.focus)); };
     const free = (p) => { const sp = spellOf(p); return (!sp || (sp.cantrip && !sp.focus)) && !spendsFocus(p) && !p.thrifted && !["none", "heal"].includes(p.kind); };
     const cantripPlans = plans.filter((p) => p.spell?.cantrip && !p.spell?.focus && p.kind !== "heal" && p.ev > 0);
     const bestCantrip = cantripPlans.reduce((b, p) => (!b || p.ev > b.ev ? p : b), null);

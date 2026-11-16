@@ -190,7 +190,7 @@ function champion(board, ctx, out) {
             const heal = Math.min(lohHeal, Math.max(0, a.maxHp - a.hp)) * 0.8;
             const ev = heal + 0.6 * worth(board, cond);
             const who = a === me ? "yourself" : nameOf(a);
-            out.plans.push({ kind: "class", title: `Mercy for ${who}: ${cond}`, target: null, ev, score: ev + 0.3, dest: null, steps: [{ cost: 2, text: `Lay on Hands on ${who} for 2 actions (Mercy): about ${Math.round(lohHeal)} HP, +2 AC for a round, and a counteract check (rank ${rank}) against ${cond}` }], notes: [merciesOf(actor) ? `Your mercies: ${kinds.join(", ")}.` : "Mercy covers only the conditions of the mercies you took (the sheet doesn't say which, so all three are read)."] });
+            out.plans.push({ kind: "class", focus: true, title: `Mercy for ${who}: ${cond}`, target: null, ev, score: ev + 0.3, dest: null, steps: [{ cost: 2, text: `Lay on Hands on ${who} for 2 actions (Mercy): about ${Math.round(lohHeal)} HP, +2 AC for a round, and a counteract check (rank ${rank}) against ${cond}` }], notes: [merciesOf(actor) ? `Your mercies: ${kinds.join(", ")}.` : "Mercy covers only the conditions of the mercies you took (the sheet doesn't say which, so all three are read)."] });
         }
         if (has(actor, "affliction-mercy")) out.notes.push("Affliction Mercy: a 2-action Lay on Hands can counteract a poison, disease or curse instead of a condition.");
     }
@@ -206,7 +206,7 @@ function champion(board, ctx, out) {
             const ev = s.expected + s.fail * worth(board, cond) + s.critFail * worth(board, cond);
             const steps = sq.route.actions ? [{ cost: sq.route.actions, text: moveText(sq, f) }] : [];
             steps.push({ cost: 2, text: `Touch of the Void on ${nameOf(f)} for 2 actions (Cruelty): ${Math.round(tov.avg ?? 3.5 * rank)} void, basic Fortitude DC ${dc}, and on a failure it's ${cond} 1 for a minute (2 on a critical failure): about ${pct(s.fail)}` });
-            out.plans.push({ kind: "class", title: `Cruelty on ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes: has(actor, "greater-cruelty") ? ["Greater Cruelty: pick enfeebled, clumsy or stupefied when you cast."] : [] });
+            out.plans.push({ kind: "class", focus: true, title: `Cruelty on ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: sq.route.actions ? { x: sq.x, y: sq.y } : null, steps, notes: has(actor, "greater-cruelty") ? ["Greater Cruelty: pick enfeebled, clumsy or stupefied when you cast."] : [] });
         }
     }
     // Shields of the Spirit and Security: the shield's protection shared

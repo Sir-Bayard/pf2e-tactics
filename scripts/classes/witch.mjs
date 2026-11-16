@@ -119,7 +119,7 @@ function fillRest(board, t, rest, made, { slot = false } = {}) {
     while (rest >= 1 && t && guard++ < 3) {
         const [cantrip, better] = followUps(board, t, rest, made);
         const next = slot && !spent && better ? better : cantrip;
-        if (next) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; if (!next.sp.cantrip) spent = next.sp; continue; }
+        if (next) { steps.push({ cost: next.sp.cost, focus: isFocus(next.sp), text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; rest -= next.sp.cost; if (!next.sp.cantrip) spent = next.sp; continue; }
         const b = bestStrike(board, t, { made });
         if (b && inReach(board.me.rect, t.rect, b.s.reach || 5)) { steps.push({ cost: 1, text: `Strike ${nameOf(t)} with ${b.s.label} (${signed(b.bonus)}, about ${Math.round(b.e.expected)})` }); ev += b.e.expected; made += 1; rest -= 1; continue; }
         break;
@@ -341,6 +341,7 @@ function witch(board, ctx, out) {
         if (adjacentFoes.length && c) notes.push(`Casting next to ${adjacentFoes.map(nameOf).join(", ")} provokes a Reactive Strike if it has one.`);
         const baseTitle = title ?? (c ? `${c.sp.name} on ${c.ally ? (c.target === me ? "yourself" : nameOf(c.target)) : nameOf(c.target)}` : "Hex turn");
         const plan = { kind: "class", title: !spent ? baseTitle : /then a spell$/.test(baseTitle) ? baseTitle.replace(/a spell$/, spent.name) : `${baseTitle}, then ${spent.name}`, target: c && !c.ally ? c.target : null, ev, score: ev + 0.3, dest: c?.dest ?? null, steps, notes };
+        if (c && !c.sp.cantrip) plan.focus = true; // a lesson hex spends a Focus Point
         if (c) familiarNote(plan); else if (sustain) familiarNote(plan);
         plan.score = plan.ev + 0.3;
         if (spent) spendsSlot(plan, spent);
@@ -350,7 +351,7 @@ function witch(board, ctx, out) {
 
     // One hex a turn (Hex Master lifts it): the foe hex and the ally hex are two plans, not one
     const sustainStep = up && !sustainFree ? { step: { cost: 1, text: `Sustain ${up.name} (if it's still up)` }, ev: up.value } : null;
-    const cackleStep = up && !sustainFree && cackleKnown && fp !== null && fp > 0 ? { step: { cost: 0, text: `Cackle (free action, 1 Focus Point): Sustain ${up.name}${hexMaster ? " and every other hex you have going" : ""}` }, ev: up.value } : null;
+    const cackleStep = up && !sustainFree && cackleKnown && fp !== null && fp > 0 ? { step: { cost: 0, focus: true, text: `Cackle (free action, 1 Focus Point): Sustain ${up.name}${hexMaster ? " and every other hex you have going" : ""}` }, ev: up.value } : null;
     if (hexMaster && bestFoe && bestAlly && ctx.actions >= bestFoe.cost + bestAlly.cost) {
         const both = hexPlan(bestFoe, { title: `${bestFoe.sp.name} and ${bestAlly.sp.name}`, prefix: [{ cost: bestAlly.cost, text: bestAlly.text }], prefixEv: bestAlly.ev, prefixNotes: ["Hex Master: no limit of one hex a turn."], sustain: cackleStep });
         push(both);
@@ -419,7 +420,7 @@ function witch(board, ctx, out) {
         let total = ev;
         if (cackleStep) { steps.unshift(cackleStep.step); total += cackleStep.ev; }
         else if (up && !sustainFree) notes.push(`${up.name} ends: this doesn't Sustain it.`);
-        if (after) { steps.push({ cost: after.cost, text: after.text }); total += after.ev; if (focusNote(after)) notes.push(focusNote(after)); }
+        if (after) { steps.push({ cost: after.cost, focus: !after.sp.cantrip, text: after.text }); total += after.ev; if (focusNote(after)) notes.push(focusNote(after)); }
         const left = rest - (after?.cost ?? 0);
         // The cantrip after it, and a slot spell instead when that does more (spell thrift weighs it)
         for (const slotMode of [false, true]) {

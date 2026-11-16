@@ -221,7 +221,7 @@ function monk(board, ctx, out) {
                     const ur = run(f, a.left, ctx.made + u.used.length, { at: a.at, from });
                     const usteps = [...moveStep(a, f)];
                     if (feint) usteps.push({ cost: 0, text: `Stumbling Feint (free): Feint ${nameOf(f)} first (${pct(feint)})` });
-                    usteps.push({ cost: 1, text: `Inner Upheaval (1 Focus Point): ${flurryText(f, u.used)}, +1 to hit and +${upheavalDice}d6 force, spirit, vitality or void on each${has(actor, "elemental-fist") ? " (or an element's damage with Elemental Fist)" : ""}${su.text}` });
+                    usteps.push({ cost: 1, focus: true, text: `Inner Upheaval (1 Focus Point): ${flurryText(f, u.used)}, +1 to hit and +${upheavalDice}d6 force, spirit, vitality or void on each${has(actor, "elemental-fist") ? " (or an element's damage with Elemental Fist)" : ""}${su.text}` });
                     if (ur.used.length) usteps.push({ cost: ur.used.length, text: strikeText(f, ur.used) });
                     push({ title: `Inner Upheaval: Flurry at ${nameOf(f)}`, target: f, ev: u.ev + su.ev + ur.ev, bias: 0.4, dest: a.dest, steps: usteps, notes: [`${focus} Focus Point${focus === 1 ? "" : "s"} left; the spell's Flurry is this turn's flourish.`] });
                 }
@@ -255,7 +255,7 @@ function monk(board, ctx, out) {
             if (t.ground && me.conditions?.has?.("flying")) continue;
             const from = poolIn(k);
             const def = t.def * (0.5 + lv / 10);
-            const entry = { cost: 1, text: `${t.spell ? `Cast ${t.name}${has(actor, "qi-center") ? " (free with Qi Center once a minute, no Focus Point)" : " (1 Focus Point)"}` : `Enter ${t.name}`}: ${t.benefit}${foreignStance ? `; it ends ${foreignStance}` : ""}` };
+            const entry = { cost: 1, focus: !!t.spell && !has(actor, "qi-center"), text: `${t.spell ? `Cast ${t.name}${has(actor, "qi-center") ? " (free with Qi Center once a minute, no Focus Point)" : " (1 Focus Point)"}` : `Enter ${t.name}`}: ${t.benefit}${foreignStance ? `; it ends ${foreignStance}` : ""}` };
             if (flurry) flurryPlans(from, k, [entry], def, 1);
             else for (const f of foes) {
                 const a = approach(f, 2, { from });

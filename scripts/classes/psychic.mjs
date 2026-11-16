@@ -219,7 +219,7 @@ function psychic(board, ctx, out) {
         const b = bar(c.r, c.finishes);
         const tgt = `${nameOf(c.f)}${c.others.length ? ` and ${c.others.map(nameOf).join(", ")}` : ""}`;
         if (canPay && gain >= b && ctx.actions >= c.m.cost) {
-            const steps = [{ cost: 0, text: fpAvailable > 0 ? `Amp ${c.sp.name} (1 Focus Point, ${fpAvailable - 1} left after)` : `Strain Mind: amp ${c.sp.name} for ${strainCost} HP instead of a Focus Point (once an hour)` }];
+            const steps = [{ cost: 0, focus: fpAvailable > 0, text: fpAvailable > 0 ? `Amp ${c.sp.name} (1 Focus Point, ${fpAvailable - 1} left after)` : `Strain Mind: amp ${c.sp.name} for ${strainCost} HP instead of a Focus Point (once an hour)` }];
             const how = useAlt ? `${alt.name}: ${alt.text}` : c.m.rider;
             steps.push({ cost: c.m.cost, text: `Cast amped ${c.sp.name} at ${tgt} (about ${Math.round(ampEv * castOk)}; ${how})` });
             const notes = [`The plain cantrip does about ${Math.round(c.plainEv * castOk)}; the amp adds about ${Math.round(gain * castOk)}${c.finishes ? ` and can finish ${nameOf(c.f)} at ${c.f.estimated ? "an estimated " : ""}${c.f.hp} HP` : ""}.`];

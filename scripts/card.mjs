@@ -309,8 +309,8 @@ function adviceSum(plan) {
     const v = round1(plan.ev);
     if (["run", "advance", "hold", "none"].includes(plan.kind)) return "";
     if (plan.kind === "heal") {
-        // The heal step says how much it restores ("about 12 HP"); its ev is that, discounted
-        const hp = plan.steps.map((st) => /\babout (\d+) HP\b/.exec(st.text)?.[1]).find(Boolean);
+        // The plan says how much it restores (healHp); its ev is that, discounted
+        const hp = plan.healHp;
         return `${hp ? `about ${hp} HP back` : "healing"}${plan.ownEv != null ? `, then about ${round1(plan.ev - plan.ownEv)} damage` : ""}`;
     }
     if (plan.kind === "buff") return `worth about ${v} damage to its side`;

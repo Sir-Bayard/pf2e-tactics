@@ -122,8 +122,8 @@ function druid(board, ctx, out) {
             const touch = inReach(me.rect, comp.rect, 5);
             const one = Math.min(missing, r * 4.5) * 0.8, two = Math.min(missing, r * 12.5) * 0.8;
             const near = feetBetween(me.rect, comp.rect) <= 30;
-            if (touch && ctx.actions >= 1) out.plans.push({ kind: "class", title: `Heal Animal on ${nameOf(comp)}`, target: null, ev: one, score: one + 0.2, dest: null, steps: [{ cost: 1, text: `Heal Animal (1 action, touch) on ${nameOf(comp)}: about ${Math.round(r * 4.5)} HP (it's at ${comp.hp}/${comp.maxHp})` }], notes: [has(actor, "instinctive-support") ? "Instinctive Support: after the spell it gets its actions, one of them Support." : "1 Focus Point."] });
-            if (near && ctx.actions >= 2) out.plans.push({ kind: "class", title: `Heal Animal (2 actions) on ${nameOf(comp)}`, target: null, ev: two, score: two + 0.2, dest: null, steps: [{ cost: 2, text: `Heal Animal (2 actions, 30 feet) on ${nameOf(comp)}: about ${Math.round(r * 12.5)} HP (it's at ${comp.hp}/${comp.maxHp})` }], notes: [has(actor, "instinctive-support") ? "Instinctive Support: after the spell it gets its actions, one of them Support." : "1 Focus Point."] });
+            if (touch && ctx.actions >= 1) out.plans.push({ kind: "class", focus: true, title: `Heal Animal on ${nameOf(comp)}`, target: null, ev: one, score: one + 0.2, dest: null, steps: [{ cost: 1, text: `Heal Animal (1 action, touch) on ${nameOf(comp)}: about ${Math.round(r * 4.5)} HP (it's at ${comp.hp}/${comp.maxHp})` }], notes: [has(actor, "instinctive-support") ? "Instinctive Support: after the spell it gets its actions, one of them Support." : "1 Focus Point."] });
+            if (near && ctx.actions >= 2) out.plans.push({ kind: "class", focus: true, title: `Heal Animal (2 actions) on ${nameOf(comp)}`, target: null, ev: two, score: two + 0.2, dest: null, steps: [{ cost: 2, text: `Heal Animal (2 actions, 30 feet) on ${nameOf(comp)}: about ${Math.round(r * 12.5)} HP (it's at ${comp.hp}/${comp.maxHp})` }], notes: [has(actor, "instinctive-support") ? "Instinctive Support: after the spell it gets its actions, one of them Support." : "1 Focus Point."] });
         } else if (ha) out.notes.push("Heal Animal heals only animals: your companion, not the party.");
         if (has(actor, "apex-companion") && focus > 0) out.notes.push(`Apex Companion (focus spell): ${nameOf(comp)} becomes an apex of its kind for a minute, Huge with better Strikes; cast it on a turn it can reach the foe it will stay on.`);
     } else if (has(actor, "animal-companion") || has(actor, "animal-order")) {
@@ -183,7 +183,7 @@ function druid(board, ctx, out) {
             if (has(actor, "misty-transformation")) notes.push("Misty Transformation (reaction, once a minute): a concealing mist around you as you change.");
             if (best.t.breath) notes.push(`The form's breath (2 actions, basic save, about ${best.t.breath} in a cone) is its best opener, then 1d4 rounds to recharge.`);
             ev += Math.max(0, edge) * 0.5;
-            out.plans.push({ kind: "class", title: `Untamed Form: ${best.fm.name} against ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps, notes });
+            out.plans.push({ kind: "class", focus: true, title: `Untamed Form: ${best.fm.name} against ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps, notes });
             break; // one plan: the shape is the same whichever foe; the advisor's Strike plans take it from here
         }
         if (has(actor, "true-shapeshifter") && lv >= 20) out.notes.push("True Shapeshifter (once a day): cast nature incarnate as a kaiju without preparing it, no Focus Point or slot; for the fight that decides the day.");
@@ -206,7 +206,7 @@ function druid(board, ctx, out) {
             for (let i = 0; i < ctx.actions - 1; i++) { const b = claw.bonus + mapFor(made, true); ev += strikeExpected(b, f.ac, claw.avg).expected; shown.push(signed(b)); made += 1; }
             const own = strikeRun(board, f, ctx.actions - 1, { made: ctx.made }).ev;
             if (ev > own + 1 || bleed) out.plans.push({ kind: "class", title: `Untamed Shift, then claw ${nameOf(f)}`, target: f, ev, score: ev + 0.2, dest: null,
-                steps: [{ cost: 1, text: `Untamed Shift (1 Focus Point): claws, 1d6${str ? signed(str) : ""} slashing, agile and finesse${bleed ? `, ${shift.rank >= 10 ? "4d6" : "2d6"} persistent bleed on a hit` : ""}, for a minute` }, { cost: ctx.actions - 1, text: `Strike ${nameOf(f)} with the claws${ctx.actions - 1 > 1 ? ` ${ctx.actions - 1 === 2 ? "twice" : "three times"}` : ""} (${shown.join(", ")})` }],
+                steps: [{ cost: 1, focus: true, text: `Untamed Shift (1 Focus Point): claws, 1d6${str ? signed(str) : ""} slashing, agile and finesse${bleed ? `, ${shift.rank >= 10 ? "4d6" : "2d6"} persistent bleed on a hit` : ""}, for a minute` }, { cost: ctx.actions - 1, text: `Strike ${nameOf(f)} with the claws${ctx.actions - 1 > 1 ? ` ${ctx.actions - 1 === 2 ? "twice" : "three times"}` : ""} (${shown.join(", ")})` }],
                 notes: [has(actor, "plant-shape") ? "Or vines: reach 10 feet for a minute, the same spell." : "A morph, not a battle form: you keep your spells and your hands."] });
         }
         if (shift.rank >= 6) out.notes.push("Untamed Shift at this rank gives two effects at once: claws with bleed, jaws with poison, elemental skin, vines for reach, or wings (2 actions).");

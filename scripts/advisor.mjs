@@ -56,7 +56,7 @@ function routeTo(board, x, y, acts = actionsOf(board)) {
             if (names.length) via = `${via} (${instinct ? "round" : "the long way round, keeping out of"} ${names.join(" and ")}'s reach)`;
         }
         const doors = doorsOn(board, field[name], x, y);
-        if (actions <= acts) options.push({ actions, provokes: move.stride.noReactions ? [] : sf.provokes, via, feet: sf.feet, avoided, field: name, doors });
+        if (actions <= acts) options.push({ actions, provokes: move.stride.noReactions ? [] : sf.provokes, via, feet: sf.feet, avoided, field: name, doors, fly: !move.stride.by && move.stride.speed === "fly" });
     }
     // Step out of reach first, then Stride: one action more, but no reaction on the way out
     for (const { sq, field: f } of field.stepThen ?? []) {
@@ -66,7 +66,7 @@ function routeTo(board, x, y, acts = actionsOf(board)) {
         if (actions > acts) continue;
         const left = board.enemies.filter((e) => board.threatsAt?.(me.rect.x, me.rect.y)?.includes(e.id)).map(nameOf).filter((n) => n !== "?");
         const via = `${move.step.by ?? "Step"} out of ${left.length ? `${left.join(" and ")}'s` : "their"} reach, then ${move.stride.by ?? (move.stride.speed === "fly" ? "Fly" : "Stride")}`;
-        options.push({ actions, provokes: sf.provokes, via, feet: sf.feet + move.step.feet, avoided: [], field: "stepThen", fieldMap: f, stepSq: sq, doors: doorsOn(board, f, x, y) });
+        options.push({ actions, provokes: sf.provokes, via, feet: sf.feet + move.step.feet, avoided: [], field: "stepThen", fieldMap: f, stepSq: sq, doors: doorsOn(board, f, x, y), fly: !move.stride.by && move.stride.speed === "fly" });
     }
     options.sort((a, b) => a.provokes.length - b.provokes.length || a.actions - b.actions);
     return options[0] ?? null;
@@ -192,11 +192,11 @@ function heightRoute(board, route, z0, z, here, x = board.me.rect.x, y = board.m
             const H = route.feet / 5, V = up ? (dz / 5) * 2 : dz / 10;
             const feet3 = 5 * (Math.max(H, V) + Math.floor(Math.min(H, V) / 2));
             const actions = route.actions - Math.ceil(route.feet / stride.feet) + Math.ceil(feet3 / stride.feet);
-            return { ...route, actions, feet: feet3, step: false, via: `${route.step ? "Fly" : route.via} (${up ? "up" : "down"} ${dz} ft)`, z };
+            return { ...route, actions, feet: feet3, step: false, via: `${route.step ? "Fly" : route.via} (${up ? "up" : "down"} ${dz} ft)`, z, fly: true };
         }
         const fly = Math.max(1, Math.ceil((up ? 2 * dz : dz / 2) / sp.fly));
-        if (here) return { actions: fly + stand, provokes: board.move.stride.noReactions ? [] : startThreats, via: `${standText}Fly ${up ? "up" : "down"} ${dz} ft`, feet: dz, z, vertical: true };
-        return { ...route, actions: route.actions + fly, vAct: fly, vText: `Fly ${up ? "up" : "down"} ${dz} ft`, z };
+        if (here) return { actions: fly + stand, provokes: board.move.stride.noReactions ? [] : startThreats, via: `${standText}Fly ${up ? "up" : "down"} ${dz} ft`, feet: dz, z, vertical: true, fly: true };
+        return { ...route, actions: route.actions + fly, vAct: fly, vText: `Fly ${up ? "up" : "down"} ${dz} ft`, z, fly: true };
     }
     // A walker: a step up or down onto a wagon is part of the move; anything more needs an incline, or a climb Speed
     if (dz <= 5) return here ? { actions: 1 + stand, provokes: startThreats, via: `${standText}${board.move.step.by ?? "Step"}`, feet: 5, z } : { ...route, z };
@@ -287,6 +287,9 @@ const routeText = (route) => {
     const doors = route.doors ? `, opening ${route.doors > 1 ? `${route.doors} doors` : "a door"} on the way` : "";
     return `${route.via}${k > 1 && !/×\d/.test(route.via ?? "") && !route.vertical ? ` ×${k}` : ""}${doors}${route.tail ?? ""}${route.vText ? `, then ${route.vText}` : ""}`;
 };
+/** What a route does, kept on its step so later stages read fields, not the step's words: it flies, climbs, opens
+ *  doors, or drops (the fall's damage). */
+const wayOf = (r) => ({ ...(r?.fly ? { fly: true } : {}), ...(r?.climb ? { climb: true } : {}), ...(r?.doors ? { doors: r.doors } : {}), ...(r?.fall ? { fall: r.fall } : {}) });
 const approachText = (route, t, ranged = false) => `${routeText(route)}${route.doors || route.tail || route.vText ? "," : ""} ${ranged ? "to a clear line on" : "into reach of"} ${nameOf(t)}`;
 /**
  * Threat works like aggro: the foe who has proven most dangerous counts as this much juicier than they look (40%
@@ -640,7 +643,7 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
             if (fewer.expected - P.hitRun.leave(at) > run.expected - P.hitRun.penalty(at)) {
                 plan.ev += fewer.expected;
                 if (fewer.used.length) { plan.used = [...(plan.used ?? []), ...fewer.used]; plan.steps.push({ cost: k, text: describeStrikes(fewer.used, nameOf(target)) }); }
-                plan.steps.push({ cost: 1, text: flyAwayText(board, at) });
+                plan.steps.push({ cost: 1, fly: true, text: flyAwayText(board, at) });
                 plan.flyAway = true;
                 plan.leaveRisk = P.hitRun.leave(at);
                 return;
@@ -668,7 +671,7 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
     }
     const stuck = ["immobilized", "grabbed", "restrained", "prone"].some((c) => board.me.conditions?.has?.(c));
     if (exposed && !stuck && (board.me.airborne || (P.hitRun && (!board.move.step.feet || P.hitRun.penalty(at) > P.hitRun.leave(at))))) {
-        plan.steps.push({ cost: 1, text: flyAwayText(board, at) });
+        plan.steps.push({ cost: 1, fly: true, text: flyAwayText(board, at) });
         plan.flyAway = true;
         plan.leaveRisk = P.hitRun?.leave(at) ?? 0;
         actionsLeft -= 1;
@@ -685,7 +688,9 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
 
 /**
  * Candidate turns. Returns plans sorted best first: { kind, title, target, steps: [{cost, text}], ev, score, notes:
- * [], dest: {x, y} | null }, plus fields some kinds carry (path, aim, caught, why, spell...).
+ * [], dest: {x, y} | null }, plus fields some kinds carry (path, aim, caught, why, spell...). Facts later stages need
+ * sit in fields, never only in the words: a step's fly, climb, doors and fall (from its route, wayOf) and focus (it
+ * spends a Focus Point), a plan's healHp, focus and ownNotes (the notes addNotes put there about itself and the way).
  */
 function planTurn(board, opts = {}) {
     const outer = P;
@@ -807,7 +812,7 @@ function planOne(board, { intent = null, noFollow = false, noSustain = false } =
         const r = best.sq.route;
         return {
             kind: "run", title: cap(text.replace(/\.$/, "")), target: null, ev: 0, score,
-            steps: r.actions ? [{ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} away${dir ? ` to the ${dir}` : ""}, ending ${best.nearest} feet from the nearest enemy` }]
+            steps: r.actions ? [{ cost: r.actions, ...wayOf(r), text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} away${dir ? ` to the ${dir}` : ""}, ending ${best.nearest} feet from the nearest enemy` }]
                 : [{ cost: 0, text: "Hold where it is: no square is further from them this turn" }],
             notes: r.provokes.length ? [`Provokes ${provokeNames(board, r.provokes).join(", ")}`] : [],
             dest: r.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null,
@@ -936,7 +941,7 @@ function addHoldBack({ board, intent, me, plans, rectAt, squares, top }) {
         if (best) {
             const r = best.sq.route;
             const hold = { kind: "hold", title: "Hold Back", target: null, ev: 0.2, score: top.score + 0.5, notes: [`Its best attack from here is worth about ${round1(top.ev)} damage (${top.title})`], dest: r.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, steps: [] };
-            if (r.actions) hold.steps.push({ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} back${best.exp ? "" : " out of reach"}` });
+            if (r.actions) hold.steps.push({ cost: r.actions, ...wayOf(r), text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} back${best.exp ? "" : " out of reach"}` });
             if (P.act - r.actions >= 1) hold.steps.push({ cost: 1, text: board.me.shield && !board.me.shieldRaised ? "Raise a Shield" : "Take Cover behind something if it can" });
             if (P.act - r.actions - 1 > 0) hold.steps.push({ cost: P.act - r.actions - 1, text: "Ready a Strike for whoever comes close, or Aid an ally" });
             plans.unshift(hold);
@@ -976,6 +981,8 @@ function addBreakOff({ board, fleePlan, intent, mc, me, plans, targets, top }) {
 /** Notes every plan carries: its own conditions, the way there, and Fly to stay up when it holds back in the air. */
 function addNotes({ board, me, noFollow, plans, selfNotes, squares }) {
     for (const plan of plans) {
+        // What it adds about itself and the way is kept apart too: a Sustain plan built on this one adds it again
+        const before = new Set(plan.notes);
         if (selfNotes.length) plan.notes.push(...selfNotes);
         const item = plan.spell?.consumable;
         if (item === "scroll" || item === "wand") {
@@ -992,12 +999,13 @@ function addNotes({ board, me, noFollow, plans, selfNotes, squares }) {
             }
             const ground = new Set();
             for (const c of cells.slice(1)) for (const n of board.terrainNoteAt?.(c.x, c.y) ?? []) ground.add(n);
-            if (crossed.includes("door") && !plan.steps.some((st) => /\bdoor/.test(st.text))) plan.notes.unshift("Opens a door on the way (Interact, 1 action, counted)");
+            if (crossed.includes("door") && !plan.steps.some((st) => st.doors)) plan.notes.unshift("Opens a door on the way (Interact, 1 action, counted)");
             if (ground.size) plan.notes.push(`The way crosses ${[...ground].join(", ")}`);
         }
+        plan.ownNotes = plan.notes.filter((n) => !before.has(n) && (selfNotes.includes(n) || n.startsWith("The way crosses") || n.startsWith("Opens a door on the way")));
     }
     // Holding back or breaking off in the air still needs a Fly
-    if (me.airborne && !noFollow) for (const plan of plans) if ((plan.kind === "hold" || plan.kind === "run") && !plan.steps.some((st) => /\bFly\b/.test(st.text ?? ""))) plan.notes.push("Up in the air: one of its actions has to be a Fly, or it falls");
+    if (me.airborne && !noFollow) for (const plan of plans) if ((plan.kind === "hold" || plan.kind === "run") && !plan.steps.some((st) => st.fly)) plan.notes.push("Up in the air: one of its actions has to be a Fly, or it falls");
 }
 
 
@@ -1031,7 +1039,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                 const plan = { kind: "melee", title: `${actions ? "Close and Strike" : "Strike"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: c.sq.x, y: c.sq.y, z: c.sq.z } : null };
                 if (actions) {
                     const where = c.ally ? `to flank ${nameOf(t)} with ${nameOf(c.ally)}` : `into reach of ${nameOf(t)}`;
-                    plan.steps.push({ cost: actions, text: `${routeText(c.sq.route)}${c.sq.route.doors || c.sq.route.tail || c.sq.route.vText ? "," : ""} ${where}` });
+                    plan.steps.push({ cost: actions, ...wayOf(c.sq.route), text: `${routeText(c.sq.route)}${c.sq.route.doors || c.sq.route.tail || c.sq.route.vText ? "," : ""} ${where}` });
                 } else if (c.ally) plan.notes.push(`Already flanking with ${nameOf(c.ally)}`);
                 // A third Strike at -10 is often worth less than something else: Demoralize or Feint first, or a shield after
                 if (n >= 3 && run.used.length >= 3 && !downed) {
@@ -1066,7 +1074,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
                     if (fewer.used.length) {
                         const hr = { kind: "melee", title: `${actions ? "Close and Strike" : "Strike"} ${nameOf(t)}, then Fly Off`, target: t, ev: fewer.expected, steps: actions ? [{ ...plan.steps[0] }] : [],
                             notes: [...plan.notes], dest: plan.dest, flyAway: true, leaveRisk: P.hitRun.leave(c.at), risk: plan.risk };
-                        hr.steps.push({ cost: n - 1, text: describeStrikes(fewer.used, nameOf(t)) }, { cost: 1, text: flyAwayText(board, c.at) });
+                        hr.steps.push({ cost: n - 1, text: describeStrikes(fewer.used, nameOf(t)) }, { cost: 1, fly: true, text: flyAwayText(board, c.at) });
                         plans.push(hr);
                     }
                 }
@@ -1121,7 +1129,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
             const pen = -2 * rangeSteps(best.dist, s.range) + (s.volley && best.dist <= s.volley ? -2 : 0); // range increments, volley
             const run = strikeSeq([{ ...s, bonus: s.bonus + pen }], Math.min(n, 3), t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
             const plan = { kind: "ranged", title: `${s.bomb ? `Throw ${s.label} at` : s.thrown ? "Throw at" : "Shoot"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null };
-            if (actions) plan.steps.push({ cost: actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to a clear line on ${nameOf(t)}${best.exp.length ? "" : ", out of reach"}` });
+            if (actions) plan.steps.push({ cost: actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to a clear line on ${nameOf(t)}${best.exp.length ? "" : ", out of reach"}` });
             plan.used = run.used;
             const stepCost = s.bomb ? bombActs : s.thrown ? 1 : left;
             const bombText = s.bomb ? ` (${quick ? "Quick Bomber draws each as part of the Strike" : s.held && bombs === 1 ? "the one in your hand" : `an Interact to draw ${bombs > 1 ? "each" : "it"} first${s.held ? ", except the one in your hand" : ""}`}; ${s.quantity} carried)` : "";
@@ -1164,7 +1172,7 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
             else if (dmg.delta) plan.notes.push(`${nameOf(t)} ${dmg.delta > 0 ? `is weak to it: +${dmg.delta}` : `resists it: ${dmg.delta}`} per hit`);
             if ((sp.odds ?? 1) < 1) plan.notes.push(`About ${pct(sp.odds)} to get the spell off (flat check)`);
             sightNotes(plan, best.at, t, { attack: sp.attack !== null });
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
             plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`} at ${nameOf(t)}: ${sp.save ? `${sp.save.basic ? "basic " : ""}${cap(sp.save.stat)} DC ${sp.dc}` : `spell attack ${signed(sp.attack + mapFor(P.made, false))}`}` });
             fillLast(board, plan, best.at, P.act - best.sq.route.actions - sp.cost, t, sp.attack !== null ? 1 : 0);
             if (best.exp.length) plan.notes.push(`Casting in reach of ${best.exp.map(nameOf).join(", ")} provokes`);
@@ -1234,7 +1242,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
                 const each = p.strikes.each && count > 1 ? eachRun(best.at, t, count, ac, og, p.strikes.notes.includes("no MAP")) : null;
                 const run = each ?? (p.strikes.notes.includes("no MAP") ? { ...one, expected: one.expected * count } : strikeSeq(best.strikes, count, ac, { vs: t, at: best.at, offGuard: og }));
                 const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-                if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+                if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
                 plan.steps.push({ cost: p.cost, text: each ? `${p.name}: ${each.text}` : `${p.name} (${count} Strike${count === 1 ? "" : "s"}${p.strikes.each ? ", each a different foe" : ""})` });
                 fillLast(board, plan, best.at, P.act - best.sq.route.actions - p.cost, t, p.strikes.notes.includes("one attack") ? 1 : each ? each.n : count);
                 plan.risk = provokeCost(board, best.sq.route.provokes);
@@ -1291,7 +1299,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
                         payAt = p.strikes.notes.includes("no MAP") ? once.expected * p.strikes.count : strikeSeq(reach, p.strikes.count, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }).expected;
                     }
                     const plan = { kind: "ability", title: `Grab ${nameOf(t)}, then ${p.name}`, target: t, ev: hit.expected + holds * payAt, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-                    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+                    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
                     plan.steps.push({ cost: 1, text: `Strike ${nameOf(t)} with ${s.label} (${signed(s.bonus)}; ${s.riders.join(", ")} on a hit)` });
                     plan.steps.push({ cost: grabCost(s), text: `If it hits: ${grabCost(s) ? "Grab" : "Improved Grab (free)"} ${nameOf(t)} (Grapple: Athletics ${signed(me.athletics ?? me.level + 5)} vs Fortitude DC ${10 + (t.saves.fortitude ?? 0)})` });
                     plan.steps.push({ cost: p.cost, text: `If it holds: ${p.name}` });
@@ -1397,7 +1405,7 @@ function planFollowUps({ board, me, melee, plans, profiles, ranged, recharging, 
             const og = isOffGuard(t) || flanked;
             const ac = acAgainst(t, flanked);
             const plan = { kind: "ability", title: followUp ? `Strike ${nameOf(t)}, then ${p.name}` : `${p.name} on ${nameOf(t)}`, target: t, ev: 0, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
             // A press action's opener: any Strike that reaches, at no MAP
             const opener = press ? strikeSeq([...melee.filter((s) => inReach(best.at, t.rect, s.reach)), ...ranged.filter((s) => feetBetween(best.at, t.rect) <= s.range)], 1, ac, { vs: t, at: best.at, offGuard: og }) : null;
             if (opener) {
@@ -1485,7 +1493,7 @@ function planSelfBuffs({ board, me, melee, plans, profiles, recharging, rectAt, 
             const n = P.act - best.sq.route.actions - p.cost;
             const run = strikeSeq(best.strikes.map((s) => ({ ...s, bonus: s.bonus + atk, avg: s.avg + dmg })), n, ac, { vs: t, at: best.at, offGuard: og });
             const plan = { kind: "ability", title: `${p.name}, then Strike ${nameOf(t)}`, target: t, ev: run.expected + (lasting ? atk * 0.5 + dmg * 0.6 : 0), steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
             plan.steps.push({ cost: p.cost, text: `${p.name}${atk ? ` (+${atk} to hit` : " ("}${dmg ? `${atk ? ", " : ""}+${dmg} damage` : ""}${lasting ? "; lasts the fight" : ""})` });
             plan.steps.push({ cost: n, text: describeStrikes(run.used, nameOf(t)) });
             const acPen = /(\d+) penalty to AC/i.exec(p.text)?.[1];
@@ -1532,7 +1540,7 @@ function planHinderSpells({ board, me, plans, rectAt, spells, squares, targets }
             const plan = { kind: "spell", title: `Cast ${sp.name} on ${nameOf(t)}`, target: t, ev: value + 0.5, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, spell: sp };
             if (incap) plan.notes.push(`Incapacitation: ${nameOf(t)} is above level ${2 * sp.rank}, so one degree better for it`);
             sightNotes(plan, best.at, t, { attack: false });
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
             plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name} at ${nameOf(t)}: ${cap(sp.save.stat)} DC ${sp.dc} (${sp.inflicts.join(", ")}; lands about ${pct(fail)} of the time)` });
             fillLast(board, plan, best.at, P.act - best.sq.route.actions - sp.cost, t, 0);
             if (best.exp.length) plan.notes.push(`Casting in reach of ${best.exp.map(nameOf).join(", ")} provokes`);
@@ -1596,8 +1604,9 @@ function planRevives({ board, me, plans, rectAt, spells, squares }) {
             }
             if (!best) continue;
             const plan = { kind: "heal", title: `Revive ${nameOf(c)} (${sp.potion ? "potion" : sp.name})`, target: null, ev: best.ev, notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, spell: sp, steps: [], revive: true };
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.tail || best.sq.route.vText ? "," : ""} to ${nameOf(c)}` });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.tail || best.sq.route.vText ? "," : ""} to ${nameOf(c)}` });
             plan.steps.push({ cost: best.cost, text: `${healUse(sp, nameOf(c), best.cost)} (about ${Math.round(best.avg)} HP; back up, it fights again)` });
+            plan.healHp = Math.round(best.avg);
             plan.notes.push(`${nameOf(c)} is down: brought back, it stands and fights next turn`);
             if (best.sq.route.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, best.sq.route.provokes).join(", ")}`);
             plan.risk = provokeCost(board, best.sq.route.provokes);
@@ -1626,6 +1635,7 @@ function planHeals({ board, me, plans, profiles, recharging, spells }) {
             }
             if (!best) continue;
             const plan = { kind: "heal", title: sp.potion ? (self ? `Drink ${sp.name}` : `Heal ${nameOf(c)} (potion)`) : self ? `Heal Itself (${sp.name})` : `Heal ${nameOf(c)} (${sp.name})`, target: null, ev: best.ev, notes: [], dest: null, spell: sp,
+                healHp: Math.round(Math.min(best.avg, missing)),
                 steps: [{ cost: best.cost, text: `${healUse(sp, self ? "itself" : nameOf(c), best.cost)} (about ${Math.round(Math.min(best.avg, missing))} HP)` }] };
             if (sp.potion || sp.consumable === "scroll") plan.notes.push(`Uses up ${sp.potion ? "the potion" : "the scroll"}`);
             if (!self) plan.notes.push(`${nameOf(c)} is down to ${c.hp} of ${c.maxHp} HP`);
@@ -1680,7 +1690,7 @@ function planShoves({ board, me, melee, myTier, plans, rectAt, squares, targets 
             const main = best.push.s ?? best.push.cs;
             const odds = best.push.s ? c.s + c.cs : c.cs;
             const plan = { kind: "ability", title: `Shove ${nameOf(t)} ${main.fall ? "off the edge" : "into the hazard"}`, target: t, ev: run.expected + value, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, shove: true };
-            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t) });
+            if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: approachText(best.sq.route, t) });
             if (run.used.length) plan.steps.push({ cost: left, text: describeStrikes(run.used, nameOf(t)) });
             plan.steps.push({ cost: 1, text: `Shove ${nameOf(t)} (Athletics ${signed(mod)} vs Fortitude DC ${dc}${run.used.length || P.made ? ", with the MAP" : ""}): ${main.why}, about ${pct(odds)} of the time${best.push.s ? "" : " (a critical success)"}` });
             const spare = P.act - best.sq.route.actions - left - 1;
@@ -1731,7 +1741,7 @@ function planStairs({ board, intent, mc, me, melee, plans }) {
                 const run = strikeSeq(melee, n, t.ac, { vs, offGuard: isOffGuard(t) });
                 if (run.used.length) {
                     const plan = { kind: "melee", title: `${best.up ? "Up" : "Down"} the ${st.ladder ? "Ladder" : "Stairs"} to ${nameOf(t)}`, target: t, ev: run.expected, notes: [], dest: { x: c.x, y: c.y }, viaStairs: true,
-                        steps: [{ cost: best.actions, text: `${how}, and on into reach of ${nameOf(t)}` }, { cost: n, text: describeStrikes(run.used, nameOf(t)) }] };
+                        steps: [{ cost: best.actions, climb: !!st.ladder, text: `${how}, and on into reach of ${nameOf(t)}` }, { cost: n, text: describeStrikes(run.used, nameOf(t)) }] };
                     plan.notes.push(`${nameOf(t)} is on ${floor}: the path shown goes as far as the ${st.ladder ? "ladder" : "stairs"}`);
                     if (c.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, c.provokes).join(", ")}`);
                     plan.risk = provokeCost(board, c.provokes);
@@ -1743,7 +1753,7 @@ function planStairs({ board, intent, mc, me, melee, plans }) {
             const go = Math.min(P.act, best.toStair + best.climb);
             const there = best.toStair + best.climb <= P.act;
             const plan = { kind: "advance", title: `Make for ${nameOf(t)} on ${floor}`, target: null, ev: 0.3, score: 0.3 - provokeCost(board, c.provokes), notes: [], dest: { x: c.x, y: c.y }, viaStairs: true,
-                steps: [{ cost: go, text: there ? how : `${prone ? "Stand, then " : ""}${board.move.stride.by ?? "Stride"} toward ${place}` }] };
+                steps: [{ cost: go, climb: there && !!st.ladder, text: there ? how : `${prone ? "Stand, then " : ""}${board.move.stride.by ?? "Stride"} toward ${place}` }] };
             if (there && P.act - go > 0) plan.steps.push({ cost: P.act - go, text: `${board.move.stride.by ?? "Stride"} on toward ${nameOf(t)}` });
             if (c.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, c.provokes).join(", ")}`);
             plan.why = ["on another floor"];
@@ -1772,7 +1782,7 @@ function planAdvance({ board, intent, me, plans, rectAt, squares, targets }) {
         if (best) {
             const r = best.sq.route;
             const plan = { kind: "advance", title: `Advance on ${nameOf(pick)}`, target: null, ev: 0.3, score: 0.3 - provokeCost(board, r.provokes), notes: [], dest: { x: best.sq.x, y: best.sq.y, z: best.sq.z },
-                steps: [{ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} toward ${nameOf(pick)}, ending ${best.d} feet away` }] };
+                steps: [{ cost: r.actions, ...wayOf(r), text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} toward ${nameOf(pick)}, ending ${best.d} feet away` }] };
             if (r.actions < P.act) fillLast(board, plan, rectAt(best.sq), P.act - r.actions, pick, 0);
             if (r.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, r.provokes).join(", ")}`);
             plan.why = [pick.objective ? "what it's after" : threatShare(board, pick) >= 1 ? "top threat" : "closest"];
@@ -1786,8 +1796,8 @@ function addStayAloft({ board, costOf, me, noFollow, plans }) {
     if (me.airborne && !noFollow) {
         const drop = Math.max(0, (me.rect.z ?? 0) - (board.floorZ ?? 0));
         for (const plan of plans) {
-            if (plan.kind === "none" || !costOf(plan) || plan.ability?.moves?.length || plan.steps.some((st) => /\bFly\b|\bClimb\b/.test(st.text ?? ""))) continue;
-            if (costOf(plan) < P.act) plan.steps.push({ cost: 1, text: "Fly in place, to stay up" });
+            if (plan.kind === "none" || !costOf(plan) || plan.ability?.moves?.length || plan.steps.some((st) => st.fly || st.climb)) continue;
+            if (costOf(plan) < P.act) plan.steps.push({ cost: 1, fly: true, text: "Fly in place, to stay up" });
             else {
                 plan.notes.push(`It doesn't Fly this turn, so it falls ${drop} feet at the end of it (${Math.floor(drop / 2)} damage, prone)`);
                 plan.risk = (plan.risk ?? 0) + drop / 2 + 2;
@@ -1799,8 +1809,8 @@ function addStayAloft({ board, costOf, me, noFollow, plans }) {
 /** Dropping off a ledge hurts: the damage and landing prone, from its own drop step. */
 function addDropDamage({ plans }) {
     for (const plan of plans) {
-        const f = plan.steps.map((st) => /\bdrop down \d+ ft \((\d+) bludgeoning, lands prone\)/.exec(st.text ?? "")?.[1]).find(Boolean);
-        if (f) plan.risk = (plan.risk ?? 0) + Number(f);
+        const f = plan.steps.find((st) => st.fall)?.fall;
+        if (f) plan.risk = (plan.risk ?? 0) + f;
     }
 }
 
@@ -1818,8 +1828,7 @@ function planSustain({ board, costOf, intent, mc, noFollow, noSustain, plans }) 
         }
         const step = { cost: 1, text: `Sustain ${su.name} (if it's still up)` };
         // The sub-plan's own notes on its conditions and the way are added again below, for this plan as for every other
-        const own = /^(?:Prone|Grabbed|Slowed \d|Stunned \d|Quickened|Stupefied \d|Fascinated|Blinded):|^The way crosses|^Opens a door on the way/;
-        const plan = rest ? { ...rest, title: `Sustain ${su.name}, then ${rest.title}`, steps: [step, ...rest.steps.map((st) => ({ ...st }))], notes: rest.notes.filter((n) => !own.test(n)), ev: rest.ev + su.value, flatEv: su.value, sustains: true }
+        const plan = rest ? { ...rest, title: `Sustain ${su.name}, then ${rest.title}`, steps: [step, ...rest.steps.map((st) => ({ ...st }))], notes: rest.notes.filter((n) => !rest.ownNotes?.includes(n)), ev: rest.ev + su.value, flatEv: su.value, sustains: true }
             : { kind: "buff", title: `Sustain ${su.name}`, target: null, ev: su.value, flatEv: su.value, steps: [step, ...(P.act > 1 ? [{ cost: P.act - 1, text: "Its other actions: move, or take cover; nothing else it has reaches a foe" }] : [])], notes: [], dest: null, sustains: true };
         delete plan.score;
         delete plan.why;
@@ -1960,7 +1969,7 @@ function bestArea(board, squares, rectAt, a) {
         ev: best.ev, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null,
         aim: best.aim.origin ?? best.aim.aim ?? null, caught: best.hits.enemies,
     };
-    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to line it up` });
+    if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, ...wayOf(best.sq.route), text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to line it up` });
     plan.steps.push({ cost: a.cost, text: `${a.name} (${a.area.shape === "space" ? "everyone in its space" : `${a.area.size}-foot ${a.area.shape}`}) catching ${names.join(", ")}${a.save ? `: ${a.save.basic !== false ? "basic " : ""}${cap(a.save.stat)} DC ${a.dc}` : ""}` });
     if (best.hits.allies.length) plan.notes.push(`Also catches ${best.hits.allies.map(nameOf).join(", ")}`);
     if (best.self) plan.notes.push("It stands in the burst itself");

@@ -146,7 +146,7 @@ function bard(board, ctx, out) {
                 options.sort((a, b) => b.ev - a.ev);
                 if (options[0] && options[0].ev > ev + 0.5) {
                     const o = options[0];
-                    push(`${o.key === "lingering" ? "Lingering" : "Fortissimo"} ${anthem.name}`, o.ev, [{ cost: anthemCost, text: o.text }, ...selfPart.steps], [o.note, ...(options[1] ? [`${options[1].key === "lingering" ? "Lingering" : "Fortissimo"} instead would be worth about ${Math.round(options[1].ev)}.`] : []), `Focus Points: ${fp} left.`], 0.5);
+                    push(`${o.key === "lingering" ? "Lingering" : "Fortissimo"} ${anthem.name}`, o.ev, [{ cost: anthemCost, focus: true, text: o.text }, ...selfPart.steps], [o.note, ...(options[1] ? [`${options[1].key === "lingering" ? "Lingering" : "Fortissimo"} instead would be worth about ${Math.round(options[1].ev)}.`] : []), `Focus Points: ${fp} left.`], 0.5);
                 }
                 // Warrior muse spellshapes: an ally reacts to the anthem with a Stride, a Strike, or both
                 const shape = (slug, name, kind) => {
@@ -289,7 +289,7 @@ function bard(board, ctx, out) {
         const healed = side.reduce((s, c) => s + Math.min(avg, Math.max(0, c.maxHp - c.hp)), 0);
         const hurtOnes = side.filter((c) => c.hp <= c.maxHp * 0.7);
         if (healed >= avg * 0.8 || hurtOnes.length >= 2) {
-            push(`Soothing Ballad: heal ${hurtOnes.length ? hurtOnes.map((c) => (c === me ? "yourself" : nameOf(c))).join(", ") : "your side"}`, 0.8 * healed, [{ cost: 2, text: `Soothing Ballad: about ${Math.round(avg)} HP to you and each ally within 30 feet, about ${Math.round(healed)} HP restored in all` }], [`One Focus Point for the whole side; ${fp} left.${compNote()}`], 0.3);
+            push(`Soothing Ballad: heal ${hurtOnes.length ? hurtOnes.map((c) => (c === me ? "yourself" : nameOf(c))).join(", ") : "your side"}`, 0.8 * healed, [{ cost: 2, focus: true, text: `Soothing Ballad: about ${Math.round(avg)} HP to you and each ally within 30 feet, about ${Math.round(healed)} HP restored in all` }], [`One Focus Point for the whole side; ${fp} left.${compNote()}`], 0.3);
         }
         const scared = side.filter((c) => c.conditions?.has?.("frightened") || c.conditions?.has?.("paralyzed"));
         if (scared.length) out.notes.push(`Soothing Ballad can instead counteract fear or paralysis on your side within 30 feet: ${scared.map(nameOf).join(", ")}.`);
@@ -306,7 +306,7 @@ function bard(board, ctx, out) {
             const c = degreeChances(perf, dc);
             const odds = c.s + c.cs;
             const ev = top.reduce((s, x) => s + worth(board, x.cond) * 1.5, 0) * odds;
-            push(`Symphony of the Unfettered Heart: free ${top.map((x) => (x.c === me ? "yourself" : nameOf(x.c))).join(", ")}`, ev, [{ cost: 2, text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against a DC near ${dc}` }], [`A failure locks that effect out for a day. Focus Points: ${fp} left.${compNote()}`], 0.3);
+            push(`Symphony of the Unfettered Heart: free ${top.map((x) => (x.c === me ? "yourself" : nameOf(x.c))).join(", ")}`, ev, [{ cost: 2, focus: true, text: `Symphony of the Unfettered Heart on ${top.map((x) => `${x.c === me ? "yourself" : nameOf(x.c)} (${x.cond})`).join(", ")}: Performance ${signed(perf)} to counteract, about ${pct(odds)} against a DC near ${dc}` }], [`A failure locks that effect out for a day. Focus Points: ${fp} left.${compNote()}`], 0.3);
         }
     }
     // ---- Fatal Aria (20; 1 action, 1 Focus Point, 30 feet): a foe of level 16 or lower dies; 17 dies under 51 HP; 18 and up takes 50
@@ -316,7 +316,7 @@ function bard(board, ctx, out) {
         for (const f of foes.filter((x) => feetBetween(me.rect, x.rect) <= 30)) {
             const L = f.level ?? lv;
             const ev = L <= 16 ? f.hp * 1.2 : L === 17 ? (f.hp <= 50 ? f.hp * 1.2 : f.hp) : Math.min(50, f.hp);
-            push(`Fatal Aria on ${nameOf(f)}`, ev, [{ cost: 1, text: `Fatal Aria on ${nameOf(f)}, no save: a creature of level 16 or lower dies outright, level 17 dies at 50 HP or fewer (else drops to 0 and dying 1), and anything higher takes 50 damage and dies at 0 HP` }], ["Once a minute per target; it's immune after. Focus Points: " + fp + " left." + compNote()], 0.5);
+            push(`Fatal Aria on ${nameOf(f)}`, ev, [{ cost: 1, focus: true, text: `Fatal Aria on ${nameOf(f)}, no save: a creature of level 16 or lower dies outright, level 17 dies at 50 HP or fewer (else drops to 0 and dying 1), and anything higher takes 50 damage and dies at 0 HP` }], ["Once a minute per target; it's immune after. Focus Points: " + fp + " left." + compNote()], 0.5);
         }
     }
 

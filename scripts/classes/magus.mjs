@@ -159,7 +159,7 @@ function magus(board, ctx, out) {
             let text = `${recharger.name} (conflux, 1 action, 1 Focus Point): ${recharger.text}; it recharges your Spellstrike`;
             const cs = confluxStrikes(f, 2);
             if (cs.text) { add += cs.ev; text += ` (${cs.text})`; }
-            steps.push({ cost: 1, text }); ev += add;
+            steps.push({ cost: 1, focus: true, text }); ev += add;
             if (has(actor, "arcane-cascade") && !inStance) notes.push(`Arcane Cascade instead would give +${cascade} on your melee Strikes from now on.`);
             return { ev, notes };
         }
@@ -192,7 +192,7 @@ function magus(board, ctx, out) {
     // PF2e doesn't record the charge (see chargeOf): when the helper can't tell, the Spellstrike-first plans say they assume
     // it's charged, and the recharge-first plans further down are the turn for when it isn't.
     const assume = charge === null ? "This assumes your Spellstrike is charged. PF2e doesn't record it, so the helper can't see whether you've used it since you last recharged; if you haven't recharged, take a recharge-first plan." : null;
-    const spellstrikeStep = (f, ch) => ({ cost: 2, text: `${ch.best.lunging ? "Lunging " : ""}Spellstrike ${nameOf(f)}${ch.best.lunging ? ` (your staff reaches ${5 * ch.best.sp.rank} feet farther)` : ""}: ${ch.best.s.label} (${signed(ch.best.bonus)}, hits about ${pct(ch.best.hit)}) carrying ${carry(ch.best)}${spellText(ch.best, f)}${orText(ch)}` });
+    const spellstrikeStep = (f, ch) => ({ cost: 2, focus: !!ch.best.sp.focus, text: `${ch.best.lunging ? "Lunging " : ""}Spellstrike ${nameOf(f)}${ch.best.lunging ? ` (your staff reaches ${5 * ch.best.sp.rank} feet farther)` : ""}: ${ch.best.s.label} (${signed(ch.best.bonus)}, hits about ${pct(ch.best.hit)}) carrying ${carry(ch.best)}${spellText(ch.best, f)}${orText(ch)}` });
     /** Where f can be Spellstruck from with made attacks before it: in reach now or after one Stride, ranged from here, a Lunging staff. */
     const optionsFor = (f, canStride, made) => {
         const options = [];
@@ -279,7 +279,7 @@ function magus(board, ctx, out) {
             if (recharger && (recharger.strike !== "melee" || near) && (recharger.strike !== "ranged" || spellRanged.length || ranged.length)) {
                 const cs = confluxStrikes(f, 0);
                 const madeAfter = recharger.strike ? recharger.strikes : 0;
-                const way = { step: { cost: 1, text: `${recharger.name} (conflux, 1 action, 1 Focus Point): ${recharger.text}${cs.text ? ` (${cs.text})` : ""}; it recharges your Spellstrike` }, ev: cs.ev }; // the recharge is spent again by the Spellstrike
+                const way = { step: { cost: 1, focus: true, text: `${recharger.name} (conflux, 1 action, 1 Focus Point): ${recharger.text}${cs.text ? ` (${cs.text})` : ""}; it recharges your Spellstrike` }, ev: cs.ev }; // the recharge is spent again by the Spellstrike
                 for (const o of optionsFor(f, false, madeAfter)) consider(way, o);
             }
             if (!best) continue;
@@ -304,7 +304,7 @@ function magus(board, ctx, out) {
             const cs = confluxStrikes(f, ctx.made);
             if (!cs.text) continue;
             const ev = cs.ev + 0.8;
-            out.plans.push({ kind: "class", title: `${recharger.name} on ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps: [{ cost: 1, text: `${recharger.name} (conflux, 1 Focus Point): ${recharger.text} (${cs.text}); it recharges your Spellstrike` }], notes: [] });
+            out.plans.push({ kind: "class", title: `${recharger.name} on ${nameOf(f)}`, target: f, ev, score: ev + 0.3, dest: null, steps: [{ cost: 1, focus: true, text: `${recharger.name} (conflux, 1 Focus Point): ${recharger.text} (${cs.text}); it recharges your Spellstrike` }], notes: [] });
         }
     }
     if (ss && ctx.made >= 1 && ctx.actions >= 1 && !recharger) out.notes.push(`If your Spellstrike isn't charged, ${has(actor, "running-recharge") ? "Running Recharge (1 action) recharges it and moves you" : has(actor, "maguss-analysis") ? "Magus's Analysis (1 action) recharges it and Recalls Knowledge" : "recharging it takes 1 action"}.`);

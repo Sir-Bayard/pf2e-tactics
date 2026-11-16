@@ -364,7 +364,7 @@ function necromancer(board, ctx, out) {
             const infuse = lv >= 8 && has(actor, "infuse-void") && g.kind === "area" && best.hit && ctx.actions >= total + 1;
             if (infuse) { steps.push({ cost: 1, text: `Infuse Void: +${rank} void on each creature the spell damages; a kill gives the Focus Point back (once per 10 minutes)` }); ev += best.hit.foes.length * rank * 0.7; total += 1; }
             if (lv >= 10 && reaper && has(actor, "skeletal-extension") && g.kind !== "ally") steps.push({ cost: 0, text: "Skeletal Extension (free, right before the spell): the thrall's remains stretch your limbs, +10 feet of reach and 15-foot Steps until the end of your turn" });
-            steps.push({ cost: g.cost, text: `${best.text}${consume ? "" : ` (${fpText(g)})`}` });
+            steps.push({ cost: g.cost, focus: true, text: `${best.text}${consume ? "" : ` (${fpText(g)})`}` });
             const freeEv = f ? bestFree.get(f.id) ?? 0 : 0;
             const reserve = fpReserve();
             const notes = [`The free version of this turn (Create Thrall and Strike, or Thrall Charge) is worth about ${n2(freeEv)}; this spends a Focus Point, so it's scored ${reserve} under its value.`];
@@ -384,7 +384,7 @@ function necromancer(board, ctx, out) {
         if (picks.length) {
             let ev = 0;
             for (const f of foes) if (picks.some((p) => feetBetween(p, f.rect) <= 10)) ev += saveExpected(f.saves?.reflex ?? 5 + lv, dc, dice * 6.5, { basic: true }).expected;
-            push({ title: `Bloody Tendrils among ${picks.length === 1 ? "the foe" : "the foes"}`, target: foes[0], ev, score: ev - fpReserve() + 0.4, steps: [...(consume ? [{ cost: 0, text: fpText() }] : []), { cost: 1, text: `Bloody Tendrils: ${picks.length} immobile tendril thralls beside ${foes.slice(0, picks.length).map(nameOf).join(", ")}; a foe that ends its turn within 10 feet of one takes ${dice}d12 (basic Reflex DC ${dc}); they're thralls, so your grave spells can spend them${consume ? "" : ` (spends 1 Focus Point, ${fp} of ${fpMax} left)`}` }], notes: ["Tendrils can't move and are immune to physical damage; a foe that stays put beside one is lashed every round for a minute."] });
+            push({ title: `Bloody Tendrils among ${picks.length === 1 ? "the foe" : "the foes"}`, target: foes[0], ev, score: ev - fpReserve() + 0.4, steps: [...(consume ? [{ cost: 0, text: fpText() }] : []), { cost: 1, focus: true, text: `Bloody Tendrils: ${picks.length} immobile tendril thralls beside ${foes.slice(0, picks.length).map(nameOf).join(", ")}; a foe that ends its turn within 10 feet of one takes ${dice}d12 (basic Reflex DC ${dc}); they're thralls, so your grave spells can spend them${consume ? "" : ` (spends 1 Focus Point, ${fp} of ${fpMax} left)`}` }], notes: ["Tendrils can't move and are immune to physical damage; a foe that stays put beside one is lashed every round for a minute."] });
         }
     }
 

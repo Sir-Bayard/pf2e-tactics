@@ -156,14 +156,14 @@ function wizard(board, ctx, out) {
     if (bolt && t && ctx.actions >= 1 && feetBetween(me.rect, t.rect) <= 30) {
         const dice = 1 + Math.floor((Math.max(1, Math.ceil(lv / 2)) - 1) / 2);
         const avg = bolt.avg > 0 ? bolt.avg : dice * 3.5;
-        const first = { cost: 1, text: `Force Bolt at ${nameOf(t)}: ${dice}d4+${dice} force, no roll, it just hits (about ${Math.round(avg)})` };
+        const first = { cost: 1, focus: true, text: `Force Bolt at ${nameOf(t)}: ${dice}d4+${dice} force, no roll, it just hits (about ${Math.round(avg)})` };
         const rest = ctx.actions - 1;
         // Force Bolt alone, then with the cantrip, and with the slot spell when it does more (thrift weighs the slot)
         const nexts = rest >= 1 ? followUps(board, t, rest, ctx.made) : [];
         for (const next of nexts.some(Boolean) ? nexts.filter(Boolean) : [null]) {
             const steps = [first];
             let ev = avg;
-            if (next) { steps.push({ cost: next.sp.cost, text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; }
+            if (next) { steps.push({ cost: next.sp.cost, focus: isFocus(next.sp), text: `Cast ${next.sp.name}${rankText(next.sp)} at ${nameOf(t)} (about ${Math.round(next.e.expected)})` }); ev += next.e.expected; }
             const notes = [`Spends a Focus Point${focus !== null ? ` (${focus} left)` : ""}.`];
             if (adjacentFoes.length) notes.push(`Casting next to ${adjacentFoes.map(nameOf).join(", ")} provokes a Reactive Strike if it has one.`);
             const plan = { kind: "class", title: `Force Bolt ${nameOf(t)}${next ? `, then ${next.sp.name}` : ""}`, target: t, ev, score: ev + 0.3, dest: null, steps, notes };
@@ -180,7 +180,7 @@ function wizard(board, ctx, out) {
             const avg = Math.max(1, weapon.avg - str + int);
             const e = strikeExpected(hand.attack + mapFor(ctx.made, false), t.ac, avg);
             out.plans.push({ kind: "class", title: `Hand of the Apprentice at ${nameOf(t)}`, target: t, ev: e.expected, score: e.expected + 0.3, dest: null,
-                steps: [{ cost: 1, text: `Hand of the Apprentice: hurl your ${weapon.label} at ${nameOf(t)} (spell attack ${signed(hand.attack + mapFor(ctx.made, false))}, hits about ${pct(e.hit)}, its damage with your Intelligence instead of Strength, about ${Math.round(avg)}); it flies back to your hand` }],
+                steps: [{ cost: 1, focus: true, text: `Hand of the Apprentice: hurl your ${weapon.label} at ${nameOf(t)} (spell attack ${signed(hand.attack + mapFor(ctx.made, false))}, hits about ${pct(e.hit)}, its damage with your Intelligence instead of Strength, about ${Math.round(avg)}); it flies back to your hand` }],
                 notes: [`Spends a Focus Point${focus !== null ? ` (${focus} left)` : ""}. It counts as an attack for the multiple attack penalty.`] });
         }
     }
@@ -192,7 +192,7 @@ function wizard(board, ctx, out) {
             const hit = foes.reduce((m, f) => Math.max(m, f.reactiveStrike?.avg ?? 0), 0) || 3 + lv;
             const ev = 0.1 * hit * 2 * threatened.length;
             out.plans.push({ kind: "class", title: "Protective Wards", target: null, ev, score: ev + 0.2, dest: null,
-                steps: [{ cost: 1, text: `Protective Wards: +1 status AC to you${threatened.length > 1 ? ` and ${threatened.filter((c) => c !== me).map(nameOf).join(", ")}, inside 5 feet of you` : " (and allies inside 5 feet)"}; Sustain it to grow the ring 5 feet a turn, up to 30` }],
+                steps: [{ cost: 1, focus: true, text: `Protective Wards: +1 status AC to you${threatened.length > 1 ? ` and ${threatened.filter((c) => c !== me).map(nameOf).join(", ")}, inside 5 feet of you` : " (and allies inside 5 feet)"}; Sustain it to grow the ring 5 feet a turn, up to 30` }],
                 notes: [`Spends a Focus Point${focus !== null ? ` (${focus} left)` : ""}. Allies have to stay inside the ring to keep the bonus.`] });
         }
     }
