@@ -28,6 +28,13 @@ const costGlyph = (n) => (n >= 1 && n <= 3 ? glyph(n) : "");
 const ul = (items) => (items.length ? `<ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>` : "");
 const section = (title, inner, cls = "") => (inner ? `<section class="npt-section ${cls}"><h4>${title}</h4>${inner}</section>` : "");
 
+/** A name as Foundry makes a slug of it: apostrophes drop ("Hunter's Aim" -> "hunters-aim"). */
+const slugify = (n) => String(n ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/** An item's slug: its own, else one made from its name. */
+const slugOf = (i) => i?.slug ?? i?.system?.slug ?? slugify(i?.name);
+/** Token fields that change what a board reads (a redraw follows a change to any of them). */
+const BOARD_FIELDS = ["x", "y", "width", "height", "hidden", "elevation", "disposition", "delta", "actorId", "level", "movementAction"];
+
 /** The world actor behind a token, so notes are shared by every token of it. */
 const baseActorOf = (actor) => (actor?.isToken ? game.actors.get(actor.id) ?? actor : actor);
 
@@ -41,6 +48,11 @@ function tokensSetNames() {
 }
 /** Can players see this token's name? PF2e's own getter ignores its setting, so the setting is checked here. */
 const playersSeeName = (tokenDoc) => !tokensSetNames() || tokenDoc?.playersCanSeeName !== false;
+/** Redraw the GM's turn card soon, if it's open: card.mjs registers how (setCardRefresh), so other files needn't import it. */
+let cardRefresh = () => {};
+const refreshCard = (delay) => cardRefresh(delay);
+const setCardRefresh = (fn) => { cardRefresh = typeof fn === "function" ? fn : () => {}; };
+
 /** This module's browser storage, per world and user. */
 const store = storage("pf2e-tactics");
 
@@ -64,4 +76,4 @@ const gmLeadNow = async () => (tabsStarted ? tabs.leadNow() : !!game.users?.acti
 /** Can every player see this chat card? A whispered or blind one teaches the party nothing. */
 const playersSee = (message) => !message?.blind && !((message?.whisper?.length ?? message?.whisper?.size ?? 0) > 0);
 
-export { FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, gmLeadNow, isGmLead, labelAttr, link, playersSee, playersSeeName, rememberWindow, safe, section, setting, signed, startGmTabs, store, tipAttr, tokensSetNames, ul };
+export { BOARD_FIELDS, FLAG_SCOPE, MODULE_ID, POSITION_KEY, flagOf, baseActorOf, cap, costGlyph, esc, gmLeadNow, isGmLead, labelAttr, link, playersSee, playersSeeName, refreshCard, rememberWindow, safe, section, setCardRefresh, setting, signed, slugOf, slugify, startGmTabs, store, tipAttr, tokensSetNames, ul };

@@ -9,14 +9,13 @@
  *          [{ cost, text }], notes }), notes as plain sentences for the Your Class card
  * Wording is for the player ("you", "your"), in the house voice: plain, concrete, no exclamation marks.
  */
-import { signed } from "../shared.mjs";
-import { degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected } from "../reader.mjs";
-import { CONDITION_VALUE, isOffGuard, nameOf, reachableSquares } from "../advisor.mjs";
+import { signed, slugOf } from "../shared.mjs";
+import { degreeChances, feetBetween, inReach, mapFor, slotsByRank, strikeExpected, saveExpected } from "../reader.mjs";
+import { CONDITION_VALUE, hitWorth } from "../values.mjs";
+import { isOffGuard, nameOf, reachableSquares } from "../advisor.mjs";
 
 const half = (n) => Math.floor((Number(n) || 0) / 2 / 5) * 5;
 const pct = (x) => `${Math.round(x * 100)}%`;
-/** An item's slug as Foundry makes it: apostrophes drop ("Hunter's Aim" -> "hunters-aim"). */
-const slugOf = (i) => i?.slug ?? i?.system?.slug ?? (i?.name ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 /** A slug with any possessive folded the way Foundry folds it, so "hunter-s-aim" (the catalog's spelling) and "hunters-aim" match. */
 const slugKey = (s) => String(s ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/([a-z0-9])-s(?=-|$)/g, "$1s");
 function has(actor, slug) {
@@ -70,7 +69,7 @@ function effect(actor, re) {
 const canMove = (c) => c.canAct !== false && !["immobilized", "grabbed", "restrained", "paralyzed", "unconscious"].some((x) => c.conditions?.has?.(x));
 const level = (board) => board.me.level ?? 1;
 /** A rough worth, in damage, of a condition on a foe at this level (the advisor's table scaled by hits). */
-const worth = (board, cond, mult = 1) => (CONDITION_VALUE[cond] ?? 2) * Math.max(1, (6 + 1.6 * level(board)) / 8) * mult;
+const worth = (board, cond, mult = 1) => (CONDITION_VALUE[cond] ?? 2) * Math.max(1, hitWorth(level(board)) / 8) * mult;
 
 /**
  * The best melee (or, with melee: false, ranged) Strike and what it's expected to do against t, with the attacks
@@ -145,21 +144,9 @@ const isSignature = (sp) => !!(sp.signature ?? sp.spell?.system?.location?.signa
  * Spell slots left by rank across the actor's slot entries (focus, innate and ritual entries skipped): [{ rank, left,
  * max }].
  */
+/** Spell slots left and in all at each rank, lowest first: [{ rank, left, max }] (slotsByRank in reader.mjs, as a list). */
 function slotsLeft(actor) {
-    const out = new Map();
-    const entries = actor?.spellcasting?.regular ?? actor?.spellcasting?.contents ?? actor?.spellcasting ?? [];
-    for (const e of Array.isArray(entries) ? entries : []) {
-        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "focus" || e.system?.prepared?.value === "innate") continue;
-        const slots = e.system?.slots ?? {};
-        for (let r = 1; r <= 10; r++) {
-            const s = slots[`slot${r}`];
-            if (!s || !(Number(s.max) > 0)) continue;
-            const cur = out.get(r) ?? { rank: r, left: 0, max: 0 };
-            cur.left += Math.max(0, Number(s.value) || 0); cur.max += Number(s.max) || 0;
-            out.set(r, cur);
-        }
-    }
-    return [...out.values()].sort((a, b) => a.rank - b.rank);
+    return Object.entries(slotsByRank(actor)).map(([rank, v]) => ({ rank: Number(rank), left: v.left, max: v.max })).sort((x, y) => x.rank - y.rank);
 }
 
 export { abil, classDC, diceAvg, diceOf, dieOf, isSignature, lc, ordinal, slotsLeft, strikeText, times, bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, hasAny, half, halfLevel, slugKey, sneaky, spendsSlot, standardDC, STANDARD_DC, usesLeft, level, markOffGuard, moveText, myReach, allySpeed, pct, slugOf, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed };

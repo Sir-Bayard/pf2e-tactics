@@ -5,10 +5,11 @@
  * of their foes' defenses. Read from chat and token moves; everything but the ledger is written by the active GM
  * only. One module, several files: see pf2e-tactics.mjs for the whole.
  */
-import { CONDITION_VALUE, NOTICE, actorTier } from "./advisor.mjs";
+import { CONDITION_VALUE, NOTICE, actorTier, hitWorth, threatDecay, threatOn, threatScale } from "./values.mjs";
+import { refreshCard } from "./shared.mjs";
+import { threatFor, workbenchRecharge } from "./board-data.mjs";
 import { FLAG_SCOPE, MODULE_ID, cap, costGlyph, esc, gmLeadNow, isGmLead, playersSee, safe, setting, tipAttr, flagOf } from "./shared.mjs";
 import { LAST_TARGET, profileItem, readDescription, readRecharge, speedsOf, spellEffects, visibleAdjustments } from "./reader.mjs";
-import { refreshSoon, workbenchRecharge } from "./card.mjs";
 
 // --- The turn so far: what the creature whose turn it is has done, read from the board and chat ------
 //
@@ -105,7 +106,7 @@ function onMoved(doc, movement) {
         e.text = moveText(e);
         L.log.push(e);
     }
-    refreshSoon(200);
+    refreshCard(200);
 }
 function onChatForTurn(message) {
     if (!ledgerMine()) return;
@@ -146,7 +147,7 @@ function onChatForTurn(message) {
             if (L.credit.checks > 0 && ctx.type === "skill-check") {
                 const inAbility = part("checks");
                 L.log.push({ kind: "check", text: `${cap(opts.map((o) => /^skill:([a-z-]+)$/.exec(o)?.[1]).find(Boolean) ?? "check")}${inAbility}`, cost: 0, attack: counts(true) && !L.credit.noMap ? 1 : 0 });
-                refreshSoon(150);
+                refreshCard(150);
             }
             return;
         }
@@ -156,7 +157,7 @@ function onChatForTurn(message) {
         const lastMove = L.log.findLast((e) => !e.terrain);
         if (TERRAIN_CHECKS.has(slug) && lastMove?.kind === "move" && Date.now() - (lastMove.at ?? 0) < 6000) {
             L.log.push({ kind: "check", text: `${cap(slug)} (part of the move)`, cost: 0, attack: 0, terrain: true });
-            refreshSoon(150);
+            refreshCard(150);
             return;
         }
         const inAbility = part("checks");
@@ -178,7 +179,7 @@ function onChatForTurn(message) {
         const traits = item.system?.traits?.value ?? [];
         if (L.log.some((x) => x.kind === "ability" && x.itemId === item.id)) {
             const once = traits.includes("flourish") || (!!item.system?.frequency?.max && ["turn", "round"].includes(item.system.frequency.per)) || !!readRecharge(readDescription(item.system?.description?.value ?? "", { localize: (k) => game.i18n.localize(k) }).text);
-            if (once) { refreshSoon(150); return; } // its card posted again (to show the players, or a double click)
+            if (once) { refreshCard(150); return; } // its card posted again (to show the players, or a double click)
         }
         let prof = null;
         try { prof = profileItem(item, item.actor?.name ?? ""); } catch { /* unreadable ability: count its cost only */ }
@@ -213,7 +214,7 @@ function onChatForTurn(message) {
         clearCredit(L);
         L.log.push({ kind: "spell", text: `Cast ${item.name}`, cost, attack: 0 });
     } else return;
-    refreshSoon(150);
+    refreshCard(150);
 }
 function adjustLedger(kind, delta) {
     const L = currentLedger();
@@ -256,7 +257,7 @@ async function onAbilityUsed(message) {
     const formula = readRecharge(readDescription(item.system?.description?.value ?? "", { localize: (k) => game.i18n.localize(k) }).text);
     if (!formula) return;
     // PF2e Workbench already rolls it and puts a "Used ..." effect on the creature: one roll, one timer
-    if (workbenchRecharge() && /^\s*1d\d+\s*$/.test(formula)) { refreshSoon(400); return; }
+    if (workbenchRecharge() && /^\s*1d\d+\s*$/.test(formula)) { refreshCard(400); return; }
     try {
         const roll = await new Roll(formula).evaluate({ allowInteractive: false });
         await actor.setFlag(FLAG_SCOPE, "recharge", { [item.id]: { combatId: combat.id, readyRound: combat.round + roll.total, setRound: combat.round, setTurn: combat.turn } });
@@ -277,26 +278,13 @@ async function onAbilityUsed(message) {
 // the combat (flag "threat": { round, t: { npcTokenId: { tokenId: value } } }), written by the active GM only, and
 // faded each round by the threatDecay setting (halved by default). Damage counts its amount, healing a foe half the
 // HP healed, a miss 2, a maneuver 1 to 3; saves and spells count by what they leave (saveThreat, onSpellCast).
-const threatOn = () => setting("threat", true) !== false;
-const threatDecay = () => { const v = Number(setting("threatDecay", "0.5")); return v > 0 && v <= 1 ? v : 0.5; };
-const threatScale = () => Number(setting("threatWeight", "1")) || 1;
 const dropCut = () => Math.min(100, Math.max(0, Number(setting("threatDrop", 50)) || 0)) / 100;
-/** About what one hit does at a level (GM Core's moderate Strike damage), so fixed amounts stay in proportion from level -1 to 25. */
-const hitWorth = (level) => Math.max(4, 6 + 1.6 * (Number(level) || 0));
 const threatQueue = new Map();
 /** Who last hurt or hit each creature (token id -> { src, at }), to credit persistent damage it then takes. */
 const LAST_HIT = new Map();
 let threatTimer = null;
 let threatChain = Promise.resolve();
 
-function threatFor(combat, tokenId) {
-    if (!threatOn()) return {};
-    const f = flagOf(combat, "threat");
-    const row = f?.t?.[tokenId];
-    if (!row || typeof row !== "object") return {};
-    const k = Math.pow(threatDecay(), Math.max(0, (combat.round ?? 0) - (f.round ?? 0)));
-    return Object.fromEntries(Object.entries(row).map(([id, v]) => [id, (Number(v) || 0) * k]));
-}
 
 function addThreat(combat, npcTokenId, srcTokenId, amount) {
     if (!combat || !npcTokenId || !srcTokenId || npcTokenId === srcTokenId || !amount) return; // negative takes it back (a reverted damage card)

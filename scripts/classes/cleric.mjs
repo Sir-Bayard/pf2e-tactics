@@ -7,13 +7,13 @@
  * the domain pool, and "when" notes for the feats that ride on a heal or a harm.
  */
 import { bestStrike, canMove, castable, choiceOf, effect, focusLeft, has, half, level, spendsSlot, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { hitWorth } from "../values.mjs";
 
 const isUndead = (c) => (c?.traits ?? []).includes("undead");
 /** Does the party know this foe's creature type? (The Turn Helper's estimate leaves it unknown until it's identified.) */
 const typeKnown = (c) => c?.traitsKnown !== false;
 const itemsOf = (actor) => actor?.items?.contents ?? (Array.isArray(actor?.items) ? actor.items : []);
 const itemById = (actor, id) => actor?.items?.get?.(id) ?? itemsOf(actor).find((i) => i.id === id) ?? null;
-const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
 
 /**
  * The divine font as the sheet shows it: { kinds, rank, max, versatile, heal, harm, dc }. Counts every prepared Heal

@@ -4,6 +4,7 @@
  * See classes/_common.mjs for the shape of a class read.
  */
 import { bestStrike, canMove, castable, effect, focusLeft, has, slugOf, sneaky, level, markOffGuard, moveText, myReach, allySpeed, pct, squareToReach, strikeRun, targets, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, CONDITION_VALUE, nameOf, reachableSquares, signed } from "./_common.mjs";
+import { hitWorth } from "../values.mjs";
 
 
 function general(board, ctx, out) {
@@ -20,7 +21,7 @@ function general(board, ctx, out) {
 }
 
 /** A fallen ally back on its feet is worth about two rounds of its hits (the advisor's revive weight for a thinking creature). */
-const backWorth = (level) => 1.1 * Math.max(4, 6 + 1.6 * (Number(level) || 0)) * 2;
+const backWorth = (level) => 1.1 * hitWorth(level) * 2;
 /** Treat Wounds by DC: [DC, HP on a success (2d8 + bonus), HP on a critical success (4d8 + bonus)], trained to legendary. */
 const TREAT = [null, [15, 9, 18], [20, 19, 28], [30, 39, 48], [40, 59, 68]];
 

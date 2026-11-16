@@ -14,8 +14,8 @@
  * only trace of one is a line about Seeking, when the party already knows it is there (its combatant is in the
  * tracker).
  */
-import { MODULE_ID, esc, isGmLead, link, playersSee, playersSeeName, rememberWindow, setting, signed, flagOf } from "./shared.mjs";
-import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
+import { BOARD_FIELDS, MODULE_ID, esc, isGmLead, link, playersSee, playersSeeName, rememberWindow, setting, signed, slugify, flagOf } from "./shared.mjs";
+import { coverBetween, feetBetween, flanks, inReach, isDown, readBoard, slotsByRank, tokenStandIn, visibilityOf, withVisioner } from "./reader.mjs";
 import { flankingAlly, isOffGuard, nameOf, pathTo, planTurn, reachableSquares } from "./advisor.mjs";
 import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, stepsHtml, titleCase } from "./card.mjs";
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
@@ -338,8 +338,7 @@ function adviceBoard(board, ledger) {
     const est = (e) => estimateFoe(board, e, known, L ?? e.level ?? partyLevel(board));
     const seen = board.seenFoes.map(est);
     // Abilities classes.mjs reads itself are kept from the advisor, which would misread them (a tactic as a debuff)
-    const slug = (n) => String(n ?? "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");  // apostrophes drop, as Foundry's sluggify does ("hunters-aim")
-    const profiles = board.profiles.filter((p) => !(p.traits ?? []).includes("tactic") && !CLASS_HANDLED.has(slug(p.name)));
+    const profiles = board.profiles.filter((p) => !(p.traits ?? []).includes("tactic") && !CLASS_HANDLED.has(slugify(p.name)));
     return { ...board,
         // what this character has done this fight that PF2e doesn't keep (Spellstrike's charge, the foe exploited, who it
         // has Demoralized...), from its own chat cards
@@ -677,24 +676,6 @@ function refreshHelper(delay = 250) {
 
 /* ------------------------------------------------------------------ spell thrift */
 
-/** Spell slots left by rank, from the character's spellcasting entries: { rank: { left, max } }. Prepared entries count the
- *  spells still prepared and not expended; spontaneous ones their uses left. Empty when the sheet carries no slots. */
-function slotsByRank(actor) {
-    const out = {};
-    for (const e of actor?.spellcasting?.regular ?? []) {
-        if (e.isFocusPool || e.isRitual) continue;
-        const slots = e.system?.slots ?? {};
-        for (const [key, slot] of Object.entries(slots)) {
-            const rank = Number(key.replace("slot", ""));
-            if (!rank || !(slot?.max > 0)) continue;
-            const prepared = Array.isArray(slot.prepared) ? slot.prepared : Object.values(slot.prepared ?? {});
-            const left = e.isPrepared && !e.isFlexible ? prepared.filter((p) => p?.id && !p.expended).length : Math.max(0, Number(slot.value) || 0);
-            const cur = out[rank] ?? (out[rank] = { left: 0, max: 0 });
-            cur.left += left; cur.max += slot.max;
-        }
-    }
-    return out;
-}
 const THRIFT = { frugal: 1.5, normal: 1, free: 0 };
 /**
  * A slot spent now is a slot gone for the day's later fights, so a slot spell has to beat the best cantrip by a clear
@@ -801,7 +782,6 @@ Hooks.on("createChatMessage", (message) => {
     const sp = message.speaker ?? {};
     if (helperWindow?.rendered && (sp.actor === helperWindow.actor?.id || sp.token === helperWindow.token?.id)) refreshHelper(300);
 });
-const BOARD_FIELDS = ["x", "y", "width", "height", "hidden", "elevation", "disposition", "level"];
 Hooks.on("updateToken", (doc, changes) => { if (doc.parent === canvas?.scene && BOARD_FIELDS.some((k) => k in changes)) refreshHelper(300); });
 for (const hook of ["createToken", "deleteToken"]) Hooks.on(hook, (doc) => { if (doc.parent === canvas?.scene) refreshHelper(300); });
 // What the character can see changes with walls, doors, light and moves: redraw when a wall changes, or (on a player's
@@ -822,4 +802,4 @@ Hooks.on("updateActor", (actor, changes) => { if (helperWindow?.rendered && (cha
 for (const hook of ["createItem", "deleteItem"]) Hooks.on(hook, (item) => { if (helperWindow?.rendered && ["condition", "effect"].includes(item.type)) refreshHelper(300); });
 Hooks.on("canvasReady", () => refreshHelper(400));
 
-export { adviceBoard, adviseHelper, annotateBoard, buildHelper, helperApi, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, slotsByRank, spellThrift, turnLine };
+export { adviceBoard, adviseHelper, annotateBoard, buildHelper, helperApi, estimateFoe, helperBody, hideNames, inSight, noteReaction, openHelper, readHelperBoard, shownDoing, shownReactions, spellThrift, turnLine };

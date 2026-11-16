@@ -7,9 +7,8 @@
  * (flags["pf2e-tactics"].record = { combat, spellstrike, exploited, chaliceDrained, wandBoosted, demoralized, asked }),
  * so it survives a reload and starts over with the next fight.
  */
-import { MODULE_ID, gmLeadNow, flagOf } from "./shared.mjs";
+import { MODULE_ID, gmLeadNow, slugOf, flagOf } from "./shared.mjs";
 
-const slugOf = (i) => i?.slug ?? String(i?.name ?? "").toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 /** Actions that recharge Spellstrike besides the plain recharge (a conflux spell is read from its traits). */
 const RECHARGERS = new Set(["maguss-analysis", "running-recharge", "recharging-flurry", "rapid-recharge", "spell-retaliation", "recharge-spellstrike"]);
 
@@ -37,7 +36,7 @@ function save(actor, change) {
 function noteOwn(message) {
     const combat = game.combat;
     if (!combat?.started) return;
-    const author = message.author ?? message.user;
+    const author = message.author;
     if (author?.id !== game.user.id) return;
     const actor = message.actor;
     if (!actor || actor.type !== "character" || !actor.isOwner) return;

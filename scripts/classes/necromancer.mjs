@@ -12,6 +12,7 @@
  */
 import { bestStrike, effect, focusLeft, has, hasAny, level, moveText, myReach, pct, slugOf, squareToReach, strikeRun, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed } from "./_common.mjs";
 import { areaTest, centerOf, rectInArea } from "../reader.mjs";
+import { slotsByRank } from "../reader.mjs";
 
 const spellDC = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.dc) || 0)) || Number(board.me.actor?.classDC?.value) || 10 + level(board) + 5;
 const spellAttack = (board) => Math.max(0, ...(board.spells ?? []).map((s) => Number(s.attack) || 0)) || spellDC(board) - 10;
@@ -69,22 +70,8 @@ function thrallResource(actor) {
 }
 /** The prepared entries' slots by rank { left, max } (the dirge is prepared), and the highest rank. */
 function slotsOf(actor) {
-    const byRank = {};
-    let top = 0;
-    for (const entry of actor?.spellcasting?.regular ?? []) {
-        if (entry.isFocusPool) continue;
-        const slots = entry.system?.slots ?? {};
-        for (const [key, slot] of Object.entries(slots)) {
-            const rank = Number(key.replace(/\D/g, ""));
-            if (!rank || rank > 10) continue;
-            const max = Number(slot.max) || 0;
-            if (!max) continue;
-            top = Math.max(top, rank);
-            const list = Array.isArray(slot.prepared) ? slot.prepared : Object.values(slot.prepared ?? {});
-            const left = list.length ? list.filter((p) => p?.id && !p.expended).length : Number(slot.value) || 0;
-            byRank[rank] = { left: (byRank[rank]?.left ?? 0) + left, max: (byRank[rank]?.max ?? 0) + max };
-        }
-    }
+    const byRank = slotsByRank(actor);
+    const top = Math.max(0, ...Object.keys(byRank).map(Number));
     return { byRank, top: top || Math.max(1, Math.ceil((actor?.level ?? 1) / 2)) };
 }
 

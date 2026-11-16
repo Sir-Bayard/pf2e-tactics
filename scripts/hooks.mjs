@@ -4,7 +4,7 @@
  * Turns, trigger whispers, Foundry hooks, settings and the module API. One module, several files: see
  * pf2e-tactics.mjs for the whole.
  */
-import { FLAG_SCOPE, MODULE_ID, esc, gmLeadNow, isGmLead, setting, startGmTabs, flagOf } from "./shared.mjs";
+import { BOARD_FIELDS, FLAG_SCOPE, MODULE_ID, esc, gmLeadNow, isGmLead, setting, startGmTabs, flagOf } from "./shared.mjs";
 import { helperApi } from "./player.mjs";
 import { HP_AT_TURN, RECENT, isDown, profileItem, readBoard, stripTags } from "./reader.mjs";
 import { bindCard, buildCard, clearPath, closeWindow, editNotes, intentFrom, openCard, parseTriggers, postCard, rechargeLeft, refreshIfShowing, refreshSoon, registerSource, showWindow, triggersFor, turnWindow, usedEffects } from "./card.mjs";
@@ -128,7 +128,6 @@ for (const hook of ["createItem", "updateItem", "deleteItem"]) Hooks.on(hook, (i
     checkTriggersSoon();
 });
 // The board changed: someone moved, appeared or left
-const BOARD_FIELDS = ["x", "y", "width", "height", "hidden", "elevation", "disposition", "delta", "actorId", "level", "movementAction"];
 Hooks.on("updateToken", (doc, changes) => { if (doc.parent === canvas?.scene && BOARD_FIELDS.some((k) => k in changes)) refreshSoon(300); });
 for (const hook of ["createToken", "deleteToken"]) Hooks.on(hook, (doc) => { if (doc.parent === canvas?.scene) refreshSoon(300); });
 /**
@@ -181,7 +180,7 @@ Hooks.on("createItem", (item) => {
 });
 Hooks.on("moveToken", (doc, movement) => { try { onMoved(doc, movement); } catch (err) { console.warn(`${MODULE_ID} | couldn't count that move`, err); } });
 Hooks.on("renderChatMessageHTML", (message, html) => {
-    const root = html instanceof HTMLElement ? html : html?.[0];
+    const root = html instanceof HTMLElement ? html : null;
     if (root?.querySelector?.(".npt-card")) bindCard(root, null);
 });
 

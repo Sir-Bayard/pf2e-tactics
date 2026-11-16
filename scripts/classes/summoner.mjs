@@ -9,7 +9,7 @@
  * Field of Roots, Elemental Burst, Elemental Maelstrom, Tendril Strike's reach), Eidolon's Wrath, Piercing Jab, Eidolon's
  * Trample, Seething Frenzy, Lifelink Surge, and Manifest Eidolon when the eidolon isn't on the board. The rest are when-notes.
  */
-import { bestStrike, castable, effect, focusLeft, has, hasAny, level, myReach, allySpeed, pct, slugOf, squareToReach, standardDC, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, times } from "./_common.mjs";
+import { bestStrike, castable, effect, focusLeft, has, hasAny, level, myReach, allySpeed, pct, slugOf, squareToReach, standardDC, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, abil, times, slotsLeft } from "./_common.mjs";
 import { averageOf } from "../reader.mjs";
 import { round1 as r1 } from "../reader.mjs";
 
@@ -73,19 +73,6 @@ function sheetStrikes(actor) {
     return out;
 }
 /** Spell slots left by rank, from the actor's spellcasting entries: [{ rank, left, max }]. */
-function slotsLeft(actor) {
-    const by = new Map();
-    for (const sc of actor?.spellcasting?.regular ?? []) {
-        for (const [k, v] of Object.entries(sc.system?.slots ?? {})) {
-            const rank = Number(String(k).replace("slot", ""));
-            if (!rank || !(Number(v?.max) > 0)) continue;
-            const left = Array.isArray(v.prepared) && v.prepared.length ? v.prepared.filter((p) => !p.expended).length : Number(v.value) || 0;
-            const cur = by.get(rank) ?? { rank, left: 0, max: 0 };
-            by.set(rank, { rank, left: cur.left + left, max: cur.max + Number(v.max) });
-        }
-    }
-    return [...by.values()].sort((a, b) => a.rank - b.rank);
-}
 
 function summoner(board, ctx, out) {
     const actor = board.me.actor;

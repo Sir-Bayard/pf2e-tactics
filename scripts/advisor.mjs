@@ -6,7 +6,7 @@
  */
 import { MODULE_ID, cap, signed } from "./shared.mjs";
 import { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, healUse, heightOf, inReach, learnK, learnedAcBounds, mapFor, pct, rectInArea, round1, saveExpected, strikeExpected, verticalGap, visibilityOf, withVisioner } from "./reader.mjs";
-import { hitWorth, threatScale } from "./state.mjs";
+import { CONDITION_VALUE, NOTICE, TIER_TEXT, actorTier, hitWorth, isAnimal, threatScale, tierOf } from "./values.mjs";
 
 // The turn advisor: candidate turns from the creature's kit and the board, scored by expected
 // damage and what they set up, minus what they cost (reactions provoked, standing in reach).
@@ -34,7 +34,7 @@ function doorsOn(board, map, x, y) {
 }
 
 /** How to get to a square: fewest actions, then fewest reactions provoked. */
-function routeTo(board, x, y) {
+function routeTo(board, x, y, acts = actionsOf(board)) {
     const { me, move, field } = board;
     if (x === me.rect.x && y === me.rect.y) return { actions: 0, provokes: [], via: null, feet: 0 };
     const options = [];
@@ -56,14 +56,14 @@ function routeTo(board, x, y) {
             if (names.length) via = `${via} (${instinct ? "round" : "the long way round, keeping out of"} ${names.join(" and ")}'s reach)`;
         }
         const doors = doorsOn(board, field[name], x, y);
-        if (actions <= ACT) options.push({ actions, provokes: move.stride.noReactions ? [] : sf.provokes, via, feet: sf.feet, avoided, field: name, doors });
+        if (actions <= acts) options.push({ actions, provokes: move.stride.noReactions ? [] : sf.provokes, via, feet: sf.feet, avoided, field: name, doors });
     }
     // Step out of reach first, then Stride: one action more, but no reaction on the way out
     for (const { sq, field: f } of field.stepThen ?? []) {
         const sf = f.get(cellKey(x, y));
         if (!sf?.end || !(move.stride.feet > 0)) continue;
         const actions = 1 + Math.ceil(sf.feet / move.stride.feet);
-        if (actions > ACT) continue;
+        if (actions > acts) continue;
         const left = board.enemies.filter((e) => board.threatsAt?.(me.rect.x, me.rect.y)?.includes(e.id)).map(nameOf).filter((n) => n !== "?");
         const via = `${move.step.by ?? "Step"} out of ${left.length ? `${left.join(" and ")}'s` : "their"} reach, then ${move.stride.by ?? (move.stride.speed === "fly" ? "Fly" : "Stride")}`;
         options.push({ actions, provokes: sf.provokes, via, feet: sf.feet + move.step.feet, avoided: [], field: "stepThen", fieldMap: f, stepSq: sq, doors: doorsOn(board, f, x, y) });
@@ -105,7 +105,7 @@ function pathTo(board, dest) {
 }
 
 /** Every square the creature could end on this turn, with its route. */
-function reachableSquares(board, maxActions = ACT) {
+function reachableSquares(board, maxActions = actionsOf(board)) {
     const out = [{ x: board.me.rect.x, y: board.me.rect.y, route: { actions: 0, provokes: [], via: null, feet: 0 } }];
     const mc = board.me.conditions ?? new Set();
     // Grabbed, restrained or immobilized: no move actions at all
@@ -230,7 +230,7 @@ function heightRoute(board, route, z0, z, here, x = board.me.rect.x, y = board.m
         options.push({ kind: "climb", odds, acts: climb, r: here ? { actions: climb + stand, provokes: landing(), via: `${standText}${vText}`, feet: dz, z, climb: true, vertical: true }
             : { ...route, actions: route.actions + climb, provokes: landing(), vAct: climb, vText, z, climb: true } });
     }
-    return pickHeightWay(board.me, options.filter((o) => o.r.actions <= ACT), sp.climb > 0)?.r ?? null;
+    return pickHeightWay(board.me, options.filter((o) => o.r.actions <= actionsOf(board)), sp.climb > 0)?.r ?? null;
 }
 
 /** Walk round, climb or drop. Anything that thinks counts a drop's damage and lying prone as an action more and a
@@ -256,12 +256,25 @@ function acAgainst(target, flanked = false) {
     return target.ac - (flanked && !isOffGuard(target) ? 2 : 0);
 }
 
-/** Extra damage the planning creature deals to an off-guard target (Sneak Attack and the like). planTurn sets it from board.sneak. */
-let SNEAK = 0;
-/** Actions this creature has left this turn (3, fewer when slowed or stunned, less what it has spent). Set by planTurn. */
-let ACT = 3;
-/** Attacks it has already made this turn, for the multiple attack penalty. Set by planTurn from board.turn. */
-let TURN_MADE = 0;
+/**
+ * The plan in progress. planTurn makes a fresh one for each call (an inner call, for the rest of the turn, gets its own
+ * and the outer one is put back when it returns); outside planTurn it is an empty plan. Fields: act, the actions left
+ * this turn (3, fewer when slowed or stunned, less what it has spent); made, the attacks already made (the multiple
+ * attack penalty); board, the board being planned; sight, the cover-and-sight cache for that board; sneak, extra damage
+ * to an off-guard target (Sneak Attack and the like); extraVs, extra damage against particular targets (Pack Attack),
+ * target id -> average; hitRun, a thinking flier's { penalty(at), leave(at) } so a Strike can give way to flying off.
+ */
+const blankPlan = () => ({ act: 3, made: 0, board: null, sight: new Map(), sneak: 0, extraVs: new Map(), hitRun: null });
+let P = blankPlan();
+/** Actions the board's creature has this turn: the plan's own while it's being planned, otherwise read from the board. */
+function actionsOf(board) {
+    if (P.board === board) return P.act;
+    const me = board?.me ?? {};
+    const mc = me.conditions ?? new Set();
+    const cv = me.conditionValues ?? {};
+    const base = Math.max(0, Math.min(3, 3 - (cv.stunned ? cv.stunned : cv.slowed ?? 0))) + (mc.has("quickened") && !cv.stunned ? 1 : 0);
+    return Math.max(0, base - (board?.turn?.spent ?? 0));
+}
 /**
  * Move wording and the instinct test:
  * - routeText: the move part of a step ("Stride ×2", "Stand, then Stride", "Stride, opening a door on the way").
@@ -275,19 +288,6 @@ const routeText = (route) => {
     return `${route.via}${k > 1 && !/×\d/.test(route.via ?? "") && !route.vertical ? ` ×${k}` : ""}${doors}${route.tail ?? ""}${route.vText ? `, then ${route.vText}` : ""}`;
 };
 const approachText = (route, t, ranged = false) => `${routeText(route)}${route.doors || route.tail || route.vText ? "," : ""} ${ranged ? "to a clear line on" : "into reach of"} ${nameOf(t)}`;
-const isAnimal = (me) => !!(me?.mindless || (me?.int ?? 0) <= -4);
-/**
- * How it picks targets, by Intelligence. 0 instinct (mindless or Int -4 or lower), 1 crude (Int -3 to +0),
- * 2 tactical (+1), 3 shrewd (+2), 4 sharp (+3 or more).
- */
-const tierOf = (me) => (isAnimal(me) ? 0 : (me?.int ?? 0) <= 0 ? 1 : me.int === 1 ? 2 : me.int === 2 ? 3 : 4);
-const TIER_TEXT = [
-    "On instinct: the closest foe, or whatever hurt it most",
-    "Crude: goes by what it sees (armor, wounds, who's in its face)",
-    "Tactical: flanks, focuses fire, finishes off the hurt",
-    "Shrewd: tactical, and goes for healers and casters first",
-    "Sharp: reads real AC and saves, goes for healers and casters",
-];
 /**
  * Threat works like aggro: the foe who has proven most dangerous counts as this much juicier than they look (40%
  * means each attack on them is weighed as if worth 40% more). Animals lash back at whatever hurt them; the cleverer it
@@ -297,20 +297,10 @@ const TIER_TEXT = [
 const THREAT_PULL = [0.4, 0.35, 0.4, 0.45, 0.5];
 /** What putting a fallen ally back on its feet is worth, by wits, as a share of two rounds of that ally's attacks. */
 const REVIVE_WEIGHT = [0, 0.5, 0.8, 1, 1];
-const NOTICE = [0, 0.25, 0.5, 0.6, 0.75];
-const actorTier = (a) => tierOf({ mindless: a?.traits?.has?.("mindless") ?? false, int: a?.system?.abilities?.int?.mod ?? 0 });
 /** The multiplier threat puts on a plan against t: 1 plus the pull times the square of t's share of the top threat. */
 const threatPull = (board, t, tier) => 1 + THREAT_PULL[tier] * threatScale() * threatShare(board, t) ** 2;
-/** Rough worth of each condition to the fight, from what it does: losing actions and being unable to act weigh most. */
-const CONDITION_VALUE = { frightened: 2, sickened: 2.5, clumsy: 1.5, enfeebled: 1.5, stupefied: 1.5, drained: 1.5, fatigued: 1.5, dazzled: 2, blinded: 5, deafened: 0.5,
-    "off-guard": 2, prone: 3.5, slowed: 5, stunned: 5, immobilized: 2.5, grabbed: 3.5, restrained: 7, paralyzed: 10, confused: 5,
-    fascinated: 2, fleeing: 5, unconscious: 10, petrified: 10, controlled: 12, doomed: 1 };
 /** A condition's weight within a degree's list: a bare slug counts once; "frightened-2"-style entries count by value. */
 function valueScale(k, list) { const m = /-(\d+)$/.exec(String(k)); return m ? Math.max(1, Number(m[1])) : 1; }
-/** The board being planned. Set by planTurn, which also clears the CTX sight cache. */
-let BOARD = null;
-/** Set by planTurn for a thinking flier: { penalty(at), leave(at) } so a Strike can give way to flying off. */
-let HIT_RUN = null;
 const FLY_AWAY = "Fly out of their reach (straight up works if they can't fly or reach that high; it must Fly each turn to stay up)";
 /** Flying off: straight up, as many feet as it takes to be out of everyone's reach. */
 function flyAwayText(board, at) {
@@ -326,7 +316,6 @@ function flyAwayText(board, at) {
     }
     return FLY_AWAY;
 }
-let CTX = new Map();
 
 /**
  * What an attack from square `at` on target t faces: cover (0, 1 lesser, 2 standard, 4 greater; noLine when
@@ -335,20 +324,20 @@ let CTX = new Map();
  */
 function attackCtx(at, t, { ranged = true, area = false } = {}) {
     const none = { cover: 0, flat: 1, hidden: false, state: "observed", seen: "observed", noLine: false, light: "bright" };
-    if (!BOARD || !t?.rect) return none;
-    const from = at ?? BOARD.me.rect;
+    if (!P.board || !t?.rect) return none;
+    const from = at ?? P.board.me.rect;
     const k = `${from.x},${from.y},${from.z ?? 0},${t.id},${ranged ? 1 : 0}${area ? 1 : 0}`;
-    if (CTX.has(k)) return CTX.get(k);
-    const cover = coverBetween(BOARD, from, t, { area, ranged, fromSize: BOARD.me.sizeRank ?? 2 });
+    if (P.sight.has(k)) return P.sight.get(k);
+    const cover = coverBetween(P.board, from, t, { area, ranged, fromSize: P.board.me.sizeRank ?? 2 });
     const feet = feetBetween(from, t.rect);
-    const light = BOARD.lightAt ? BOARD.lightAt(t.rect) : "bright";
-    const v = BOARD.visioner?.get?.(t.id) ?? null;
-    const own = !at || (from.x === BOARD.me.rect.x && from.y === BOARD.me.rect.y && (from.z ?? 0) === (BOARD.me.rect.z ?? 0));
-    const state = withVisioner(visibilityOf({ senses: BOARD.me.senses, conditions: BOARD.me.conditions }, t, light, feet), v?.state, own, t.conditions);
-    const mine = BOARD.lightAt ? BOARD.lightAt(from) : "bright";
-    const seen = withVisioner(t.senses ? visibilityOf({ senses: t.senses, conditions: t.conditions }, { conditions: BOARD.me.conditions }, mine, feet) : "observed", v?.seen, own, BOARD.me.conditions);
+    const light = P.board.lightAt ? P.board.lightAt(t.rect) : "bright";
+    const v = P.board.visioner?.get?.(t.id) ?? null;
+    const own = !at || (from.x === P.board.me.rect.x && from.y === P.board.me.rect.y && (from.z ?? 0) === (P.board.me.rect.z ?? 0));
+    const state = withVisioner(visibilityOf({ senses: P.board.me.senses, conditions: P.board.me.conditions }, t, light, feet), v?.state, own, t.conditions);
+    const mine = P.board.lightAt ? P.board.lightAt(from) : "bright";
+    const seen = withVisioner(t.senses ? visibilityOf({ senses: t.senses, conditions: t.conditions }, { conditions: P.board.me.conditions }, mine, feet) : "observed", v?.seen, own, P.board.me.conditions);
     const out = { cover: Math.max(0, cover), noLine: cover < 0, state, light, seen, flat: area ? 1 : flatFor(state), hidden: seen === "hidden" || seen === "undetected", visioner: !!v };
-    CTX.set(k, out);
+    P.sight.set(k, out);
     return out;
 }
 
@@ -368,36 +357,31 @@ function sightNotes(plan, at, t, { ranged = true, attack = true } = {}) {
     if (c.cover && attack) plan.notes.push(`${nameOf(t)} has ${COVER_NAME[c.cover]} cover from there: +${c.cover} AC`);
     if (c.state !== "observed") plan.notes.push(`${nameOf(t)} is ${c.state} to it${c.visioner ? " (Visioner)" : c.light !== "bright" ? ` (${c.light === "magical" ? "magical darkness" : c.light === "dark" ? "darkness" : "dim light"})` : ""}: DC ${c.state === "concealed" ? 5 : 11} flat check to target${c.state === "undetected" ? ", and it has to guess the square" : ""}`);
     if (c.hidden && !t.conditions?.has?.("unconscious")) {
-        const byAction = BOARD.me.conditions?.has?.("hidden") || BOARD.me.conditions?.has?.("undetected");
-        const deny = t.flankImmune === "deny" && (BOARD.me.level ?? 0) <= (t.level ?? 0);
+        const byAction = P.board.me.conditions?.has?.("hidden") || P.board.me.conditions?.has?.("undetected");
+        const deny = t.flankImmune === "deny" && (P.board.me.level ?? 0) <= (t.level ?? 0);
         plan.notes.push(`${nameOf(t)} can't see it there (${c.seen})${deny ? "; Deny Advantage, so not off-guard to it" : byAction ? ": off-guard to its first attack" : ": off-guard to its attacks, and needs a DC 11 flat check to target it"}`);
     }
 }
-/**
- * Extra damage against particular targets this turn (Pack Attack and the like): target id -> average. Set by
- * planTurn.
- */
-let EXTRA_VS = new Map();
 /** The best sequence of n Strikes from a list, given the attacks already made this turn. */
-function strikeRun(strikes, n, ac, { made = 0, offGuard = false, vs = null, at = null } = {}) {
-    const extra = vs ? EXTRA_VS.get(vs.id) ?? 0 : 0;
+function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at = null } = {}) {
+    const extra = vs ? P.extraVs.get(vs.id) ?? 0 : 0;
     let total = 0, firstHit = null;
     const used = [];
     for (let i = 0; i < n; i++) {
         let best = null;
         for (const s of strikes) {
-            const bonus = s.bonus + mapFor(TURN_MADE + made + i, s.agile);
+            const bonus = s.bonus + mapFor(P.made + made + i, s.agile);
             // Cover and sight from where it stands; weakness and resistance to the Strike's damage
             const ctx = vs ? attackCtx(at, vs, { ranged: !!s.ranged }) : null;
             if (ctx?.noLine) continue;
             // Unseen: off-guard to it. Hidden by its own Hide or Sneak, only for the first attack; hidden by darkness or
             // invisibility, for all of them. Deny Advantage: not against creatures of its level or lower.
-            const byAction = BOARD.me.conditions?.has?.("hidden") || BOARD.me.conditions?.has?.("undetected");
-            const surprise = !!ctx?.hidden && !offGuard && (!byAction || (i === 0 && made + TURN_MADE === 0)) && !(vs.flankImmune === "deny" && (BOARD.me.level ?? 0) <= (vs.level ?? 0));
+            const byAction = P.board.me.conditions?.has?.("hidden") || P.board.me.conditions?.has?.("undetected");
+            const surprise = !!ctx?.hidden && !offGuard && (!byAction || (i === 0 && made + P.made === 0)) && !(vs.flankImmune === "deny" && (P.board.me.level ?? 0) <= (vs.level ?? 0));
             // Prone and it moved, so it stood first: the prone -2 already in its Strikes is gone
-            const stood = BOARD.me.conditions?.has?.("prone") && at && (at.x !== BOARD.me.rect.x || at.y !== BOARD.me.rect.y) ? 2 : 0;
+            const stood = P.board.me.conditions?.has?.("prone") && at && (at.x !== P.board.me.rect.x || at.y !== P.board.me.rect.y) ? 2 : 0;
             const dmg = damageAgainst(vs?.iwr, s.damageTypes ?? []);
-            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? SNEAK : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
+            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
             const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f };
             if (!best || e.expected > best.e.expected) best = { s, bonus, e };
@@ -411,7 +395,7 @@ function strikeRun(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
 }
 
 /**
- * The chance a run of Strikes (as strikeRun chose them) deals at least hp damage, allowing for misses, crits and
+ * The chance a run of Strikes (as strikeSeq chose them) deals at least hp damage, allowing for misses, crits and
  * the spread of the dice: each hit lands at about 70%, 100% or 130% of its average (a quarter, half, a quarter).
  */
 function dropChance(used, hp) {
@@ -569,7 +553,7 @@ function seenAc(board, t, tier) {
     const avg = foes.length ? foes.reduce((sum, e) => sum + bare(e), 0) / foes.length : bare(t);
     const look = tier === 0 ? 0 : (ARMOR_LOOK[t.armor] ?? 0) + (t.shieldRaised ? 2 : 0);
     const guess = avg + look - (isOffGuard(t) ? 2 : 0);
-    if (tier === 0 || tier >= 4) return guess + learnK(board, t, "ac", tier) * (t.ac - guess);
+    if (tier === 0) return guess + learnK(board, t, "ac", tier) * (t.ac - guess);
     // Attacks on them this fight show what it takes to hit them: each hit or miss is a bound on their AC, and the
     // guess is squeezed inside the bounds as they tighten (an exact AC once the bounds meet)
     const b = learnedAcBounds(board, t);
@@ -647,24 +631,24 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
     if (target && melee.length && melee.some((s) => inReach(at, target.rect, s.reach))) {
         const og = isOffGuard(target);
         const usable = melee.filter((s) => inReach(at, target.rect, s.reach));
-        const run = strikeRun(usable, actionsLeft, target.ac, { vs: target, at, made, offGuard: og });
+        const run = strikeSeq(usable, actionsLeft, target.ac, { vs: target, at, made, offGuard: og });
         if (!run.used.length) return; // no line from there
         // A thinking flier in their reach: one Strike fewer and Fly off, when that's worth more than staying
-        if (HIT_RUN && exposure(board, at) > 0) {
+        if (P.hitRun && exposure(board, at) > 0) {
             const k = actionsLeft - 1;
-            const fewer = k > 0 ? strikeRun(usable, k, target.ac, { vs: target, at, made, offGuard: og }) : { expected: 0, used: [] };
-            if (fewer.expected - HIT_RUN.leave(at) > run.expected - HIT_RUN.penalty(at)) {
+            const fewer = k > 0 ? strikeSeq(usable, k, target.ac, { vs: target, at, made, offGuard: og }) : { expected: 0, used: [] };
+            if (fewer.expected - P.hitRun.leave(at) > run.expected - P.hitRun.penalty(at)) {
                 plan.ev += fewer.expected;
                 if (fewer.used.length) { plan.used = [...(plan.used ?? []), ...fewer.used]; plan.steps.push({ cost: k, text: describeStrikes(fewer.used, nameOf(target)) }); }
                 plan.steps.push({ cost: 1, text: flyAwayText(board, at) });
                 plan.flyAway = true;
-                plan.leaveRisk = HIT_RUN.leave(at);
+                plan.leaveRisk = P.hitRun.leave(at);
                 return;
             }
         }
         // acDrop: the chance (x2) an earlier hit left the target off-guard; weigh both outcomes
         const chance = og ? 0 : Math.min(1, acDrop / 2);
-        const offRun = chance ? strikeRun(usable, actionsLeft, target.ac - 2, { vs: target, at, made, offGuard: true }) : run;
+        const offRun = chance ? strikeSeq(usable, actionsLeft, target.ac - 2, { vs: target, at, made, offGuard: true }) : run;
         plan.ev += (1 - chance) * run.expected + chance * offRun.expected;
         plan.used = [...(plan.used ?? []), ...run.used];
         plan.steps.push({ cost: actionsLeft, text: describeStrikes(run.used, nameOf(target)) });
@@ -675,7 +659,7 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
     if (shots.length) {
         const og = isOffGuard(target);
         const d = feetBetween(at, target.rect);
-        const run = strikeRun(shots.map((s) => ({ ...s, bonus: s.bonus - (s.volley && d <= s.volley ? 2 : 0) })), actionsLeft, target.ac, { vs: target, at, made, offGuard: og });
+        const run = strikeSeq(shots.map((s) => ({ ...s, bonus: s.bonus - (s.volley && d <= s.volley ? 2 : 0) })), actionsLeft, target.ac, { vs: target, at, made, offGuard: og });
         if (!run.used.length) return;
         plan.ev += run.expected;
         plan.used = [...(plan.used ?? []), ...run.used];
@@ -683,10 +667,10 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
         return;
     }
     const stuck = ["immobilized", "grabbed", "restrained", "prone"].some((c) => board.me.conditions?.has?.(c));
-    if (exposed && !stuck && (board.me.airborne || (HIT_RUN && (!board.move.step.feet || HIT_RUN.penalty(at) > HIT_RUN.leave(at))))) {
+    if (exposed && !stuck && (board.me.airborne || (P.hitRun && (!board.move.step.feet || P.hitRun.penalty(at) > P.hitRun.leave(at))))) {
         plan.steps.push({ cost: 1, text: flyAwayText(board, at) });
         plan.flyAway = true;
-        plan.leaveRisk = HIT_RUN?.leave(at) ?? 0;
+        plan.leaveRisk = P.hitRun?.leave(at) ?? 0;
         actionsLeft -= 1;
     } else if (exposed && board.move.step.feet && !stuck) {
         plan.steps.push({ cost: 1, text: `${board.move.step.by ?? "Step"} out of reach if it can`, value: 1 });
@@ -703,12 +687,16 @@ function fillLast(board, plan, at, actionsLeft, target, made, acDrop = 0, skip =
  * Candidate turns. Returns plans sorted best first: { kind, title, target, steps: [{cost, text}], ev, score, notes:
  * [], dest: {x, y} | null }, plus fields some kinds carry (path, aim, caught, why, spell...).
  */
-function planTurn(board, { intent = null, noFollow = false, noSustain = false } = {}) {
+function planTurn(board, opts = {}) {
+    const outer = P;
+    P = blankPlan();
+    try { return planOne(board, opts); } finally { P = outer; }
+}
+function planOne(board, { intent = null, noFollow = false, noSustain = false } = {}) {
     const plans = [];
     const { me } = board;
-    BOARD = board;
-    CTX = new Map();
-    SNEAK = board.sneak ?? 0; // planTurn never awaits, so this can't leak into another creature's plan
+    P.board = board;
+    P.sneak = board.sneak ?? 0;
     // Its own conditions: how many actions, and what it can still do
     const mc = me.conditions ?? new Set();
     const cv = me.conditionValues ?? {};
@@ -716,12 +704,12 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     const BASE = Math.max(0, Math.min(3, 3 - (cv.stunned ? cv.stunned : cv.slowed ?? 0))) + (mc.has("quickened") && !cv.stunned ? 1 : 0);
     // What it has already done this turn: actions spent, attacks made (the MAP), a flourish used
     const turn = board.turn ?? null;
-    TURN_MADE = turn?.attacks ?? 0;
-    ACT = Math.max(0, BASE - (turn?.spent ?? 0));
+    P.made = turn?.attacks ?? 0;
+    P.act = Math.max(0, BASE - (turn?.spent ?? 0));
     const halt = (title, text) => [{ kind: "none", title, target: null, ev: 0, score: 0, dest: null, notes: [], steps: [{ cost: 0, text }] }];
     if (["paralyzed", "unconscious", "petrified", "dying"].some((c) => mc.has(c))) return halt("It can't act", "No actions this turn");
     if (BASE <= 0) return halt("No actions", cv.stunned ? `Stunned ${cv.stunned}: it loses its actions` : `Slowed ${cv.slowed}: no actions left`);
-    if (ACT <= 0) return halt("Turn done", `All ${BASE} of its actions are used. Its reactions are still ready.`);
+    if (P.act <= 0) return halt("Turn done", `All ${BASE} of its actions are used. Its reactions are still ready.`);
     if (mc.has("controlled")) return halt("Controlled", "Whoever controls it picks its actions");
     if (mc.has("confused")) return halt("Confused", "It Strikes or casts offensive cantrips at random creatures, allies included, and can't use reactions. Each time it takes damage from an attack or spell, a DC 11 flat check ends it");
     if (mc.has("fleeing") && !intent?.run) intent = { run: true, text: "Flees (fleeing): every action takes it away from what frightened it" };
@@ -733,13 +721,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         .map((sp) => ({ ...sp, odds: (sp.potion ? 1 : castOk) * (sp.traits?.includes("manipulate") ? manipulateOk : 1) * (mc.has("deafened") && sp.traits?.includes("auditory") ? flatCheck(5) : 1) }));
     const profiles = board.profiles.filter((p) => !(restrained && (p.traits.includes("attack") || p.traits.includes("manipulate") || ["move-strike", "multi-strike", "strike-variant", "payoff"].includes(p.role)))
         && !(mc.has("fascinated") && p.traits.includes("concentrate"))
-        && !(TURN_MADE && p.opensTurn) && !(turn?.flourish && p.traits.includes("flourish")));
+        && !(P.made && p.opensTurn) && !(turn?.flourish && p.traits.includes("flourish")));
     // Pack Attack: extra damage to a target within reach of enough of its allies, where they stand now
-    EXTRA_VS = new Map();
+    P.extraVs = new Map();
     if (board.pack?.avg) {
         for (const t of board.enemies) {
             const around = (board.allies ?? []).filter((a) => a.hp > 0 && inReach(a.rect, t.rect, a.reach)).length;
-            if (around >= board.pack.allies) EXTRA_VS.set(t.id, board.pack.avg);
+            if (around >= board.pack.allies) P.extraVs.set(t.id, board.pack.avg);
         }
     }
     const melee = restrained ? [] : board.strikes.filter((s) => !s.ranged);
@@ -752,17 +740,17 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         const dc = Math.max(10 + me.level + 3, ...holders.map((e) => 10 + (e.athletics ?? e.level + 5)));
         const unarmed = Math.max(-99, ...board.strikes.filter((s) => s.traits?.includes("unarmed")).map((s) => s.bonus));
         const raw = Math.max(me.athletics ?? -99, me.acrobatics ?? -99, unarmed);
-        const mod = raw > -99 ? raw + mapFor(TURN_MADE, false) : raw;
+        const mod = raw > -99 ? raw + mapFor(P.made, false) : raw;
         const c = degreeChances(mod > -99 ? mod : me.level + 3, dc);
         plans.push({ kind: "escape", title: "Escape", target: null, ev: (c.s + c.cs) * (restrained ? 8 : 4), dest: null, notes: [`${restrained ? "Restrained" : "Held"}: no move actions until it's free`],
             steps: [{ cost: 1, text: `Escape (${mod > -99 ? signed(mod) : "best of Athletics, Acrobatics or unarmed"} vs DC ${dc}; free about ${pct(c.s + c.cs)} of the time${c.cs ? ", with a 5-foot Stride on a critical success" : ""})` },
-                { cost: Math.max(0, ACT - 1), text: "If it's free: move or attack as the card's other options say" }] });
+                { cost: Math.max(0, P.act - 1), text: "If it's free: move or attack as the card's other options say" }] });
     }
     const selfNotes = [];
     if (mc.has("prone")) selfNotes.push("Prone: -2 to its attacks and off-guard. Standing is a move action (Reactive Strike from anyone in reach); moves here include it");
     if (mc.has("grabbed")) selfNotes.push("Grabbed: manipulate actions need a DC 5 flat check");
-    if (cv.slowed && !cv.stunned) selfNotes.push(`Slowed ${cv.slowed}: ${ACT} action${ACT === 1 ? "" : "s"}`);
-    if (cv.stunned) selfNotes.push(`Stunned ${cv.stunned}: ${ACT} action${ACT === 1 ? "" : "s"}`);
+    if (cv.slowed && !cv.stunned) selfNotes.push(`Slowed ${cv.slowed}: ${P.act} action${P.act === 1 ? "" : "s"}`);
+    if (cv.stunned) selfNotes.push(`Stunned ${cv.stunned}: ${P.act} action${P.act === 1 ? "" : "s"}`);
     if (mc.has("quickened")) selfNotes.push("Quickened: one more action, for whatever its source allows (often a Strike or Stride)");
     if (cv.stupefied) selfNotes.push(`Stupefied ${cv.stupefied}: spells need a DC ${5 + cv.stupefied} flat check`);
     if (mc.has("fascinated")) selfNotes.push("Fascinated: no concentrate actions except against what fascinates it");
@@ -779,17 +767,17 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     // Ending its turn in their reach: about half a hit from each foe there
     const endPenalty = (at) => exposure(board, at) * 0.5 * hitWorth(me.level);
     // A thinking flier strikes and flies off when that's worth more than staying in reach
-    HIT_RUN = myTier >= 2 && (board.move?.speeds?.fly ?? 0) >= 20 && board.square && !["immobilized", "grabbed", "restrained", "prone"].some((c) => mc.has(c))
+    P.hitRun = myTier >= 2 && (board.move?.speeds?.fly ?? 0) >= 20 && board.square && !["immobilized", "grabbed", "restrained", "prone"].some((c) => mc.has(c))
         ? { penalty: endPenalty, leave: (at) => provokeCost(board, board.threatsAt?.(at.x, at.y, at.z) ?? []) } : null;
     // "Each against a different target" (Double Bite, Bladestorm): the first Strike at t, the rest at the best other foes
     // in reach from there. sameMap: they all go at the current penalty (the MAP doesn't rise until after them).
     const eachRun = (at, t, count, ac, og, sameMap) => {
         const reachOf = (e) => melee.filter((s) => inReach(at, e.rect, s.reach));
-        const first = strikeRun(reachOf(t), 1, ac, { vs: t, at, offGuard: og });
+        const first = strikeSeq(reachOf(t), 1, ac, { vs: t, at, offGuard: og });
         const others = targets.filter((e) => e !== t && reachOf(e).length)
-            .map((e) => ({ e, run: strikeRun(reachOf(e), 1, e.ac, { vs: e, at, made: sameMap ? 0 : 1, offGuard: isOffGuard(e) }) }))
+            .map((e) => ({ e, run: strikeSeq(reachOf(e), 1, e.ac, { vs: e, at, made: sameMap ? 0 : 1, offGuard: isOffGuard(e) }) }))
             .filter((o) => o.run.used.length).sort((a, b) => b.run.expected - a.run.expected).slice(0, count - 1)
-            .map((o, i) => (sameMap || i === 0 ? o : { e: o.e, run: strikeRun(reachOf(o.e), 1, o.e.ac, { vs: o.e, at, made: i + 1, offGuard: isOffGuard(o.e) }) }));
+            .map((o, i) => (sameMap || i === 0 ? o : { e: o.e, run: strikeSeq(reachOf(o.e), 1, o.e.ac, { vs: o.e, at, made: i + 1, offGuard: isOffGuard(o.e) }) }));
         const parts = [describeStrikes(first.used, nameOf(t)), ...others.map((o) => describeStrikes(o.run.used, nameOf(o.e)))].filter(Boolean);
         return { expected: first.expected + others.reduce((x, o) => x + o.run.expected, 0), n: 1 + others.length, text: parts.join(", and ") };
     };
@@ -799,7 +787,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         if (!board.square) {
             // No square grid to path on: say so, and still put the way out first
             return { kind: "run", title: cap(text.replace(/\.$/, "")), target: null, ev: 0, score, dest: null, notes: [],
-                steps: [{ cost: ACT, text: `${board.move.stride.by ?? "Stride"} away from the enemies, the way that passes fewest of them (no square grid here, so by eye)` }] };
+                steps: [{ cost: P.act, text: `${board.move.stride.by ?? "Stride"} away from the enemies, the way that passes fewest of them (no square grid here, so by eye)` }] };
         }
         if (!board.enemies.length) {
             return { kind: "run", title: cap(text.replace(/\.$/, "")), target: null, ev: 0, score, dest: null, notes: [],
@@ -827,6 +815,194 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
     };
     if (intent?.run) { const fp = fleePlan(intent.text, 1000); if (fp) plans.push(fp); }
 
+    planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squares, strikeTargets });
+
+    // Abilities: move-and-Strike, several Strikes, areas, grabs and their payoffs, setups
+    planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee, myTier, plans, profiles, recharging, rectAt, squares, targets });
+
+    // Follow-ups that need a hit first (Knockdown, Gnash...) and Strike variants (Sentry's Aim, Combat Grab...)
+    planFollowUps({ board, me, melee, plans, profiles, ranged, recharging, rectAt, squares, targets, turn });
+
+    // Self-buffs that pay off in Strikes: Rage, Fanatical Frenzy, Inspired Fury...
+    planSelfBuffs({ board, me, melee, plans, profiles, recharging, rectAt, squares, targets });
+
+    // Spells that hinder rather than hurt: fear, shroud of night, slow...
+    planHinderSpells({ board, me, plans, rectAt, spells, squares, targets });
+
+    // Area spells
+    planAreaSpells({ board, endPenalty, myTier, plans, rectAt, spells, squares });
+
+    // Spells that help its side fight (Bless, Courageous Anthem): worth it with enough allies about to attack
+    planSupportSpells({ board, intent, me, plans, spells, targets });
+
+    // Bringing a fallen ally back into the fight: worth far more than the HP, because a body on its feet fights again.
+    // A thinking creature knows it (animals don't heal); it weighs what the ally does in a round, for a couple of rounds.
+    planRevives({ board, me, plans, rectAt, spells, squares });
+
+    // Healing: itself when badly hurt, or an ally that is (Heal at two actions reaches 30 feet and adds 8 a rank)
+    planHeals({ board, me, plans, profiles, recharging, spells });
+
+    // Shove a foe into hazardous terrain or off a ledge: Strikes first, the Shove last (it's an attack, so it takes the MAP)
+    planShoves({ board, me, melee, myTier, plans, rectAt, squares, targets });
+
+    // Foes on another floor: up or down the stairs (or a ladder) to them
+    planStairs({ board, intent, mc, me, melee, plans });
+
+    // Nothing it can hit this turn: close on the best target, as safely as it can
+    // A walker doesn't advance on a flier it can't reach from the ground: a few feet closer changes nothing
+    planAdvance({ board, intent, me, plans, rectAt, squares, targets });
+
+    // A buff or a heal that leaves actions over, with nothing to Strike from where it stands: spend them on the best
+    // attack that fits in what's left (a Step and two shots after Courageous Anthem, say)
+    const FOLLOW_KINDS = new Set(["melee", "ranged", "spell", "ability", "area", "demoralize", "feint"]);
+    const costOf = (p) => p.steps.reduce((n, st) => n + (st.cost ?? 0), 0);
+    // The follow-up is planned again with only the actions left (every attack plan spends all it has)
+    addFollowThrough({ FOLLOW_KINDS, board, costOf, intent, noFollow, plans, turn });
+
+    // Airborne: a creature that doesn't Fly on its turn falls at the end of it, so staying up costs an action
+    addStayAloft({ board, costOf, me, noFollow, plans });
+
+    // Dropping off a ledge hurts: its own drop ("drop down 10 ft (5 bludgeoning, lands prone)"), not a foe it
+    // Shoves off one ("a 10-foot drop (5 bludgeoning ...)")
+    addDropDamage({ plans });
+
+    // A spell it can Sustain: one action on it, then the best of what's left; anything else lets the spell end
+    planSustain({ board, costOf, intent, mc, noFollow, noSustain, plans });
+
+    scorePlans({ animal, board, endPenalty, lvlScale, me, melee, plans, rectAt, targets });
+    plans.sort((a, b) => b.score - a.score);
+    const top = plans[0];
+    // The best it can do is next to nothing (a dagger thrown at -10): keep out of reach and wait for an opening instead
+    addHoldBack({ board, intent, me, plans, rectAt, squares, top });
+    // Badly hurt (under a quarter of its HP) and not about to drop someone: a thinking or animal foe breaks off,
+    // unless its tactics say it fights to the end. Mindless creatures never do.
+    addBreakOff({ board, fleePlan, intent, mc, me, plans, targets, top });
+    addNotes({ board, me, noFollow, plans, selfNotes, squares });
+    plans.sort((a, b) => b.score - a.score);
+    // The same turn reached two ways (two spellcasting entries, say): keep the first
+    const unique = [];
+    const kept = new Set();
+    for (const plan of plans) { const k = `${plan.title}|${plan.steps.map((x) => x.text).join("|")}`; if (!kept.has(k)) { kept.add(k); unique.push(plan); } }
+    plans.length = 0;
+    plans.push(...unique);
+    return plans;
+}
+
+/** A buff or heal that leaves actions over: the best attack that fits in what's left, planned again with those actions. */
+function addFollowThrough({ FOLLOW_KINDS, board, costOf, intent, noFollow, plans, turn }) {
+    const followFor = new Map();
+    const followWith = (left) => {
+        if (!followFor.has(left)) {
+            let sub = [];
+            try {
+                const turn = { ...(board.turn ?? {}), spent: (board.turn?.spent ?? 0) + (P.act - left) };
+                sub = planTurn({ ...board, turn }, { intent, noFollow: true });
+            } catch (err) { console.warn(`${MODULE_ID} | couldn't plan the rest of the turn`, err); }
+            followFor.set(left, sub.filter((p) => FOLLOW_KINDS.has(p.kind) && p.ev > 0 && costOf(p) <= left).sort((a, b) => b.ev - a.ev)[0] ?? null);
+        }
+        return followFor.get(left);
+    };
+    for (const plan of noFollow ? [] : plans) {
+        if ((plan.kind !== "buff" && plan.kind !== "heal") || plan.dest) continue;
+        const left = P.act - costOf(plan);
+        if (left <= 0) continue;
+        const follow = followWith(left);
+        if (!follow) continue;
+        plan.ownEv = plan.ev;
+        plan.steps.push(...follow.steps.map((st) => ({ ...st })));
+        plan.ev += follow.ev;
+        plan.dest = follow.dest ?? null;
+        plan.aim = follow.aim ?? null;
+        plan.risk = (plan.risk ?? 0) + (follow.risk ?? 0);
+        if (follow.flyAway) { plan.flyAway = true; plan.leaveRisk = (plan.leaveRisk ?? 0) + (follow.leaveRisk ?? 0); }
+        for (const n of follow.notes) if (!plan.notes.includes(n)) plan.notes.push(n);
+    }
+}
+
+/** The best it can do is next to nothing (a dagger thrown at -10): keep out of reach and wait for an opening instead. */
+function addHoldBack({ board, intent, me, plans, rectAt, squares, top }) {
+    const ATTACKS = ["melee", "ranged", "spell", "ability", "area", "strike", "attack", "demoralize", "feint"];
+    if (top && board.square && !intent && ATTACKS.includes(top.kind) && top.ev < Math.max(1, 0.15 * hitWorth(me.level))) {
+        let best = null;
+        const exposedNow = exposure(board, me.rect) > 0;
+        for (const sq of squares) {
+            if (sq.route.actions > (exposedNow ? Math.min(1, P.act - 1) : 0)) continue; // out of reach already: stay put; and keep an action for cover
+            const at = rectAt(sq);
+            const exp = exposure(board, at);
+            const nearest = Math.min(...board.enemies.map((e) => feetBetween(at, e.rect)), 999);
+            const sc = -exp * 20 + Math.min(nearest, 40) - sq.route.provokes.length * 15 - sq.route.actions * 2;
+            if (!best || sc > best.sc) best = { sq, sc, exp };
+        }
+        if (best) {
+            const r = best.sq.route;
+            const hold = { kind: "hold", title: "Hold Back", target: null, ev: 0.2, score: top.score + 0.5, notes: [`Its best attack from here is worth about ${round1(top.ev)} damage (${top.title})`], dest: r.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, steps: [] };
+            if (r.actions) hold.steps.push({ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} back${best.exp ? "" : " out of reach"}` });
+            if (P.act - r.actions >= 1) hold.steps.push({ cost: 1, text: board.me.shield && !board.me.shieldRaised ? "Raise a Shield" : "Take Cover behind something if it can" });
+            if (P.act - r.actions - 1 > 0) hold.steps.push({ cost: P.act - r.actions - 1, text: "Ready a Strike for whoever comes close, or Aid an ally" });
+            plans.unshift(hold);
+        }
+    }
+}
+
+/** Badly hurt, or a blow to its morale: a thinking or animal foe offers to break off, unless its tactics say it fights to the end. */
+function addBreakOff({ board, fleePlan, intent, mc, me, plans, targets, top }) {
+    const fearless = /\b(?:to the death|to the end|never (?:flees|retreats|surrenders)|fearless)\b/i.test(board.tacticsText ?? "");
+    const pinned = ["grabbed", "restrained", "immobilized"].some((c) => mc.has(c));
+    // Or a blow to its morale: its leader falls (a creature of no great will), half its side is down, or it has just taken a
+    // beating, and it's hurt. The GM's call; offered first, as a thinking creature would weigh it.
+    const hpFrac = me.hp / Math.max(1, me.maxHp);
+    const fallen = board.fallenAllies ?? [];
+    const leader = fallen.find((a) => (a.level ?? 0) >= (me.level ?? 0) + 2 || /\b(?:captain|chief(?:tain)?|leader|boss|sergeant|lieutenant|commander|warlord|warchief|matriarch|patriarch|alpha|queen|king)\b/i.test(a.name ?? ""));
+    const morale = hpFrac < 0.25 ? null
+        : leader && (me.wis ?? 0) <= 2 && hpFrac < 0.75 ? `${nameOf(leader)} is down`
+        : fallen.length >= 1 && fallen.length >= (board.allies?.length ?? 0) + 1 && hpFrac < 0.5 ? `half its side is down`
+        : (board.recentDamage ?? 0) >= 0.4 * me.maxHp && hpFrac < 0.5 ? `took ${board.recentDamage} damage since its last turn` : null;
+    if (top && !me.pc && !intent && !me.mindless && !fearless && !pinned && me.hp > 0 && (hpFrac < 0.25 || morale) && targets.length && !(plans[0].why ?? []).includes("could drop")) {
+        // A boss (two or more levels over the party's best) or a creature fighting alone (no allies, up or down) is
+        // offered the choice second, not first: its flight ends the fight, and that's the GM's story call
+        const partyLevel = Math.max(0, ...targets.map((t) => t.level ?? 0));
+        const boss = (me.level ?? 0) >= partyLevel + 2;
+        const solo = !(board.allies?.length) && !fallen.length;
+        const fp = fleePlan(morale ? `Break off (${morale})` : `Break off (badly hurt, ${me.hp} of ${me.maxHp} HP)`, boss || solo ? plans[0].score - 0.5 : plans[0].score + (morale ? 1 : 2));
+        if (fp?.dest) {
+            fp.notes.push(morale ? "A blow to its morale: many creatures break off here (the GM's call; its tactics may say otherwise)"
+                : "No trigger says what it does when hurt: thinking creatures and animals usually break off now");
+            if (boss || solo) { fp.notes.push(boss ? "A creature this far above them rarely runs: your call" : "The last one standing: if it runs, the fight is over"); plans.splice(1, 0, fp); }
+            else plans.unshift(fp);
+        }
+    }
+}
+
+/** Notes every plan carries: its own conditions, the way there, and Fly to stay up when it holds back in the air. */
+function addNotes({ board, me, noFollow, plans, selfNotes, squares }) {
+    for (const plan of plans) {
+        if (selfNotes.length) plan.notes.push(...selfNotes);
+        const item = plan.spell?.consumable;
+        if (item === "scroll" || item === "wand") {
+            plan.notes.push(`${plan.spell.drawn ? `Draws the ${item} first (an Interact, counted in its actions); ` : ""}${item === "scroll" ? "the scroll is used up" : "it spends the wand's use for the day"}`);
+        }
+        if (plan.dest) {
+            const viaRamp = plan.dest.z !== undefined ? squares.find((q) => q.x === plan.dest.x && q.y === plan.dest.y && q.z === plan.dest.z && q.route?.waypoints) : null;
+            plan.path = viaRamp ? [...pathTo(board, viaRamp.route.waypoints[0]), ...[viaRamp.route.waypoints[1], plan.dest].map((q) => ({ x: q.x, y: q.y, w: me.rect.w }))] : pathTo(board, plan.dest);
+            // What the way crosses: a door to open, uneven ground, an incline, hazardous terrain
+            const crossed = [];
+            const cells = pathCells(board, plan.dest);
+            for (let i = 1; i < cells.length; i++) {
+                if (board.doorBetween?.(cells[i - 1].x, cells[i - 1].y, cells[i].x, cells[i].y) && !crossed.includes("door")) crossed.push("door");
+            }
+            const ground = new Set();
+            for (const c of cells.slice(1)) for (const n of board.terrainNoteAt?.(c.x, c.y) ?? []) ground.add(n);
+            if (crossed.includes("door") && !plan.steps.some((st) => /\bdoor/.test(st.text))) plan.notes.unshift("Opens a door on the way (Interact, 1 action, counted)");
+            if (ground.size) plan.notes.push(`The way crosses ${[...ground].join(", ")}`);
+        }
+    }
+    // Holding back or breaking off in the air still needs a Fly
+    if (me.airborne && !noFollow) for (const plan of plans) if ((plan.kind === "hold" || plan.kind === "run") && !plan.steps.some((st) => /\bFly\b/.test(st.text ?? ""))) plan.notes.push("Up in the air: one of its actions has to be a Fly, or it falls");
+}
+
+
+/** Strikes on each target it can reach this turn (with a Step or Stride first, flanking, a thinking flier's hit and run). */
+function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squares, strikeTargets }) {
     for (const t of strikeTargets) {
         const downed = t.hp <= 0 || t.conditions.has("dying");
         // Melee: get into reach with as few actions as possible, then Strike
@@ -847,11 +1023,11 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 if (better) byActions.set(key, cand);
             }
             for (const [actions, c] of byActions) {
-                if (actions >= ACT) continue;
-                const n = ACT - actions;
+                if (actions >= P.act) continue;
+                const n = P.act - actions;
                 const og = isOffGuard(t) || !!c.ally;
                 const ac = acAgainst(t, !!c.ally);
-                const run = strikeRun(c.strikes, n, ac, { vs: t, at: c.at, offGuard: og });
+                const run = strikeSeq(c.strikes, n, ac, { vs: t, at: c.at, offGuard: og });
                 const plan = { kind: "melee", title: `${actions ? "Close and Strike" : "Strike"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: c.sq.x, y: c.sq.y, z: c.sq.z } : null };
                 if (actions) {
                     const where = c.ally ? `to flank ${nameOf(t)} with ${nameOf(c.ally)}` : `into reach of ${nameOf(t)}`;
@@ -860,13 +1036,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 // A third Strike at -10 is often worth less than something else: Demoralize or Feint first, or a shield after
                 if (n >= 3 && run.used.length >= 3 && !downed) {
                     const k = n - 1;
-                    const rest = (a, opts = {}) => strikeRun(c.strikes, k, a, { vs: t, at: c.at, offGuard: og, ...opts });
+                    const rest = (a, opts = {}) => strikeSeq(c.strikes, k, a, { vs: t, at: c.at, offGuard: og, ...opts });
                     const plain = rest(ac);
                     const worth = (a) => {
                         if (a.kind === "demoralize") return a.chances.s * rest(ac - 1).expected + a.chances.cs * rest(ac - 2).expected + (a.chances.f + a.chances.cf) * plain.expected + a.value;
                         if (a.kind === "feint" && !og) {
                             // Success: off-guard to the next melee attack; critical success: to all of them this turn and next
-                            const firstOff = strikeRun(c.strikes, 1, ac - 2, { vs: t, at: c.at, offGuard: true }).expected + (k > 1 ? strikeRun(c.strikes, k - 1, ac, { vs: t, at: c.at, made: 1 }).expected : 0);
+                            const firstOff = strikeSeq(c.strikes, 1, ac - 2, { vs: t, at: c.at, offGuard: true }).expected + (k > 1 ? strikeSeq(c.strikes, k - 1, ac, { vs: t, at: c.at, made: 1 }).expected : 0);
                             return a.chances.s * firstOff + a.chances.cs * rest(ac - 2, { offGuard: true }).expected + (a.chances.f + a.chances.cf) * plain.expected - a.chances.cf * 2;
                         }
                         return plain.expected + a.value;
@@ -885,11 +1061,11 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 plan.risk = provokeCost(board, c.provokes);
                 plans.push(plan);
                 if (downed) plan.notes.push(`${nameOf(t)} is down: each hit raises their dying value (2 on a critical hit)`);
-                if (HIT_RUN && n >= 2 && exposure(board, c.at) > 0 && !downed) {
-                    const fewer = strikeRun(c.strikes, n - 1, ac, { vs: t, at: c.at, offGuard: og });
+                if (P.hitRun && n >= 2 && exposure(board, c.at) > 0 && !downed) {
+                    const fewer = strikeSeq(c.strikes, n - 1, ac, { vs: t, at: c.at, offGuard: og });
                     if (fewer.used.length) {
                         const hr = { kind: "melee", title: `${actions ? "Close and Strike" : "Strike"} ${nameOf(t)}, then Fly Off`, target: t, ev: fewer.expected, steps: actions ? [{ ...plan.steps[0] }] : [],
-                            notes: [...plan.notes], dest: plan.dest, flyAway: true, leaveRisk: HIT_RUN.leave(c.at), risk: plan.risk };
+                            notes: [...plan.notes], dest: plan.dest, flyAway: true, leaveRisk: P.hitRun.leave(c.at), risk: plan.risk };
                         hr.steps.push({ cost: n - 1, text: describeStrikes(fewer.used, nameOf(t)) }, { cost: 1, text: flyAwayText(board, c.at) });
                         plans.push(hr);
                     }
@@ -897,7 +1073,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 // Prone and already in reach: Stand first (no -2 on the Strikes, not off-guard afterwards), or fight from the ground
                 if (mc.has("prone") && actions === 0 && n >= 2 && !["immobilized", "grabbed", "restrained"].some((x) => mc.has(x))) {
                     const stand = board.enemies.filter((e) => e.reactions?.some((r) => r.trigger.onMove) && inReach(e.rect, me.rect, e.reach)).map((e) => e.id);
-                    const up = strikeRun(c.strikes.map((x) => ({ ...x, bonus: x.bonus + 2 })), n - 1, ac, { vs: t, at: c.at, offGuard: og });
+                    const up = strikeSeq(c.strikes.map((x) => ({ ...x, bonus: x.bonus + 2 })), n - 1, ac, { vs: t, at: c.at, offGuard: og });
                     const sp = { kind: "melee", title: `Stand, then Strike ${nameOf(t)}`, target: t, ev: up.expected + 1.5, dest: null, notes: [],
                         steps: [{ cost: 1, text: "Stand" }, { cost: n - 1, text: describeStrikes(up.used, nameOf(t)) }] };
                     if (stand.length) sp.notes.push(`Standing provokes ${provokeNames(board, stand).join(", ")}`);
@@ -911,7 +1087,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         for (const s of ranged) {
             let best = null;
             for (const sq of squares) {
-                if (sq.route.actions > 1 || sq.route.actions >= ACT) continue;
+                if (sq.route.actions > 1 || sq.route.actions >= P.act) continue;
                 const at = rectAt(sq);
                 const dist = feetBetween(at, t.rect);
                 if (dist > s.range * 6) continue; // six range increments at most
@@ -925,7 +1101,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             }
             if (!best) continue;
             const actions = best.sq.route.actions;
-            const left = ACT - actions;
+            const left = P.act - actions;
             // a reload weapon is assumed loaded unless a class read marked it empty (s.empty: it has to be loaded before the first shot)
             const usable = left - (s.empty ? s.reload || 0 : 0);
             if (usable < 1) continue;
@@ -943,7 +1119,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             }
             const n = s.bomb ? bombs : s.thrown ? 1 : s.reload ? Math.max(1, Math.floor((usable + s.reload) / (1 + s.reload))) : left;
             const pen = -2 * rangeSteps(best.dist, s.range) + (s.volley && best.dist <= s.volley ? -2 : 0); // range increments, volley
-            const run = strikeRun([{ ...s, bonus: s.bonus + pen }], Math.min(n, 3), t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
+            const run = strikeSeq([{ ...s, bonus: s.bonus + pen }], Math.min(n, 3), t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
             const plan = { kind: "ranged", title: `${s.bomb ? `Throw ${s.label} at` : s.thrown ? "Throw at" : "Shoot"} ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null };
             if (actions) plan.steps.push({ cost: actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} to a clear line on ${nameOf(t)}${best.exp.length ? "" : ", out of reach"}` });
             plan.used = run.used;
@@ -961,12 +1137,12 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
 
         // Single-target spells
         for (const sp of spells) {
-            if (!sp.cost || sp.cost > ACT || sp.area || sp.heals || !sp.avg) continue;
+            if (!sp.cost || sp.cost > P.act || sp.area || sp.heals || !sp.avg) continue;
             if (!sp.save && sp.attack === null) continue;
             const range = sp.range ?? 30;
             let best = null;
             for (const sq of squares) {
-                if (sq.route.actions + sp.cost > ACT) continue;
+                if (sq.route.actions + sp.cost > P.act) continue;
                 const at = rectAt(sq);
                 if (feetBetween(at, t.rect) > range) continue;
                 const seen = attackCtx(at, t);
@@ -980,7 +1156,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const incap = sp.incapacitation && (t.level ?? 0) > 2 * (sp.rank ?? 1) ? 1 : 0;
             const dmg = damageAgainst(t.iwr, sp.damageTypes ?? []);
             const raw = sp.save ? saveExpected(t.saves[sp.save.stat] ?? 0, sp.dc ?? 15, sp.avg, { basic: sp.save.basic, shift: incap, delta: dmg.delta, immune: dmg.immune })
-                : strikeExpected(sp.attack + mapFor(TURN_MADE, false), t.ac + best.seen.cover, sp.avg, { shift: -incap, delta: dmg.delta, immune: dmg.immune }); // a spell attack takes the MAP too
+                : strikeExpected(sp.attack + mapFor(P.made, false), t.ac + best.seen.cover, sp.avg, { shift: -incap, delta: dmg.delta, immune: dmg.immune }); // a spell attack takes the MAP too
             const e = { expected: raw.expected * best.seen.flat * (sp.odds ?? 1) };
             const plan = { kind: "spell", title: `Cast ${sp.name} on ${nameOf(t)}`, target: t, ev: e.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, spell: sp };
             if (incap) plan.notes.push(`Incapacitation: ${nameOf(t)} is above level ${2 * sp.rank}, so one degree better for it`);
@@ -989,17 +1165,19 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             if ((sp.odds ?? 1) < 1) plan.notes.push(`About ${pct(sp.odds)} to get the spell off (flat check)`);
             sightNotes(plan, best.at, t, { attack: sp.attack !== null });
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
-            plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`} at ${nameOf(t)}: ${sp.save ? `${sp.save.basic ? "basic " : ""}${cap(sp.save.stat)} DC ${sp.dc}` : `spell attack ${signed(sp.attack + mapFor(TURN_MADE, false))}`}` });
-            fillLast(board, plan, best.at, ACT - best.sq.route.actions - sp.cost, t, sp.attack !== null ? 1 : 0);
+            plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`} at ${nameOf(t)}: ${sp.save ? `${sp.save.basic ? "basic " : ""}${cap(sp.save.stat)} DC ${sp.dc}` : `spell attack ${signed(sp.attack + mapFor(P.made, false))}`}` });
+            fillLast(board, plan, best.at, P.act - best.sq.route.actions - sp.cost, t, sp.attack !== null ? 1 : 0);
             if (best.exp.length) plan.notes.push(`Casting in reach of ${best.exp.map(nameOf).join(", ")} provokes`);
             plan.risk = provokeCost(board, [...best.sq.route.provokes, ...best.exp.map((x) => x.id)]);
             plans.push(plan);
         }
     }
+}
 
-    // Abilities: move-and-Strike, several Strikes, areas, grabs and their payoffs, setups
+/** Abilities: move-and-Strike, several Strikes, areas, grabs and their payoffs, setups. */
+function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee, myTier, plans, profiles, recharging, rectAt, squares, targets }) {
     for (const p of profiles) {
-        if (p.kind !== "action" || !p.cost || p.cost > ACT || recharging(p)) continue;
+        if (p.kind !== "action" || !p.cost || p.cost > P.act || recharging(p)) continue;
         // Press actions are only planned where an opening Strike is worked in (Strike variants, setups); the card still lists the rest
         if (p.afterAttack && p.role !== "setup") continue;
         if (p.role === "move-strike" && melee.length && !mc.has("prone")) { // prone: it has to Stand before it can Stride
@@ -1025,9 +1203,9 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 const ac = acAgainst(t, !!best.ally);
                 const count = p.strikes?.count ?? 1;
                 const each = p.strikes?.each && count > 1 ? eachRun(best.at, t, count, ac, isOffGuard(t) || !!best.ally, p.strikes.notes.includes("no MAP")) : null;
-                const first = each ?? strikeRun(best.strikes, count, ac, { vs: t, at: best.at, offGuard: isOffGuard(t) || !!best.ally });
+                const first = each ?? strikeSeq(best.strikes, count, ac, { vs: t, at: best.at, offGuard: isOffGuard(t) || !!best.ally });
                 const plan = { kind: "ability", title: `${p.name} into ${nameOf(t)}`, target: t, ev: first.expected, steps: [{ cost: p.cost, text: `${p.name}: move${best.ally ? ` to flank with ${nameOf(best.ally)}` : ""}, then ${each ? each.text : describeStrikes(first.used, nameOf(t))}` }], notes: [], dest: { x: best.sq.x, y: best.sq.y, z: best.sq.z }, ability: p };
-                fillLast(board, plan, best.at, ACT - p.cost, t, p.strikes?.notes?.includes("one attack") ? 1 : each ? each.n : count);
+                fillLast(board, plan, best.at, P.act - p.cost, t, p.strikes?.notes?.includes("one attack") ? 1 : each ? each.n : count);
                 sightNotes(plan, best.at, t, { ranged: false });
                 if (best.prov.length) plan.notes.push(`Provokes ${provokeNames(board, best.prov).join(", ")}`);
                 plan.risk = provokeCost(board, best.prov);
@@ -1040,7 +1218,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 if (p.requires.grab && !(t.conditions.has("grabbed") || t.conditions.has("restrained"))) continue;
                 let best = null;
                 for (const sq of squares) {
-                    if (sq.route.actions + p.cost > ACT) continue;
+                    if (sq.route.actions + p.cost > P.act) continue;
                     const at = rectAt(sq);
                     const strikes = melee.filter((s) => inReach(at, t.rect, s.reach));
                     if (!strikes.length || attackCtx(at, t, { ranged: false }).noLine) continue;
@@ -1052,13 +1230,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 const ac = acAgainst(t, !!best.ally);
                 const count = p.strikes.count;
                 const og = isOffGuard(t) || !!best.ally;
-                const one = strikeRun(best.strikes, 1, ac, { vs: t, at: best.at, offGuard: og });
+                const one = strikeSeq(best.strikes, 1, ac, { vs: t, at: best.at, offGuard: og });
                 const each = p.strikes.each && count > 1 ? eachRun(best.at, t, count, ac, og, p.strikes.notes.includes("no MAP")) : null;
-                const run = each ?? (p.strikes.notes.includes("no MAP") ? { ...one, expected: one.expected * count } : strikeRun(best.strikes, count, ac, { vs: t, at: best.at, offGuard: og }));
+                const run = each ?? (p.strikes.notes.includes("no MAP") ? { ...one, expected: one.expected * count } : strikeSeq(best.strikes, count, ac, { vs: t, at: best.at, offGuard: og }));
                 const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)}`, target: t, ev: run.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
                 if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
                 plan.steps.push({ cost: p.cost, text: each ? `${p.name}: ${each.text}` : `${p.name} (${count} Strike${count === 1 ? "" : "s"}${p.strikes.each ? ", each a different foe" : ""})` });
-                fillLast(board, plan, best.at, ACT - best.sq.route.actions - p.cost, t, p.strikes.notes.includes("one attack") ? 1 : each ? each.n : count);
+                fillLast(board, plan, best.at, P.act - best.sq.route.actions - p.cost, t, p.strikes.notes.includes("one attack") ? 1 : each ? each.n : count);
                 plan.risk = provokeCost(board, best.sq.route.provokes);
                 plans.push(plan);
             }
@@ -1072,7 +1250,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const inSpace = /\beach (?:creature|enemy|foe)s? in (?:its|their|the [\w' -]+?'s) (?:space|area)\b/i.test(p.text);
             const area = p.area ?? (inSpace ? { shape: "space", size: 0 } : around ? { shape: "emanation", size: /adjacent/i.test(around[0]) ? 5 : Number(/within (\d+) feet/i.exec(around[0])?.[1] ?? Math.max(5, ...melee.map((s) => s.reach))) } : null);
             if (!area) continue;
-            const plan = bestArea(board, squares, rectAt, { name: p.name, cost: p.cost, area, terrain: /\bdifficult terrain\b/i.test(p.text) && !/\bignores?\b[^.]{0,40}\bdifficult terrain\b/i.test(p.text), range: rangeFromText(p.text) ?? (area.shape === "burst" ? 30 : 0), save: p.save, dc: abilityDc(board, p), avg, inflicts: p.inflicts, traits: p.traits, endCost: myTier >= 1 || HIT_RUN ? endPenalty : null,
+            const plan = bestArea(board, squares, rectAt, { name: p.name, cost: p.cost, area, terrain: /\bdifficult terrain\b/i.test(p.text) && !/\bignores?\b[^.]{0,40}\bdifficult terrain\b/i.test(p.text), range: rangeFromText(p.text) ?? (area.shape === "burst" ? 30 : 0), save: p.save, dc: abilityDc(board, p), avg, inflicts: p.inflicts, traits: p.traits, endCost: myTier >= 1 || P.hitRun ? endPenalty : null,
                 damageTypes: p.damage.map((d) => d.type).filter(Boolean), incapacitation: p.traits.includes("incapacitation") ? { level: me.level } : null, odds: p.traits.includes("manipulate") ? manipulateOk : 1 });
             if (plan) { plan.ability = p; plans.push(plan); }
         }
@@ -1086,7 +1264,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 const payEv = p.save ? saveExpected(t.saves[p.save.stat] ?? 0, abilityDc(board, p), avg, { basic: p.save.basic }).expected : avg * 0.9;
                 if (held && adjacent && p.role === "multi-strike") continue; // its Strikes on the held creature are planned above
                 if (held && adjacent) {
-                    const times = Math.min(ACT, Math.floor(ACT / p.cost));
+                    const times = Math.min(P.act, Math.floor(P.act / p.cost));
                     plans.push({ kind: "ability", title: `${p.name} the grabbed ${nameOf(t)}`, target: t, ev: payEv * times, steps: [{ cost: p.cost * times, text: `${p.name}${times > 1 ? ` ×${times}` : ""} on ${nameOf(t)} (only if ${board.me.name} is the one holding them)` }], notes: [], dest: null, ability: p });
                 } else if (grabbers.length) {
                     // A "grab" rider is its own action after the hit; "improved grab" is free
@@ -1094,13 +1272,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                     let best = null;
                     for (const sq of squares) {
                         const at = rectAt(sq);
-                        const g = grabbers.filter((s) => inReach(at, t.rect, s.reach) && sq.route.actions + 1 + grabCost(s) + p.cost <= ACT);
+                        const g = grabbers.filter((s) => inReach(at, t.rect, s.reach) && sq.route.actions + 1 + grabCost(s) + p.cost <= P.act);
                         const score = sq.route.actions * 3 + sq.route.provokes.length * 3;
                         if (g.length && (!best || score < best.score)) best = { sq, at, g: g.sort((a, b) => grabCost(a) - grabCost(b)), score };
                     }
                     if (!best) continue;
                     const s = best.g[0];
-                    const hitRun = strikeRun([s], 1, t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
+                    const hitRun = strikeSeq([s], 1, t.ac, { vs: t, at: best.at, offGuard: isOffGuard(t) });
                     const hit = { expected: hitRun.expected, hit: hitRun.firstHit };
                     // Remastered Grab is a Grapple: Athletics against the target's Fortitude DC, with no MAP
                     const grapple = degreeChances(me.athletics ?? me.level + 5, 10 + (t.saves.fortitude ?? 0));
@@ -1109,8 +1287,8 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                     let payAt = payEv;
                     if (p.strikes) {
                         const reach = melee.filter((x) => inReach(best.at, t.rect, x.reach));
-                        const once = strikeRun(reach, 1, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true });
-                        payAt = p.strikes.notes.includes("no MAP") ? once.expected * p.strikes.count : strikeRun(reach, p.strikes.count, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }).expected;
+                        const once = strikeSeq(reach, 1, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true });
+                        payAt = p.strikes.notes.includes("no MAP") ? once.expected * p.strikes.count : strikeSeq(reach, p.strikes.count, t.ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }).expected;
                     }
                     const plan = { kind: "ability", title: `Grab ${nameOf(t)}, then ${p.name}`, target: t, ev: hit.expected + holds * payAt, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
                     if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
@@ -1125,8 +1303,8 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         }
         if (p.role === "setup" && !p.area) {
             // Press: an attack already made this turn opens it; otherwise a Strike goes first
-            const press = p.afterAttack && !TURN_MADE;
-            if (press && (p.cost + 1 > ACT || !melee.length)) continue;
+            const press = p.afterAttack && !P.made;
+            if (press && (p.cost + 1 > P.act || !melee.length)) continue;
             for (const t of targets) {
                 if (p.inflicts.every((c) => t.conditions.has(c))) continue;
                 const near = squares.find((sq) => sq.route.actions === 0 && feetBetween(rectAt(sq), t.rect) <= (rangeFromText(p.text) ?? Math.max(5, ...melee.map((s) => s.reach))));
@@ -1134,9 +1312,9 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 // Trip, Shove, Grapple, Disarm, Reposition: the target can be at most one size larger
                 const maneuver = p.control.some((c) => ["trip", "shove", "grapple", "disarm", "reposition"].includes(c)) || p.skillCheck?.skill === "athletics";
                 if (maneuver && (t.sizeRank ?? 2) > (me.sizeRank ?? 2) + 1) continue;
-                const opener = press ? strikeRun(melee.filter((s) => inReach(me.rect, t.rect, s.reach)), 1, t.ac, { vs: t, offGuard: isOffGuard(t) }) : null;
+                const opener = press ? strikeSeq(melee.filter((s) => inReach(me.rect, t.rect, s.reach)), 1, t.ac, { vs: t, offGuard: isOffGuard(t) }) : null;
                 if (press && !opener.used.length) continue;
-                const mapPen = p.traits.includes("attack") ? mapFor(TURN_MADE + (press ? 1 : 0), p.traits.includes("agile")) : 0;
+                const mapPen = p.traits.includes("attack") ? mapFor(P.made + (press ? 1 : 0), p.traits.includes("agile")) : 0;
                 // A linked Trip, Shove, Grapple, Disarm or Reposition is Athletics against the right DC
                 const MANEUVER_DC = { trip: "reflex", disarm: "reflex", shove: "fortitude", grapple: "fortitude", reposition: "fortitude" };
                 const linked = p.control.find((c) => MANEUVER_DC[c]);
@@ -1152,26 +1330,28 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 const plan = { kind: "setup", title: `${press ? `Strike ${nameOf(t)}, then ` : ""}${p.name} on ${nameOf(t)}`, target: t, ev: value + (opener?.expected ?? 0), steps: [], notes: [], dest: null, ability: p };
                 if (opener) plan.steps.push({ cost: 1, text: describeStrikes(opener.used, nameOf(t)) });
                 plan.steps.push({ cost: p.cost, text: `${p.name} on ${nameOf(t)} (${p.inflicts.join(", ")}; works about ${pct(chance)} of the time${mapPen ? ", with the MAP" : ""})` });
-                fillLast(board, plan, me.rect, ACT - p.cost - (opener ? 1 : 0), t, (opener ? 1 : 0) + (p.traits.includes("attack") ? 1 : 0));
+                fillLast(board, plan, me.rect, P.act - p.cost - (opener ? 1 : 0), t, (opener ? 1 : 0) + (p.traits.includes("attack") ? 1 : 0));
                 plans.push(plan);
             }
         }
     }
+}
 
-    // Follow-ups that need a hit first (Knockdown, Gnash...) and Strike variants (Sentry's Aim, Combat Grab...)
+/** Follow-ups that need a hit first (Knockdown, Gnash...) and Strike variants (Sentry's Aim, Combat Grab...). */
+function planFollowUps({ board, me, melee, plans, profiles, ranged, recharging, rectAt, squares, targets, turn }) {
     for (const p of profiles) {
         // Improved Grab, Improved Knockdown and the like are free actions after the hit
         const free = p.kind === "free" && p.requires?.afterHit;
         if (!(p.kind === "action" && p.cost) && !free) continue;
         const cost = free ? 0 : p.cost;
-        if ((cost ?? 0) > ACT || recharging(p) || !melee.length && !ranged.length) continue;
+        if ((cost ?? 0) > P.act || recharging(p) || !melee.length && !ranged.length) continue;
         const followUp = p.role === "payoff" && p.requires.afterHit;
         // Rend: after two hits in a row on the same foe
         const twoHits = followUp && /\btwo (?:consecutive |successive )?(?:[\w-]+ )?strikes?\b|\bconsecutive (?:[\w-]+ )?strikes?\b|\bboth (?:strikes )?hit\b/i.test(`${p.requires.text ?? ""} ${p.text}`);
         const variant = p.role === "strike-variant";
         if (!followUp && !variant) continue;
         // Press: only after an attack this turn, so a plain Strike goes first and the press Strike takes the MAP
-        const press = variant && p.afterAttack && !TURN_MADE;
+        const press = variant && p.afterAttack && !P.made;
         // "+1 circumstance bonus to the attack roll", or "makes a ranged Strike with a +1 circumstance bonus"; a bonus "to"
         // anything else (damage, AC, a save, "the check to Recall Knowledge") isn't to hit
         const bonus = Number(/\+(\d+) (?:circumstance|status|item) bonus(?! (?:to|on) (?!(?:the |your |its |that |this )?(?:attack|strike|hit)))/i.exec(p.text)?.[1] ?? 0);
@@ -1192,7 +1372,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 const og = isOffGuard(t);
                 const plan = { kind: "ability", title: `${p.name} on ${nameOf(t)} now`, target: t, ev: p.damage.reduce((sum, d) => sum + averageOf(d.formula), 0) + (leaves.length && !og ? 3 * works : 0) - (check && ["Trip", "Shove"].includes(check.label) ? odds.cf * 3 : 0), steps: [], notes: [], dest: null, ability: p };
                 plan.steps.push({ cost, text: `${p.name} now, its last Strike hit ${nameOf(t)}${check ? ` (${check.label}: Athletics ${signed(athletics)} vs ${cap(check.vs)} DC ${10 + (t.saves[check.vs] ?? 0)}${check.gives ? `, ${check.gives} about ${pct(works)} of the time` : ""})` : ""}` });
-                fillLast(board, plan, me.rect, ACT - cost, t, 0, leaves.length && !og ? 2 * works : 0);
+                fillLast(board, plan, me.rect, P.act - cost, t, 0, leaves.length && !og ? 2 * works : 0);
                 plans.push(plan);
             }
         }
@@ -1200,7 +1380,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             let best = null;
             for (const sq of squares) {
                 const extra = twoHits ? 2 : followUp || press ? 1 : 0;
-                if (sq.route.actions + cost + extra > ACT) continue;
+                if (sq.route.actions + cost + extra > P.act) continue;
                 const at = rectAt(sq);
                 if (attackCtx(at, t).noLine) continue;
                 const meleeOnly = /\bmelee\b/i.test(p.text) || p.control.includes("grapple") || p.inflicts.includes("grabbed");
@@ -1219,17 +1399,17 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const plan = { kind: "ability", title: followUp ? `Strike ${nameOf(t)}, then ${p.name}` : `${p.name} on ${nameOf(t)}`, target: t, ev: 0, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
             // A press action's opener: any Strike that reaches, at no MAP
-            const opener = press ? strikeRun([...melee.filter((s) => inReach(best.at, t.rect, s.reach)), ...ranged.filter((s) => feetBetween(best.at, t.rect) <= s.range)], 1, ac, { vs: t, at: best.at, offGuard: og }) : null;
+            const opener = press ? strikeSeq([...melee.filter((s) => inReach(best.at, t.rect, s.reach)), ...ranged.filter((s) => feetBetween(best.at, t.rect) <= s.range)], 1, ac, { vs: t, at: best.at, offGuard: og }) : null;
             if (opener) {
                 plan.title = `Strike ${nameOf(t)}, then ${p.name}`;
                 plan.steps.push({ cost: 1, text: describeStrikes(opener.used, nameOf(t)) });
             }
             const volleyPen = (s) => (s.ranged && s.volley && feetBetween(best.at, t.rect) <= s.volley ? 2 : 0);
-            const first = strikeRun(best.usable.map((s) => ({ ...s, bonus: s.bonus + (variant ? bonus : 0) - volleyPen(s) })), 1, ac, { vs: t, at: best.at, offGuard: og, made: opener ? 1 : 0 });
+            const first = strikeSeq(best.usable.map((s) => ({ ...s, bonus: s.bonus + (variant ? bonus : 0) - volleyPen(s) })), 1, ac, { vs: t, at: best.at, offGuard: og, made: opener ? 1 : 0 });
             plan.ev = first.expected + (opener?.expected ?? 0);
             if (twoHits) {
                 // Strike, Strike, then the payoff if both hit
-                const two = strikeRun(best.usable, 2, ac, { vs: t, at: best.at, offGuard: og });
+                const two = strikeSeq(best.usable, 2, ac, { vs: t, at: best.at, offGuard: og });
                 const both = (two.used[0]?.e.hit ?? 0) * (two.used[1]?.e.hit ?? 0);
                 const again = p.damage.reduce((sum, d) => sum + averageOf(d.formula), 0) || (two.used[0]?.s.avg ?? 0);
                 plan.title = `Strike ${nameOf(t)} twice, then ${p.name}`;
@@ -1251,11 +1431,11 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 plan.ev += first.firstHit * (payDmg + (leaves.length ? 3 * works : 0));
                 const how = check ? ` (${check.label}: Athletics ${signed(athletics)} vs ${cap(check.vs)} DC ${10 + (t.saves[check.vs] ?? 0)}${check.gives ? `, ${check.gives} about ${pct(works)} of the time` : ""}${free ? "; free action" : ""})` : p.inflicts.length ? ` (${p.inflicts.join(", ")})` : "";
                 plan.steps.push({ cost: cost, text: `If it hits: ${p.name}${how}` });
-                const left = ACT - best.sq.route.actions - 1 - cost;
+                const left = P.act - best.sq.route.actions - 1 - cost;
                 if (left > 0) {
                     const chance = leaves.length && !og ? first.firstHit * works : 0;
-                    const plain = strikeRun(best.usable, left, ac, { vs: t, at: best.at, made: 1, offGuard: og });
-                    const off = chance ? strikeRun(best.usable, left, ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }) : plain;
+                    const plain = strikeSeq(best.usable, left, ac, { vs: t, at: best.at, made: 1, offGuard: og });
+                    const off = chance ? strikeSeq(best.usable, left, ac - 2, { vs: t, at: best.at, made: 1, offGuard: true }) : plain;
                     plan.ev += (1 - chance) * plain.expected + chance * off.expected;
                     plan.steps.push({ cost: left, text: describeStrikes(plain.used, nameOf(t)) + (leaves.length && !og ? ` (off-guard if ${p.name} worked)` : "") });
                 }
@@ -1267,7 +1447,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 if (press) plan.notes.push(`${p.name} needs an attack before it this turn`);
                 // Grabbing with the free hand ties it up: no fist Strikes after
                 const handBusy = /\bfree hand\b|\bhand free\b/i.test(p.text) && /\bgrab/i.test(p.text);
-                fillLast(board, plan, best.at, ACT - best.sq.route.actions - cost - (opener ? 1 : 0), t, opener ? 2 : 1, leaves.length && !og ? 2 * first.firstHit : 0,
+                fillLast(board, plan, best.at, P.act - best.sq.route.actions - cost - (opener ? 1 : 0), t, opener ? 2 : 1, leaves.length && !og ? 2 * first.firstHit : 0,
                     handBusy ? (s) => s.traits?.includes("unarmed") : null);
             }
             if (og) plan.notes.push(`${nameOf(t)} is off-guard: AC ${ac}`);
@@ -1276,8 +1456,10 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             plans.push(plan);
         }
     }
+}
 
-    // Self-buffs that pay off in Strikes: Rage, Fanatical Frenzy, Inspired Fury...
+/** Self-buffs that pay off in Strikes: Rage, Fanatical Frenzy, Inspired Fury... */
+function planSelfBuffs({ board, me, melee, plans, profiles, recharging, rectAt, squares, targets }) {
     for (const p of profiles) {
         if (p.kind !== "action" || p.role !== "buff" || p.allies || !p.cost || p.cost > 2 || recharging(p) || !melee.length) continue;
         const atk = Number(/\+(\d+) (?:circumstance|status|item) bonus to (?:its |their )?attack rolls/i.exec(p.text)?.[1] ?? 0);
@@ -1289,7 +1471,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         for (const t of targets) {
             let best = null;
             for (const sq of squares) {
-                if (sq.route.actions + p.cost + 1 > ACT) continue;
+                if (sq.route.actions + p.cost + 1 > P.act) continue;
                 const at = rectAt(sq);
                 const strikes = melee.filter((s) => inReach(at, t.rect, s.reach));
                 if (!strikes.length) continue;
@@ -1300,8 +1482,8 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const flanked = !!flankingAlly(board, best.at, t);
             const og = isOffGuard(t) || flanked;
             const ac = acAgainst(t, flanked);
-            const n = ACT - best.sq.route.actions - p.cost;
-            const run = strikeRun(best.strikes.map((s) => ({ ...s, bonus: s.bonus + atk, avg: s.avg + dmg })), n, ac, { vs: t, at: best.at, offGuard: og });
+            const n = P.act - best.sq.route.actions - p.cost;
+            const run = strikeSeq(best.strikes.map((s) => ({ ...s, bonus: s.bonus + atk, avg: s.avg + dmg })), n, ac, { vs: t, at: best.at, offGuard: og });
             const plan = { kind: "ability", title: `${p.name}, then Strike ${nameOf(t)}`, target: t, ev: run.expected + (lasting ? atk * 0.5 + dmg * 0.6 : 0), steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, ability: p };
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t, !!best.usable && !best.usable.some((x) => !x.ranged)) });
             plan.steps.push({ cost: p.cost, text: `${p.name}${atk ? ` (+${atk} to hit` : " ("}${dmg ? `${atk ? ", " : ""}+${dmg} damage` : ""}${lasting ? "; lasts the fight" : ""})` });
@@ -1313,10 +1495,12 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             plans.push(plan);
         }
     }
+}
 
-    // Spells that hinder rather than hurt: fear, shroud of night, slow...
+/** Spells that hinder rather than hurt: fear, shroud of night, slow... */
+function planHinderSpells({ board, me, plans, rectAt, spells, squares, targets }) {
     for (const sp of spells) {
-        if (!sp.cost || sp.cost > ACT || sp.area || sp.heals || sp.avg || !sp.save || !sp.inflicts?.length) continue;
+        if (!sp.cost || sp.cost > P.act || sp.area || sp.heals || sp.avg || !sp.save || !sp.inflicts?.length) continue;
         // On the hit scale (as the threat table and Sustain value them): 5 points is one of its hits, so slowed or
         // stunned is a hit's worth, paralyzed two, frightened under half. Flat points couldn't keep up with damage.
         const hitScale = hitWorth(me.level) / 5;
@@ -1325,7 +1509,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             if (sp.inflicts.every((c) => t.conditions.has(c))) continue;
             let best = null;
             for (const sq of squares) {
-                if (sq.route.actions + sp.cost > ACT) continue;
+                if (sq.route.actions + sp.cost > P.act) continue;
                 const at = rectAt(sq);
                 if (feetBetween(at, t.rect) > (sp.range ?? 30)) continue;
                 const seen = attackCtx(at, t);
@@ -1350,25 +1534,29 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             sightNotes(plan, best.at, t, { attack: false });
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: `${routeText(best.sq.route)}${best.sq.route.doors || best.sq.route.tail || best.sq.route.vText ? "," : ""} into range of ${nameOf(t)}` });
             plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name} at ${nameOf(t)}: ${cap(sp.save.stat)} DC ${sp.dc} (${sp.inflicts.join(", ")}; lands about ${pct(fail)} of the time)` });
-            fillLast(board, plan, best.at, ACT - best.sq.route.actions - sp.cost, t, 0);
+            fillLast(board, plan, best.at, P.act - best.sq.route.actions - sp.cost, t, 0);
             if (best.exp.length) plan.notes.push(`Casting in reach of ${best.exp.map(nameOf).join(", ")} provokes`);
             plan.risk = provokeCost(board, [...best.sq.route.provokes, ...best.exp.map((x) => x.id)]);
             plans.push(plan);
         }
     }
+}
 
-    // Area spells
+/** Area spells, aimed where they catch the most. */
+function planAreaSpells({ board, endPenalty, myTier, plans, rectAt, spells, squares }) {
     for (const sp of spells) {
-        if (!sp.area || !sp.cost || sp.cost > ACT || !sp.avg || !sp.save) continue;
-        const plan = bestArea(board, squares, rectAt, { name: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`}`, cost: sp.cost, area: sp.area, range: sp.range ?? 0, save: sp.save, dc: sp.dc ?? 15, avg: sp.avg, inflicts: [], traits: sp.traits, endCost: myTier >= 1 || HIT_RUN ? endPenalty : null,
+        if (!sp.area || !sp.cost || sp.cost > P.act || !sp.avg || !sp.save) continue;
+        const plan = bestArea(board, squares, rectAt, { name: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`}`, cost: sp.cost, area: sp.area, range: sp.range ?? 0, save: sp.save, dc: sp.dc ?? 15, avg: sp.avg, inflicts: [], traits: sp.traits, endCost: myTier >= 1 || P.hitRun ? endPenalty : null,
             damageTypes: sp.damageTypes ?? [], incapacitation: sp.incapacitation ? { rank: sp.rank } : null, odds: sp.odds ?? 1 });
         if (plan) { plan.spell = sp; plans.push(plan); }
     }
+}
 
-    // Spells that help its side fight (Bless, Courageous Anthem): worth it with enough allies about to attack
+/** Spells that help its side fight (Bless, Courageous Anthem): worth it with enough allies about to attack. */
+function planSupportSpells({ board, intent, me, plans, spells, targets }) {
     for (const sp of spells) {
         const bf = sp.buff;
-        if (!bf || !sp.cost || sp.cost > ACT || intent?.run) continue;
+        if (!bf || !sp.cost || sp.cost > P.act || intent?.run) continue;
         const inEffect = (c) => c.actor?.items?.some?.((i) => i.type === "effect" && i.name.toLowerCase().includes(sp.name.toLowerCase()));
         if (inEffect(me) || (board.allies ?? []).some(inEffect)) continue;
         const helped = (board.allies ?? []).filter((a) => a.hp > 0 && a.canAct !== false && feetBetween(me.rect, a.rect) <= bf.size);
@@ -1380,13 +1568,14 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         const plan = { kind: "buff", title: `Cast ${sp.name}`, target: null, ev: value, steps: [], notes: [], dest: null, spell: sp };
         plan.steps.push({ cost: sp.cost, text: `Cast ${sp.name}: +${bf.attack} to attacks${bf.damage ? ` and +${bf.damage} damage` : ""} for ${who.length} ${bf.self ? "(it and its allies)" : "allies"} within ${bf.size} feet${bf.rounds === 1 ? ", this round" : ""}` });
         const near = [...targets].sort((x, y) => feetBetween(me.rect, x.rect) - feetBetween(me.rect, y.rect))[0] ?? null;
-        fillLast(board, plan, me.rect, ACT - sp.cost, near, 0);
+        fillLast(board, plan, me.rect, P.act - sp.cost, near, 0);
         plan.notes.push(`Cast before its allies act, so they get it this round`);
         plans.push(plan);
     }
+}
 
-    // Bringing a fallen ally back into the fight: worth far more than the HP, because a body on its feet fights again.
-    // A thinking creature knows it (animals don't heal); it weighs what the ally does in a round, for a couple of rounds.
+/** Bringing a fallen ally back into the fight (thinking creatures only). */
+function planRevives({ board, me, plans, rectAt, spells, squares }) {
     const reviveTier = tierOf(me);
     for (const c of reviveTier >= 1 ? (board.downAllies ?? []).filter((d) => (d.hp <= 0 || d.conditions?.has?.("dying")) && (!d.rect.lvl || !me.rect.lvl || d.rect.lvl === me.rect.lvl)) : []) {
         const undead = (c.traits ?? []).includes("undead");
@@ -1398,7 +1587,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             for (const f of forms) {
                 for (const sq of squares) {
                     if (sp.potion && !inReach(rectAt(sq), c.rect, 5)) continue;
-                    if (sq.route.actions + f.cost > ACT || feetBetween(rectAt(sq), c.rect) > Math.max(5, f.range)) continue;
+                    if (sq.route.actions + f.cost > P.act || feetBetween(rectAt(sq), c.rect) > Math.max(5, f.range)) continue;
                     if (board.lineBlocked?.(centerOf(rectAt(sq)), centerOf(c.rect))) continue;
                     const ev = Math.min(f.avg, c.maxHp) * 0.8 + back;
                     const score = ev - (sq.route.actions + f.cost) * 0.5 - sq.route.provokes.length * 3;
@@ -1415,8 +1604,10 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             plans.push(plan);
         }
     }
+}
 
-    // Healing: itself when badly hurt, or an ally that is (Heal at two actions reaches 30 feet and adds 8 a rank)
+/** Healing itself when badly hurt, or an ally that is. */
+function planHeals({ board, me, plans, profiles, recharging, spells }) {
     const healable = [{ c: me, self: true }, ...(board.allies ?? []).filter((a) => a.hp > 0 && a.canAct !== false).map((a) => ({ c: a, self: false }))]
         .filter(({ c }) => c.hp / Math.max(1, c.maxHp) < 0.5);
     for (const { c, self } of healable) {
@@ -1427,7 +1618,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const forms = [{ cost: sp.cost, avg: sp.avg || 8, range: self ? 0 : (sp.range ?? 0) }, ...(sp.twoAction ? [{ cost: 2, avg: sp.twoAction.avg, range: sp.twoAction.range }] : [])];
             let best = null;
             for (const f of forms) {
-                if (f.cost > ACT) continue;
+                if (f.cost > P.act) continue;
                 const d = self ? 0 : feetBetween(me.rect, c.rect);
                 if (!self && (sp.potion ? !inReach(me.rect, c.rect, 5) : d > Math.max(5, f.range))) continue;
                 const ev = Math.min(f.avg, missing) * 0.8 * (self ? 1 : 0.9);
@@ -1447,8 +1638,10 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             }
         }
     }
+}
 
-    // Shove a foe into hazardous terrain or off a ledge: Strikes first, the Shove last (it's an attack, so it takes the MAP)
+/** Shoving a foe into hazardous terrain or off a ledge: Strikes first, the Shove last. */
+function planShoves({ board, me, melee, myTier, plans, rectAt, squares, targets }) {
     if (myTier >= 1 && board.pushInto && melee.length && board.square && me.freeHand !== false) {
         const ath = me.athletics ?? me.level + 5;
         // Shove reaches as far as its body does (its unarmed attacks), not a polearm's reach
@@ -1457,7 +1650,7 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             if ((t.sizeRank ?? 2) > (me.sizeRank ?? 2) + 1 || t.hp <= 0) continue;
             let best = null;
             for (const sq of squares) {
-                if (sq.route.actions + 1 > ACT) continue;
+                if (sq.route.actions + 1 > P.act) continue;
                 const at = rectAt(sq);
                 const strikes = melee.filter((st) => inReach(at, t.rect, st.reach));
                 if (!strikes.length || !inReach(at, t.rect, bodyReach) || attackCtx(at, t, { ranged: false }).noLine) continue;
@@ -1474,9 +1667,9 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const worth = (x) => (x ? x.dmg + (x.prone ? 3 : 0) + (x.fall ? 2 : 0) : 0);
             // How many Strikes before it: each adds damage but makes the Shove less likely (the MAP)
             let pick = null;
-            for (let k = 0; k <= ACT - best.sq.route.actions - 1; k++) {
-                const run = k > 0 ? strikeRun(best.strikes, k, t.ac, { vs: t, at: best.at, offGuard: og }) : { expected: 0, used: [] };
-                const mod = ath + mapFor(TURN_MADE + run.used.length, false);
+            for (let k = 0; k <= P.act - best.sq.route.actions - 1; k++) {
+                const run = k > 0 ? strikeSeq(best.strikes, k, t.ac, { vs: t, at: best.at, offGuard: og }) : { expected: 0, used: [] };
+                const mod = ath + mapFor(P.made + run.used.length, false);
                 const c = degreeChances(mod, dc);
                 const value = c.s * worth(best.push.s) + c.cs * Math.max(worth(best.push.s), worth(best.push.cs)) - c.cf * 3;
                 if (value > 0.5 && (!pick || run.expected + value > pick.run.expected + pick.value)) pick = { k, run, mod, c, value };
@@ -1489,8 +1682,8 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const plan = { kind: "ability", title: `Shove ${nameOf(t)} ${main.fall ? "off the edge" : "into the hazard"}`, target: t, ev: run.expected + value, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, shove: true };
             if (best.sq.route.actions) plan.steps.push({ cost: best.sq.route.actions, text: approachText(best.sq.route, t) });
             if (run.used.length) plan.steps.push({ cost: left, text: describeStrikes(run.used, nameOf(t)) });
-            plan.steps.push({ cost: 1, text: `Shove ${nameOf(t)} (Athletics ${signed(mod)} vs Fortitude DC ${dc}${run.used.length || TURN_MADE ? ", with the MAP" : ""}): ${main.why}, about ${pct(odds)} of the time${best.push.s ? "" : " (a critical success)"}` });
-            const spare = ACT - best.sq.route.actions - left - 1;
+            plan.steps.push({ cost: 1, text: `Shove ${nameOf(t)} (Athletics ${signed(mod)} vs Fortitude DC ${dc}${run.used.length || P.made ? ", with the MAP" : ""}): ${main.why}, about ${pct(odds)} of the time${best.push.s ? "" : " (a critical success)"}` });
+            const spare = P.act - best.sq.route.actions - left - 1;
             if (spare > 0) plan.steps.push({ cost: spare, text: `${spare > 1 ? "Its last actions" : "Its last action"}: ${board.me.shield && !board.me.shieldRaised ? "Raise a Shield" : "Take Cover"}, or Stride after them` });
             if (best.push.cs && best.push.s && best.push.cs.why !== best.push.s.why && worth(best.push.cs) > worth(best.push.s)) plan.notes.push(`On a critical success, 10 feet: ${best.push.cs.why}`);
             plan.notes.push("A critical failure on the Shove leaves it prone");
@@ -1500,8 +1693,10 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             plans.push(plan);
         }
     }
+}
 
-    // Foes on another floor: up or down the stairs (or a ladder) to them
+/** Foes on another floor: up or down the stairs (or a ladder) to them. */
+function planStairs({ board, intent, mc, me, melee, plans }) {
     if (board.elsewhere?.length && board.stairs?.length && board.square && !intent?.run && board.move.stride.feet > 0 && board.move.stride.speed !== "fly"
         && !["immobilized", "grabbed", "restrained"].some((x) => mc.has(x))) {
         const stride = board.move.stride.feet;
@@ -1531,9 +1726,9 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const place = !st.name ? (st.ladder ? "the ladder" : "the stairs") : /^the\b/i.test(st.name) ? st.name : `the ${st.name}`;
             const how = `${prone ? "Stand, then " : ""}${board.move.stride.by ?? "Stride"} to ${place}${st.ladder ? `, Climb ${best.up ? "up" : "down"} ${best.dz} ft` : `, ${best.up ? "up" : "down"} to ${floor}`}`;
             const vs = { ...t, rect: null };
-            if (melee.length && best.actions < ACT) {
-                const n = ACT - best.actions;
-                const run = strikeRun(melee, n, t.ac, { vs, offGuard: isOffGuard(t) });
+            if (melee.length && best.actions < P.act) {
+                const n = P.act - best.actions;
+                const run = strikeSeq(melee, n, t.ac, { vs, offGuard: isOffGuard(t) });
                 if (run.used.length) {
                     const plan = { kind: "melee", title: `${best.up ? "Up" : "Down"} the ${st.ladder ? "Ladder" : "Stairs"} to ${nameOf(t)}`, target: t, ev: run.expected, notes: [], dest: { x: c.x, y: c.y }, viaStairs: true,
                         steps: [{ cost: best.actions, text: `${how}, and on into reach of ${nameOf(t)}` }, { cost: n, text: describeStrikes(run.used, nameOf(t)) }] };
@@ -1545,19 +1740,20 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
                 }
             }
             if (plans.some((p) => p.target && p.ev > 0 && !p.viaStairs)) continue;
-            const go = Math.min(ACT, best.toStair + best.climb);
-            const there = best.toStair + best.climb <= ACT;
+            const go = Math.min(P.act, best.toStair + best.climb);
+            const there = best.toStair + best.climb <= P.act;
             const plan = { kind: "advance", title: `Make for ${nameOf(t)} on ${floor}`, target: null, ev: 0.3, score: 0.3 - provokeCost(board, c.provokes), notes: [], dest: { x: c.x, y: c.y }, viaStairs: true,
                 steps: [{ cost: go, text: there ? how : `${prone ? "Stand, then " : ""}${board.move.stride.by ?? "Stride"} toward ${place}` }] };
-            if (there && ACT - go > 0) plan.steps.push({ cost: ACT - go, text: `${board.move.stride.by ?? "Stride"} on toward ${nameOf(t)}` });
+            if (there && P.act - go > 0) plan.steps.push({ cost: P.act - go, text: `${board.move.stride.by ?? "Stride"} on toward ${nameOf(t)}` });
             if (c.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, c.provokes).join(", ")}`);
             plan.why = ["on another floor"];
             plans.push(plan);
         }
     }
+}
 
-    // Nothing it can hit this turn: close on the best target, as safely as it can
-    // A walker doesn't advance on a flier it can't reach from the ground: a few feet closer changes nothing
+/** Nothing it can hit this turn: closing on the best target, as safely as it can. */
+function planAdvance({ board, intent, me, plans, rectAt, squares, targets }) {
     const canFly = (board.move?.speeds?.fly ?? 0) > 0;
     const myReach = Math.max(5, ...board.strikes.filter((s) => !s.ranged).map((s) => s.reach || 5));
     const reachableUp = (x) => canFly || ((x.rect?.z ?? 0) - (me.rect?.z ?? 0)) <= myReach;
@@ -1577,92 +1773,63 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
             const r = best.sq.route;
             const plan = { kind: "advance", title: `Advance on ${nameOf(pick)}`, target: null, ev: 0.3, score: 0.3 - provokeCost(board, r.provokes), notes: [], dest: { x: best.sq.x, y: best.sq.y, z: best.sq.z },
                 steps: [{ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} toward ${nameOf(pick)}, ending ${best.d} feet away` }] };
-            if (r.actions < ACT) fillLast(board, plan, rectAt(best.sq), ACT - r.actions, pick, 0);
+            if (r.actions < P.act) fillLast(board, plan, rectAt(best.sq), P.act - r.actions, pick, 0);
             if (r.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, r.provokes).join(", ")}`);
             plan.why = [pick.objective ? "what it's after" : threatShare(board, pick) >= 1 ? "top threat" : "closest"];
             plans.push(plan);
         }
     }
+}
 
-    // A buff or a heal that leaves actions over, with nothing to Strike from where it stands: spend them on the best
-    // attack that fits in what's left (a Step and two shots after Courageous Anthem, say)
-    const FOLLOW_KINDS = new Set(["melee", "ranged", "spell", "ability", "area", "demoralize", "feint"]);
-    const costOf = (p) => p.steps.reduce((n, st) => n + (st.cost ?? 0), 0);
-    // The follow-up is planned again with only the actions left (every attack plan spends all it has)
-    const followFor = new Map();
-    const followWith = (left) => {
-        if (!followFor.has(left)) {
-            const saved = { ACT, TURN_MADE, BOARD, CTX, SNEAK, HIT_RUN, EXTRA_VS };
-            let sub = [];
-            try {
-                const turn = { ...(board.turn ?? {}), spent: (board.turn?.spent ?? 0) + (ACT - left) };
-                sub = planTurn({ ...board, turn }, { intent, noFollow: true });
-            } catch (err) { console.warn(`${MODULE_ID} | couldn't plan the rest of the turn`, err); }
-            ({ ACT, TURN_MADE, BOARD, CTX, SNEAK, HIT_RUN, EXTRA_VS } = saved);
-            followFor.set(left, sub.filter((p) => FOLLOW_KINDS.has(p.kind) && p.ev > 0 && costOf(p) <= left).sort((a, b) => b.ev - a.ev)[0] ?? null);
-        }
-        return followFor.get(left);
-    };
-    for (const plan of noFollow ? [] : plans) {
-        if ((plan.kind !== "buff" && plan.kind !== "heal") || plan.dest) continue;
-        const left = ACT - costOf(plan);
-        if (left <= 0) continue;
-        const follow = followWith(left);
-        if (!follow) continue;
-        plan.ownEv = plan.ev;
-        plan.steps.push(...follow.steps.map((st) => ({ ...st })));
-        plan.ev += follow.ev;
-        plan.dest = follow.dest ?? null;
-        plan.aim = follow.aim ?? null;
-        plan.risk = (plan.risk ?? 0) + (follow.risk ?? 0);
-        if (follow.flyAway) { plan.flyAway = true; plan.leaveRisk = (plan.leaveRisk ?? 0) + (follow.leaveRisk ?? 0); }
-        for (const n of follow.notes) if (!plan.notes.includes(n)) plan.notes.push(n);
-    }
-
-    // Airborne: a creature that doesn't Fly on its turn falls at the end of it, so staying up costs an action
+/** Airborne: staying up costs an action each turn, or it falls at the end of the turn. */
+function addStayAloft({ board, costOf, me, noFollow, plans }) {
     if (me.airborne && !noFollow) {
         const drop = Math.max(0, (me.rect.z ?? 0) - (board.floorZ ?? 0));
         for (const plan of plans) {
             if (plan.kind === "none" || !costOf(plan) || plan.ability?.moves?.length || plan.steps.some((st) => /\bFly\b|\bClimb\b/.test(st.text ?? ""))) continue;
-            if (costOf(plan) < ACT) plan.steps.push({ cost: 1, text: "Fly in place, to stay up" });
+            if (costOf(plan) < P.act) plan.steps.push({ cost: 1, text: "Fly in place, to stay up" });
             else {
                 plan.notes.push(`It doesn't Fly this turn, so it falls ${drop} feet at the end of it (${Math.floor(drop / 2)} damage, prone)`);
                 plan.risk = (plan.risk ?? 0) + drop / 2 + 2;
             }
         }
     }
+}
 
-    // Dropping off a ledge hurts: its own drop ("drop down 10 ft (5 bludgeoning, lands prone)"), not a foe it
-    // Shoves off one ("a 10-foot drop (5 bludgeoning ...)")
+/** Dropping off a ledge hurts: the damage and landing prone, from its own drop step. */
+function addDropDamage({ plans }) {
     for (const plan of plans) {
         const f = plan.steps.map((st) => /\bdrop down \d+ ft \((\d+) bludgeoning, lands prone\)/.exec(st.text ?? "")?.[1]).find(Boolean);
         if (f) plan.risk = (plan.risk ?? 0) + Number(f);
     }
+}
 
-    // A spell it can Sustain: one action on it, then the best of what's left; anything else lets the spell end
-    if (board.sustain && !noSustain && !noFollow && ACT >= 1 && !mc.has("fascinated")) {
+/** A spell it can Sustain: one action on it, then the best of what's left. */
+function planSustain({ board, costOf, intent, mc, noFollow, noSustain, plans }) {
+    if (board.sustain && !noSustain && !noFollow && P.act >= 1 && !mc.has("fascinated")) {
         const su = board.sustain;
         let rest = null;
-        if (ACT > 1) {
-            const saved = { ACT, TURN_MADE, BOARD, CTX, SNEAK, HIT_RUN, EXTRA_VS };
+        if (P.act > 1) {
             try {
                 const sub = planTurn({ ...board, turn: { ...(board.turn ?? {}), spent: (board.turn?.spent ?? 0) + 1 } }, { intent, noSustain: true });
                 // Not the same spell cast again (that would end the one it sustains)
                 rest = sub.filter((p) => !["none", "hold", "run"].includes(p.kind) && p.ev > 0 && p.spell?.name !== su.name).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0] ?? null;
             } catch (err) { console.warn(`${MODULE_ID} | couldn't plan around the Sustain`, err); }
-            ({ ACT, TURN_MADE, BOARD, CTX, SNEAK, HIT_RUN, EXTRA_VS } = saved);
         }
         const step = { cost: 1, text: `Sustain ${su.name} (if it's still up)` };
         // The sub-plan's own notes on its conditions and the way are added again below, for this plan as for every other
         const own = /^(?:Prone|Grabbed|Slowed \d|Stunned \d|Quickened|Stupefied \d|Fascinated|Blinded):|^The way crosses|^Opens a door on the way/;
         const plan = rest ? { ...rest, title: `Sustain ${su.name}, then ${rest.title}`, steps: [step, ...rest.steps.map((st) => ({ ...st }))], notes: rest.notes.filter((n) => !own.test(n)), ev: rest.ev + su.value, flatEv: su.value, sustains: true }
-            : { kind: "buff", title: `Sustain ${su.name}`, target: null, ev: su.value, flatEv: su.value, steps: [step, ...(ACT > 1 ? [{ cost: ACT - 1, text: "Its other actions: move, or take cover; nothing else it has reaches a foe" }] : [])], notes: [], dest: null, sustains: true };
+            : { kind: "buff", title: `Sustain ${su.name}`, target: null, ev: su.value, flatEv: su.value, steps: [step, ...(P.act > 1 ? [{ cost: P.act - 1, text: "Its other actions: move, or take cover; nothing else it has reaches a foe" }] : [])], notes: [], dest: null, sustains: true };
         delete plan.score;
         delete plan.why;
         for (const other of plans) if (costOf(other) > 0) other.notes.push(`${su.name} ends: it doesn't Sustain it`);
         plans.push(plan);
     }
+}
 
+/** Each plan's score: expected damage, plus who it's aimed at, minus what it risks. */
+function scorePlans({ animal, board, endPenalty, lvlScale, me, melee, plans, rectAt, targets }) {
     const ATTACK_KINDS = new Set(["melee", "ranged", "spell", "ability", "area", "demoralize", "feint", "setup"]);
     // Score: expected damage, plus who it's aimed at, minus what it risks
     const inReachNow = targets.filter((t) => melee.some((s) => inReach(me.rect, t.rect, s.reach)));
@@ -1683,94 +1850,13 @@ function planTurn(board, { intent = null, noFollow = false, noSustain = false } 
         }
         if (plan.kind === "melee" && board.spells.some((sp) => sp.dc && (sp.avg || sp.inflicts?.length))) plan.score -= 1.5 * lvlScale; // a caster's place isn't in melee
         const endAt = plan.dest ? rectAt(plan.dest) : me.rect;
-        if (HIT_RUN) {
+        if (P.hitRun) {
             // Where it ends its turn: a thinking flier weighs it for everything it attacks with
             if (!plan.flyAway && (ATTACK_KINDS.has(plan.kind) || plan.ownEv != null)) plan.score -= endPenalty(endAt);
         } else if (plan.kind === "ranged" || plan.kind === "spell") plan.score -= exposure(board, endAt) * 0.5 * lvlScale;
     }
-    plans.sort((a, b) => b.score - a.score);
-    const top = plans[0];
-    // The best it can do is next to nothing (a dagger thrown at -10): keep out of reach and wait for an opening instead
-    const ATTACKS = ["melee", "ranged", "spell", "ability", "area", "strike", "attack", "demoralize", "feint"];
-    if (top && board.square && !intent && ATTACKS.includes(top.kind) && top.ev < Math.max(1, 0.15 * hitWorth(me.level))) {
-        let best = null;
-        const exposedNow = exposure(board, me.rect) > 0;
-        for (const sq of squares) {
-            if (sq.route.actions > (exposedNow ? Math.min(1, ACT - 1) : 0)) continue; // out of reach already: stay put; and keep an action for cover
-            const at = rectAt(sq);
-            const exp = exposure(board, at);
-            const nearest = Math.min(...board.enemies.map((e) => feetBetween(at, e.rect)), 999);
-            const sc = -exp * 20 + Math.min(nearest, 40) - sq.route.provokes.length * 15 - sq.route.actions * 2;
-            if (!best || sc > best.sc) best = { sq, sc, exp };
-        }
-        if (best) {
-            const r = best.sq.route;
-            const hold = { kind: "hold", title: "Hold Back", target: null, ev: 0.2, score: top.score + 0.5, notes: [`Its best attack from here is worth about ${round1(top.ev)} damage (${top.title})`], dest: r.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, steps: [] };
-            if (r.actions) hold.steps.push({ cost: r.actions, text: `${routeText(r)}${r.doors || r.tail || r.vText ? "," : ""} back${best.exp ? "" : " out of reach"}` });
-            if (ACT - r.actions >= 1) hold.steps.push({ cost: 1, text: board.me.shield && !board.me.shieldRaised ? "Raise a Shield" : "Take Cover behind something if it can" });
-            if (ACT - r.actions - 1 > 0) hold.steps.push({ cost: ACT - r.actions - 1, text: "Ready a Strike for whoever comes close, or Aid an ally" });
-            plans.unshift(hold);
-        }
-    }
-    // Badly hurt (under a quarter of its HP) and not about to drop someone: a thinking or animal foe breaks off,
-    // unless its tactics say it fights to the end. Mindless creatures never do.
-    const fearless = /\b(?:to the death|to the end|never (?:flees|retreats|surrenders)|fearless)\b/i.test(board.tacticsText ?? "");
-    const pinned = ["grabbed", "restrained", "immobilized"].some((c) => mc.has(c));
-    // Or a blow to its morale: its leader falls (a creature of no great will), half its side is down, or it has just taken a
-    // beating, and it's hurt. The GM's call; offered first, as a thinking creature would weigh it.
-    const hpFrac = me.hp / Math.max(1, me.maxHp);
-    const fallen = board.fallenAllies ?? [];
-    const leader = fallen.find((a) => (a.level ?? 0) >= (me.level ?? 0) + 2 || /\b(?:captain|chief(?:tain)?|leader|boss|sergeant|lieutenant|commander|warlord|warchief|matriarch|patriarch|alpha|queen|king)\b/i.test(a.name ?? ""));
-    const morale = hpFrac < 0.25 ? null
-        : leader && (me.wis ?? 0) <= 2 && hpFrac < 0.75 ? `${nameOf(leader)} is down`
-        : fallen.length >= 1 && fallen.length >= (board.allies?.length ?? 0) + 1 && hpFrac < 0.5 ? `half its side is down`
-        : (board.recentDamage ?? 0) >= 0.4 * me.maxHp && hpFrac < 0.5 ? `took ${board.recentDamage} damage since its last turn` : null;
-    if (top && !me.pc && !intent && !me.mindless && !fearless && !pinned && me.hp > 0 && (hpFrac < 0.25 || morale) && targets.length && !(plans[0].why ?? []).includes("could drop")) {
-        // A boss (two or more levels over the party's best) or a creature fighting alone (no allies, up or down) is
-        // offered the choice second, not first: its flight ends the fight, and that's the GM's story call
-        const partyLevel = Math.max(0, ...targets.map((t) => t.level ?? 0));
-        const boss = (me.level ?? 0) >= partyLevel + 2;
-        const solo = !(board.allies?.length) && !fallen.length;
-        const fp = fleePlan(morale ? `Break off (${morale})` : `Break off (badly hurt, ${me.hp} of ${me.maxHp} HP)`, boss || solo ? plans[0].score - 0.5 : plans[0].score + (morale ? 1 : 2));
-        if (fp?.dest) {
-            fp.notes.push(morale ? "A blow to its morale: many creatures break off here (the GM's call; its tactics may say otherwise)"
-                : "No trigger says what it does when hurt: thinking creatures and animals usually break off now");
-            if (boss || solo) { fp.notes.push(boss ? "A creature this far above them rarely runs: your call" : "The last one standing: if it runs, the fight is over"); plans.splice(1, 0, fp); }
-            else plans.unshift(fp);
-        }
-    }
-    for (const plan of plans) {
-        if (selfNotes.length) plan.notes.push(...selfNotes);
-        const item = plan.spell?.consumable;
-        if (item === "scroll" || item === "wand") {
-            plan.notes.push(`${plan.spell.drawn ? `Draws the ${item} first (an Interact, counted in its actions); ` : ""}${item === "scroll" ? "the scroll is used up" : "it spends the wand's use for the day"}`);
-        }
-        if (plan.dest) {
-            const viaRamp = plan.dest.z !== undefined ? squares.find((q) => q.x === plan.dest.x && q.y === plan.dest.y && q.z === plan.dest.z && q.route?.waypoints) : null;
-            plan.path = viaRamp ? [...pathTo(board, viaRamp.route.waypoints[0]), ...[viaRamp.route.waypoints[1], plan.dest].map((q) => ({ x: q.x, y: q.y, w: me.rect.w }))] : pathTo(board, plan.dest);
-            // What the way crosses: a door to open, uneven ground, an incline, hazardous terrain
-            const crossed = [];
-            const cells = pathCells(board, plan.dest);
-            for (let i = 1; i < cells.length; i++) {
-                if (board.doorBetween?.(cells[i - 1].x, cells[i - 1].y, cells[i].x, cells[i].y) && !crossed.includes("door")) crossed.push("door");
-            }
-            const ground = new Set();
-            for (const c of cells.slice(1)) for (const n of board.terrainNoteAt?.(c.x, c.y) ?? []) ground.add(n);
-            if (crossed.includes("door") && !plan.steps.some((st) => /\bdoor/.test(st.text))) plan.notes.unshift("Opens a door on the way (Interact, 1 action, counted)");
-            if (ground.size) plan.notes.push(`The way crosses ${[...ground].join(", ")}`);
-        }
-    }
-    // Holding back or breaking off in the air still needs a Fly
-    if (me.airborne && !noFollow) for (const plan of plans) if ((plan.kind === "hold" || plan.kind === "run") && !plan.steps.some((st) => /\bFly\b/.test(st.text ?? ""))) plan.notes.push("Up in the air: one of its actions has to be a Fly, or it falls");
-    plans.sort((a, b) => b.score - a.score);
-    // The same turn reached two ways (two spellcasting entries, say): keep the first
-    const unique = [];
-    const kept = new Set();
-    for (const plan of plans) { const k = `${plan.title}|${plan.steps.map((x) => x.text).join("|")}`; if (!kept.has(k)) { kept.add(k); unique.push(plan); } }
-    plans.length = 0;
-    plans.push(...unique);
-    return plans;
 }
+
 
 /** Areas the grid code knows: a cylinder is a burst seen from above; a cube or square, a burst of half its side. */
 function normalArea(area) {
@@ -1785,18 +1871,18 @@ function normalArea(area) {
 function bestArea(board, squares, rectAt, a) {
     a = { ...a, area: normalArea(a.area) };
     let best = null;
-    const tries = squares.filter((sq) => sq.route.actions + a.cost <= ACT && sq.route.actions <= 1);
+    const tries = squares.filter((sq) => sq.route.actions + a.cost <= P.act && sq.route.actions <= 1);
     // What the actions left after it are worth from that square (a Strike on whoever's in reach), and on whom
     const leftover = (sq, at) => {
-        const left = ACT - sq.route.actions - a.cost;
+        const left = P.act - sq.route.actions - a.cost;
         let out = { ev: 0, target: null };
         if (left <= 0) return out;
         for (const t of board.enemies.filter((e) => e.hp > 0 && !e.conditions?.has?.("dying"))) {
             const tmp = { ev: 0, steps: [], notes: [] };
             fillLast(board, tmp, at, left, t, 0);
             // Leave out "Step out of reach": it would pull the aim toward squares in enemy reach
-            // HIT_RUN is only set for thinking fliers; an airborne animal still gets a flyAway step, with no penalty data
-            const ev = tmp.ev - tmp.steps.reduce((sum, x) => sum + (x.value ?? 0), 0) - (tmp.leaveRisk ?? 0) + (tmp.flyAway && HIT_RUN ? HIT_RUN.penalty(at) : 0);
+            // P.hitRun is only set for thinking fliers; an airborne animal still gets a flyAway step, with no penalty data
+            const ev = tmp.ev - tmp.steps.reduce((sum, x) => sum + (x.value ?? 0), 0) - (tmp.leaveRisk ?? 0) + (tmp.flyAway && P.hitRun ? P.hitRun.penalty(at) : 0);
             if (ev > out.ev) out = { ev, target: t, flyAway: !!tmp.flyAway };
         }
         return out;
@@ -1884,7 +1970,7 @@ function bestArea(board, squares, rectAt, a) {
     if (best.sq.route.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, best.sq.route.provokes).join(", ")}`);
     if (best.casting.length) plan.notes.push(`Using it in reach of ${best.casting.map(nameOf).join(", ")} provokes (manipulate)`);
     plan.risk = provokeCost(board, [...best.sq.route.provokes, ...best.casting.map((e) => e.id)]);
-    fillLast(board, plan, best.at, ACT - best.sq.route.actions - a.cost, best.after?.target ?? best.hits.enemies[0], 0);
+    fillLast(board, plan, best.at, P.act - best.sq.route.actions - a.cost, best.after?.target ?? best.hits.enemies[0], 0);
     return plan;
 }
 
@@ -1913,4 +1999,4 @@ function thirdActionAlternatives(board, target, at) {
     return out;
 }
 
-export { CONDITION_VALUE, NOTICE, RUN_WORDS, TIER_TEXT, acAgainst, actorTier, areaHits, bestArea, dropChance, exposure, fillLast, flankingAlly, heightRoute, isOffGuard, nameOf, pathTo, pickHeightWay, planTurn, provokeCost, reachableSquares, routeTo, seenFactor, strikeRun, targetBonus, thirdActionAlternatives, threatPull, threatShare, tierOf };
+export { CONDITION_VALUE, NOTICE, RUN_WORDS, TIER_TEXT, acAgainst, actorTier, areaHits, bestArea, dropChance, exposure, fillLast, flankingAlly, heightRoute, isOffGuard, nameOf, pathTo, pickHeightWay, planTurn, provokeCost, reachableSquares, routeTo, seenFactor, targetBonus, thirdActionAlternatives, threatPull, threatShare, tierOf };

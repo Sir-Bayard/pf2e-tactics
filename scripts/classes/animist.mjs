@@ -10,9 +10,9 @@
  * the advisor doesn't plan them a second time.
  */
 import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, squareToReach, strikeRun, targets, worth, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, signed, moveText, myReach, reachableSquares } from "./_common.mjs";
+import { hitWorth } from "../values.mjs";
 
 const itemsOf = (actor) => actor?.items?.contents ?? (Array.isArray(actor?.items) ? actor.items : []);
-const hitWorth = (lv) => Math.max(4, 6 + 1.6 * lv);
 const hurt = (c) => Math.max(0, (c?.maxHp ?? 0) - (c?.hp ?? 0));
 const list = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "");
 

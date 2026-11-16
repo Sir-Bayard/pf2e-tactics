@@ -12,6 +12,7 @@
  */
 import { bestStrike, castable, effect, focusLeft, has, hasAny, level, pct, slugOf, spendsSlot, targets, usesLeft, worth, degreeChances, feetBetween, inReach, mapFor, strikeExpected, saveExpected, nameOf, reachableSquares, signed, ordinal, lc } from "./_common.mjs";
 import { cap } from "../shared.mjs";
+import { hitWorth } from "../values.mjs";
 
 const isHex = (sp) => !!sp.traits?.includes("hex");
 const isFocus = (sp) => !!sp.traits?.includes("focus");
@@ -269,7 +270,7 @@ function witch(board, ctx, out) {
     if (up && !(up.value > 0)) {
         const sp = allHexes.find((x) => lc(x.name) === lc(up.name));
         const c = sp ? castOf(board, sp, env) : null;
-        up.value = c ? 0.6 * c.ev : 0.3 * (6 + 1.6 * lv);
+        up.value = c ? 0.6 * c.ev : 0.3 * hitWorth(lv);
     }
     const sustainFree = up && effortless;
 

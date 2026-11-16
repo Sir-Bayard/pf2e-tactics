@@ -7,10 +7,9 @@
  * functions where possible, so they run outside Foundry for testing. One module, several files: see pf2e-tactics.mjs
  * for the whole.
  */
-import { CONDITION_VALUE } from "./advisor.mjs";
+import { CONDITION_VALUE, hitWorth } from "./values.mjs";
 import { FLAG_SCOPE, MODULE_ID, baseActorOf, cap, esc, flagOf } from "./shared.mjs";
-import { hitWorth, threatFor } from "./state.mjs";
-import { notesOf, rechargeLeft, tacticsOf } from "./card.mjs";
+import { notesOf, rechargeLeft, tacticsOf, threatFor } from "./board-data.mjs";
 
 // Reading abilities. Pure functions over plain data, so they run outside Foundry for testing.
 // An ability is { name, kind, cost, category, traits, html, rules, selfName } and comes back as a
@@ -937,16 +936,9 @@ function profilesOf(actor) {
 }
 
 function speedsOf(actor) {
-    // system.movement.speeds.<type>.value on PF2e 8; system.attributes.speed (+ otherSpeeds) on older data
+    // system.movement.speeds.<type>.value (PF2e 8, the module's minimum)
     const out = { land: 0 };
-    const speeds = actor?.system?.movement?.speeds;
-    if (speeds) {
-        for (const [type, sp] of Object.entries(speeds)) if (sp && type !== "travel") out[type] = Number(sp.value ?? sp.total) || 0;
-        return out;
-    }
-    const sp = actor?.system?.attributes?.speed ?? {};
-    out.land = Number(sp.total ?? sp.value) || 0;
-    for (const o of sp.otherSpeeds ?? []) out[o.type] = Number(o.total ?? o.value) || 0;
+    for (const [type, sp] of Object.entries(actor?.system?.movement?.speeds ?? {})) if (sp && type !== "travel") out[type] = Number(sp.value ?? sp.total) || 0;
     return out;
 }
 
@@ -1191,7 +1183,7 @@ function lightReader(scene, size) {
         if (cache.has(k)) return cache.get(k);
         const pt = { x: (rect.x + rect.w / 2) * size, y: (rect.y + rect.h / 2) * size };
         let level = base;
-        try { if (canvas.effects?.testInsideDarkness?.(pt)) level = "magical"; } catch { /* older cores */ }
+        if (canvas.effects?.testInsideDarkness?.(pt)) level = "magical";
         if (level !== "bright" && level !== "magical") {
             for (const ls of sources) {
                 const d = ls.data ?? {};
@@ -1895,4 +1887,23 @@ function rampsOf(scene, field, size, me) {
     return out;
 }
 
-export { HP_AT_TURN, staffSpellsOf, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };
+/** Spell slots by rank: { rank: { left, max } }. A prepared caster counts the spells prepared and not yet cast; a
+ *  spontaneous or flexible caster counts the slots' uses left. Focus, ritual and innate entries have no slots here. */
+function slotsByRank(actor) {
+    const out = {};
+    for (const e of actor?.spellcasting?.regular ?? []) {
+        if (e.isFocusPool || e.isRitual || e.isInnate || e.system?.prepared?.value === "innate") continue;
+        const slots = e.system?.slots ?? {};
+        for (const [key, slot] of Object.entries(slots)) {
+            const rank = Number(key.replace("slot", ""));
+            if (!rank || !(slot?.max > 0)) continue;
+            const prepared = Array.isArray(slot.prepared) ? slot.prepared : Object.values(slot.prepared ?? {});
+            const left = e.isPrepared && !e.isFlexible ? prepared.filter((p) => p?.id && !p.expended).length : Math.max(0, Number(slot.value) || 0);
+            const cur = out[rank] ?? (out[rank] = { left: 0, max: 0 });
+            cur.left += left; cur.max += slot.max;
+        }
+    }
+    return out;
+}
+
+export { slotsByRank, HP_AT_TURN, staffSpellsOf, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };

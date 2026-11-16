@@ -42,10 +42,6 @@ function tierAt(form, rank) {
  * Summon spell rank to the level of creature it brings, then that level's high attack bonus and moderate Strike
  * damage (Monster Core).
  */
-const SUMMON_LEVEL = { 1: -1, 2: 1, 3: 2, 4: 3, 5: 5, 6: 7, 7: 9, 8: 11, 9: 13, 10: 15 };
-const CREATURE_ATK = { "-1": 8, 0: 8, 1: 9, 2: 11, 3: 12, 4: 14, 5: 15, 6: 17, 7: 18, 8: 20, 9: 21, 10: 23, 11: 24, 12: 26, 13: 27, 14: 29, 15: 30 };
-const CREATURE_AVG = { "-1": 3.5, 0: 4.5, 1: 5.5, 2: 8.5, 3: 10.5, 4: 12, 5: 14, 6: 16, 7: 18, 8: 20, 9: 22, 10: 24, 11: 26, 12: 26.5, 13: 28.5, 14: 30.5, 15: 32.5 };
-const summonStats = (rank) => { const L = SUMMON_LEVEL[Math.min(10, Math.max(1, rank))]; return { level: L, atk: CREATURE_ATK[L] ?? L + 10, avg: CREATURE_AVG[L] ?? 4 + L * 1.5 }; };
 /** A battle form or morph the character is already under (PF2e's spell effects). */
 const formEffect = (actor) => effect(actor, /(pest|animal|insect|dinosaur|aerial|elemental|plant|dragon|monstrosity|ooze|fey|daemon|demon|devil|angel|cosmic)-form|nature-incarnate|untamed-form/);
 /** The character's own unarmed attack modifier: an unarmed Strike's bonus, else the best melee bonus. */
@@ -71,19 +67,6 @@ function bestCast(board, f, { cantripOnly = false } = {}) {
     }
     return best;
 }
-/** Two Strikes by a creature with one attack (bonus, avg) at f: the second at -5. */
-const twoStrikes = (bonus, avg, f, acAdj = 0) => strikeExpected(bonus, f.ac + acAdj, avg).expected + strikeExpected(bonus - 5, f.ac + acAdj, avg).expected;
-/** A free square next to f for a Medium creature, when the board says who stands where (true when it can't say). */
-function squareBeside(board, f) {
-    if (!board.occupant) return true;
-    for (let dx = -1; dx <= f.rect.w; dx++) for (let dy = -1; dy <= f.rect.h; dy++) {
-        if (dx >= 0 && dx < f.rect.w && dy >= 0 && dy < f.rect.h) continue;
-        const k = `${f.rect.x + dx},${f.rect.y + dy}`;
-        if (!board.occupant.has(k)) return true;
-    }
-    return false;
-}
-
 function druid(board, ctx, out) {
     const actor = board.me.actor;
     const me = board.me;
