@@ -398,6 +398,13 @@ function profileAbility(item, { selfName = "", lookup = {} } = {}) {
     // "As Attack of Opportunity" and the like: the standard trigger
     if (p.trigger && (linkNames.has("reactive strike") || linkNames.has("attack of opportunity") || /^(reactive strike|attack of opportunity)$/i.test(item.name)
         || desc.links.some((l) => /^(Attack of Opportunity|Reactive Strike)$/i.test(l.name)))) Object.assign(p.trigger, { onMove: true, onManipulate: true, onRanged: true });
+    // Trample (T1): the header names the size and the Strike ("Medium or smaller, foot, ...") and the glossary says the
+    // rest: up to twice its Speed, through the spaces of creatures that size or smaller, each taking the Strike's damage
+    // with a basic Reflex save
+    if (/^trample$/i.test(item.name) || /Glossary\.Trample\b/.test(item.html ?? "")) {
+        const head = /^\s*(tiny|small|medium|large|huge|gargantuan) or smaller,\s*([^,]+?)\s*,/i.exec(text);
+        if (head) p.trample = { size: SIZE_RANK[head[1].toLowerCase()], strike: head[2].trim().toLowerCase() };
+    }
     p.role = roleOf(p);
     return p;
 }
@@ -405,6 +412,7 @@ function profileAbility(item, { selfName = "", lookup = {} } = {}) {
 function roleOf(p) {
     if (p.kind === "reaction") return "reaction";
     if (p.kind === "passive") return p.aura ? "aura" : p.movementPassive ? "movement-rule" : "passive";
+    if (p.trample) return "trample";
     const moving = p.moves.some((m) => m.verb !== "teleport" || m.feet || m.speedMult);
     if (p.strikes && moving) return "move-strike";
     if (p.strikes && (p.strikes.count > 1 || p.strikes.each)) return "multi-strike";
@@ -534,18 +542,30 @@ function saveExpected(saveMod, dc, avg, { basic = true, shift = 0, delta = 0, im
  */
 const PHYSICAL = new Set(["bludgeoning", "piercing", "slashing", "bleed"]);
 const ENERGY = new Set(["acid", "cold", "electricity", "fire", "sonic", "vitality", "void", "force", "spirit"]);
-function damageAgainst(iwr, types = []) {
-    if (!iwr || !types.length) return { delta: 0, immune: false };
+function damageAgainst(iwr, types = [], partials = null) {
+    if (!iwr || !types.length) return { delta: 0, immune: false, cut: 0 };
     const fits = (t, k) => k === t || k === "all-damage" || (k === "physical" && PHYSICAL.has(t)) || (k === "energy" && ENERGY.has(t))
         || (k === "non-magical" && PHYSICAL.has(t));
     const immune = types.every((t) => (iwr.immune ?? []).some((k) => fits(t, k)));
+    // Partly immune (T1): the parts of its damage the target is immune to come off the average (cut, before a critical
+    // doubles it); a precision part comes off against a creature immune to precision
+    const cut = immune || !partials ? 0 : partials.filter((x) => (iwr.immune ?? []).some((k) => fits(x.type, k) || (x.precision && k === "precision"))).reduce((t, x) => t + (x.avg || 0), 0);
     let delta = 0;
     for (const t of new Set(types)) {
         const w = Math.max(0, ...(iwr.weak ?? []).filter((x) => fits(t, x.type)).map((x) => Number(x.value) || 0));
         const r = Math.max(0, ...(iwr.resist ?? []).filter((x) => fits(t, x.type) && !(x.exceptions ?? []).some((e) => types.includes(e))).map((x) => Number(x.value) || 0));
         delta += w - r;
     }
-    return { delta, immune };
+    return { delta, immune, cut };
+}
+
+/** A spell's damage split by type, each part's share of avg (heightening scales every part alike): [{ type, avg, precision }]. */
+function partialsOf(entries, avg) {
+    const list = Object.values(entries ?? {});
+    const base = list.map((d) => averageOf(d.formula ?? d.damage ?? ""));
+    const total = base.reduce((t, x) => t + x, 0);
+    if (list.length < 2 || !(total > 0)) return null;
+    return list.map((d, i) => ({ type: d.type ?? d.damageType ?? null, avg: (avg * base[i]) / total, precision: d.category === "precision" }));
 }
 
 /**
@@ -987,6 +1007,7 @@ function strikesOf(actor) {
             avg, deadly: critExtra(traits, rolls[0]?.damage ?? (item.system?.damage ? `${item.system.damage.dice}${item.system.damage.die}` : "")), traits,
             volley: Number(traits.find((t) => /^volley-\d+/.test(t))?.split("-")[1] ?? 0),
             damageTypes: rolls.map((d) => d.damageType).filter(Boolean).concat(rolls.length ? [] : [item.system?.damage?.damageType].filter(Boolean)),
+            partials: rolls.length > 1 ? rolls.map((d) => ({ type: d.damageType ?? null, avg: averageOf(d.damage), precision: d.category === "precision" })) : null,
             agile: traits.includes("agile"),
             ranged, reload, thrown,
             ...(bomb ? { bomb: true, quantity: Math.max(0, Number(item.system?.quantity ?? 1)), held: item.system?.equipped?.carryType === "held" } : {}),
@@ -1063,6 +1084,7 @@ async function spellsOf(actor) {
                     dc, avg, traits,
                     heals: traits.includes("healing"),
                     damageTypes: Object.values(s.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean),
+                    partials: partialsOf(s.system?.damage, avg),
                     incapacitation: traits.includes("incapacitation"),
                     buff: readBuff(s),
                     vitality: traits.includes("vitality"), void: traits.includes("void"),
@@ -1120,7 +1142,7 @@ function staffSpellsOf(actor) {
             consumable: cantrip ? null : "staff", staffCharges: charges, staffMax: Number(st.charges.max) || charges, staffName: staff.name,
             area, range: feetOf(s.system?.range?.value) ?? (area?.shape === "emanation" ? 0 : null),
             save: save ? { stat: save.statistic, basic: !!save.basic } : null, attack: traits.includes("attack") ? attack : null, dc, avg, traits,
-            heals: traits.includes("healing"), damageTypes: Object.values(s.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean),
+            heals: traits.includes("healing"), damageTypes: Object.values(s.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean), partials: partialsOf(s.system?.damage, avg),
             incapacitation: traits.includes("incapacitation"), buff: readBuff(s), vitality: traits.includes("vitality"), void: traits.includes("void"),
             twoAction: /^(heal|harm)$/i.test(s.name) ? { avg: avg + 8 * rank, range: 30 } : null, ...eff, entry: "staff",
         });
@@ -1184,7 +1206,13 @@ function lightReader(scene, size) {
         const k = `${rect.x},${rect.y},${rect.w}`;
         if (cache.has(k)) return cache.get(k);
         const pt = { x: (rect.x + rect.w / 2) * size, y: (rect.y + rect.h / 2) * size };
+        // The darkness at the point (T1): a region that adjusts darkness counts, as PF2e reads the scene's (lit at 0.75
+        // or more is bright, 0.25 or less is dark)
         let level = base;
+        try {
+            const dl = canvas.effects?.getDarknessLevel?.({ ...pt, elevation: rect.z ?? 0 });
+            if (Number.isFinite(dl)) level = 1 - dl >= 0.75 ? "bright" : 1 - dl <= 0.25 ? "dark" : "dim";
+        } catch { /* no reading here: the scene's level */ }
         if (canvas.effects?.testInsideDarkness?.(pt)) level = "magical";
         if (level !== "bright" && level !== "magical") {
             for (const ls of sources) {
@@ -1412,7 +1440,7 @@ function itemSpellsOf(actor) {
                 temporary: !!(it.system?.temporary || it.flags?.["pf2e-dailies"]?.temporary),
                 area, range: feetOf(sp.system?.range?.value) ?? (area?.shape === "emanation" ? 0 : null),
                 save: save ? { stat: save.statistic, basic: !!save.basic } : null, attack: t.includes("attack") ? attack : null, dc, avg, traits: t,
-                heals: t.includes("healing"), damageTypes: Object.values(sp.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean),
+                heals: t.includes("healing"), damageTypes: Object.values(sp.system?.damage ?? {}).map((d) => d.type ?? d.damageType).filter(Boolean), partials: partialsOf(sp.system?.damage, avg),
                 incapacitation: t.includes("incapacitation"), buff: readBuff(sp), vitality: t.includes("vitality"), void: t.includes("void"),
                 twoAction: /^(heal|harm)$/i.test(sp.name) ? { avg: avg + 8 * rank, range: 30 } : null, ...eff, entry: cat,
             });
@@ -1552,8 +1580,12 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     const actor = token.actor;
     const combatantOf = (t) => combat?.combatants?.find?.((c) => c.tokenId === t.id) ?? null;
     // Every token in the scene, on every level (Foundry 14 only draws the level being viewed)
-    const others = [...(scene.tokens?.contents ?? []).map((d) => d.object ?? tokenStandIn(d)), ...extra]
+    const everyone = [...(scene.tokens?.contents ?? []).map((d) => d.object ?? tokenStandIn(d)), ...extra]
         .filter((t) => t.id !== token.id && t.actor && (!t.document.hidden || t.actor.alliance === actor.alliance));
+    // Creatures only (T1): a hazard, a loot pile or a vehicle is no one's ally or enemy; it only fills its squares
+    const CREATURES = ["npc", "character", "familiar"];
+    const others = everyone.filter((t) => CREATURES.includes(t.actor.type));
+    const props = everyone.filter((t) => !CREATURES.includes(t.actor.type) && !t.document.hidden);
     const alive = others.filter((t) => !isDown(t.actor, combatantOf(t)));
     const enemyTokens = alive.filter((t) => actor.isEnemyOf?.(t.actor) ?? (t.actor.alliance && actor.alliance && t.actor.alliance !== actor.alliance));
     const allyTokens = alive.filter((t) => !enemyTokens.includes(t) && (actor.isAllyOf?.(t.actor) ?? t.actor.alliance === actor.alliance));
@@ -1636,6 +1668,7 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
         tacticsText,
         allies: allyTokens.map((t) => creatureOf(t, size)),
         // Allies down but not dead (dying or unconscious, and not marked defeated): healing brings them back
+        props: props.map((t) => ({ id: t.id, name: t.name, prop: true, sizeRank: SIZE_RANK[t.actor.size] ?? 2, rect: rectOf(t.document, size) })),
         downAllies: others.filter((t) => isDown(t.actor, combatantOf(t)) && !combatantOf(t)?.isDefeated && !t.actor.statuses?.has?.("dead")
             && ((t.actor.hitPoints?.value ?? 1) <= 0 || t.actor.hasCondition?.("dying")) && ["dying", "unconscious"].some((c) => t.actor.hasCondition?.(c) || t.actor.statuses?.has?.(c)) && !(actor.isEnemyOf?.(t.actor) ?? false)
             && (actor.isAllyOf?.(t.actor) ?? t.actor.alliance === actor.alliance)).map((t) => creatureOf(t, size)),
@@ -1713,6 +1746,8 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     // The dying and unconscious still fill their squares: nothing ends its move on top of them
     const downPlaced = (c) => !(typeof unseen === "function" && (board.downEnemies ?? []).includes(c) && unseen(c, board));
     for (const c of [...(board.downAllies ?? []), ...(board.downEnemies ?? [])]) if (downPlaced(c)) for (const k of rectSquares(c.rect)) if (!occupant.has(k)) occupant.set(k, c);
+    // Hazards, loot and vehicles fill their squares (nothing ends a move there) but don't block passage
+    for (const t of board.props ?? []) for (const k of rectSquares(t.rect)) if (!occupant.has(k)) occupant.set(k, t);
     const blockers = new Map(); // dead bodies don't block; living enemies block passage
     for (const c of board.enemies) if (placed(c)) for (const k of rectSquares(c.rect)) blockers.set(k, c);
     const rect = board.sceneRect = {
@@ -1754,14 +1789,21 @@ async function readBoard(token, combat = game.combat, { extra = [], reactionsSee
     const maxFeet = Math.min(move.stride.speed === "fly" ? 240 : 150, 3 * Math.max(move.stride.feet, move.step.feet, 5));
     // Tiny creatures can move into and stop in a bigger creature's space (they have to, to attack with no reach)
     const tiny = me.sizeRank === 0 || me.traits?.includes("swarm"); // swarms share spaces too
+    const wallCache = new Map();
     const common = {
         start: me.rect, maxFeet,
         canEnter: (x, y) => inScene(x, y) && (tiny || footprint(x, y).every((k) => !blockers.has(k))),
         canEnd: (x, y) => footprint(x, y).every((k) => !occupant.has(k) || (tiny && (occupant.get(k).sizeRank ?? 2) > 0)),
+        // One cache for the safe, fast and Step fields alike (T1): each wall test once per board read. Keyed by
+        // direction, since a one-way wall blocks one way only
         blocked: (x1, y1, x2, y2) => {
+            const k = `${x1},${y1},${x2},${y2}`;
+            if (wallCache.has(k)) return wallCache.get(k);
             let hit = false;
             try { hit = !!backend?.testCollision({ ...centerPx(x1, y1), elevation: me.rect.z }, { ...centerPx(x2, y2), elevation: me.rect.z }, { type: "move", mode: "any", ...lvlCfg }); } catch { hit = false; }
-            return hit && !doorBetween(x1, y1, x2, y2);
+            const r = hit && !doorBetween(x1, y1, x2, y2);
+            wallCache.set(k, r);
+            return r;
         },
         // Opening the door on the way costs an action, and ends the Stride it was on: round up to the end of that
         // Stride, add one Stride's worth for the Interact, and the next square starts a new Stride
@@ -1910,4 +1952,4 @@ function slotsByRank(actor) {
     return out;
 }
 
-export { slotsByRank, HP_AT_TURN, staffSpellsOf, visibleAdjustments, LAST_TARGET, RECENT, RIDERS, areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, inReach, isDown, itemSpellsOf, learnK, learnedAcBounds, mapFor, movementField, movementOptions, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, rectInArea, round1, saveExpected, segmentsCrossProperly, speedsOf, spellEffects, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, withVisioner };
+export { areaTest, averageOf, centerOf, coverBetween, damageAgainst, degreeChances, feetBetween, flanks, flatCheck, flatFor, gapSquares, healUse, heightOf, HP_AT_TURN, inReach, isDown, itemSpellsOf, LAST_TARGET, learnedAcBounds, learnK, mapFor, movementField, movementOptions, partialsOf, pct, profileAbility, profileItem, profilesOf, readBoard, readDescription, readMovementPassive, readRecharge, RECENT, rectInArea, RIDERS, round1, saveExpected, segmentsCrossProperly, slotsByRank, speedsOf, spellEffects, staffSpellsOf, strikeExpected, stripTags, sustainOf, tokenStandIn, verticalGap, viciousIn, visibilityOf, visibleAdjustments, withVisioner };

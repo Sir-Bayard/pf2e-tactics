@@ -256,8 +256,8 @@ function pickHeightWay(me, options, climber = false) {
  * A foe whose type isn't known (the Turn Helper's board, until it's identified) counts as living for void, with unsure
  * set so the plan can say so, and vitality is left out against it. life says which rule made it immune.
  */
-function harmAgainst(c, types = []) {
-    const d = damageAgainst(c?.iwr, types);
+function harmAgainst(c, types = [], partials = null) {
+    const d = damageAgainst(c?.iwr, types, partials);
     if (!types.length || d.immune) return d;
     const only = (k) => types.every((t) => t === k);
     const known = c?.traitsKnown !== false;
@@ -391,6 +391,8 @@ function sightNotes(plan, at, t, { ranged = true, attack = true } = {}) {
 /** The best sequence of n Strikes from a list, given the attacks already made this turn. */
 function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at = null } = {}) {
     const extra = vs ? P.extraVs.get(vs.id) ?? 0 : 0;
+    // Sneak Attack and the like are precision damage: none against a creature immune to it (T1)
+    const precisionImmune = (vs?.iwr?.immune ?? []).includes("precision");
     let total = 0, firstHit = null;
     const used = [];
     for (let i = 0; i < n; i++) {
@@ -406,8 +408,8 @@ function strikeSeq(strikes, n, ac, { made = 0, offGuard = false, vs = null, at =
             const surprise = !!ctx?.hidden && !offGuard && (!byAction || (i === 0 && made + P.made === 0)) && !(vs.flankImmune === "deny" && (P.board.me.level ?? 0) <= (vs.level ?? 0));
             // Prone and it moved, so it stood first: the prone -2 already in its Strikes is gone
             const stood = P.board.me.conditions?.has?.("prone") && at && (at.x !== P.board.me.rect.x || at.y !== P.board.me.rect.y) ? 2 : 0;
-            const dmg = vs ? harmAgainst(vs, s.damageTypes ?? []) : damageAgainst(null, []);
-            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg + extra + ((offGuard || surprise) && s.sneaky !== false ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
+            const dmg = vs ? harmAgainst(vs, s.damageTypes ?? [], s.partials) : damageAgainst(null, []);
+            const raw = strikeExpected(bonus + stood, ac + (ctx?.cover ?? 0) - (surprise ? 2 : 0), s.avg - (dmg.cut ?? 0) + extra + ((offGuard || surprise) && s.sneaky !== false && !precisionImmune ? P.sneak : 0), { deadly: s.deadly, delta: dmg.delta, immune: dmg.immune });
             const f = ctx?.flat ?? 1;
             const e = { hit: raw.hit * f, crit: raw.crit * f, expected: raw.expected * f, onHit: raw.onHit, onCrit: raw.onCrit };
             if (!best || e.expected > best.e.expected) best = { s, bonus, e };
@@ -1216,9 +1218,9 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
             if (!best) continue;
             // Incapacitation: a target above twice the spell's rank improves its save (or the caster's roll is worse)
             const incap = sp.incapacitation && (t.level ?? 0) > 2 * (sp.rank ?? 1) ? 1 : 0;
-            const dmg = harmAgainst(t, sp.damageTypes ?? []);
-            const raw = sp.save ? saveExpected(t.saves[sp.save.stat] ?? 0, sp.dc ?? 15, sp.avg, { basic: sp.save.basic, shift: incap, delta: dmg.delta, immune: dmg.immune })
-                : strikeExpected(sp.attack + mapFor(P.made, false), t.ac + best.seen.cover, sp.avg, { shift: -incap, delta: dmg.delta, immune: dmg.immune }); // a spell attack takes the MAP too
+            const dmg = harmAgainst(t, sp.damageTypes ?? [], sp.partials);
+            const raw = sp.save ? saveExpected(t.saves[sp.save.stat] ?? 0, sp.dc ?? 15, sp.avg - (dmg.cut ?? 0), { basic: sp.save.basic, shift: incap, delta: dmg.delta, immune: dmg.immune })
+                : strikeExpected(sp.attack + mapFor(P.made, false), t.ac + best.seen.cover, sp.avg - (dmg.cut ?? 0), { shift: -incap, delta: dmg.delta, immune: dmg.immune }); // a spell attack takes the MAP too
             const e = { expected: raw.expected * best.seen.flat * (sp.odds ?? 1) };
             const plan = { kind: "spell", title: `Cast ${sp.name} on ${nameOf(t)}`, target: t, ev: e.expected, steps: [], notes: [], dest: best.sq.route.actions ? { x: best.sq.x, y: best.sq.y, z: best.sq.z } : null, spell: sp };
             if (incap) plan.notes.push(`Incapacitation: ${nameOf(t)} is above level ${2 * sp.rank}, so one degree better for it`);
@@ -1240,12 +1242,57 @@ function planStrikes({ board, mc, me, melee, plans, ranged, rectAt, spells, squa
     }
 }
 
+/**
+ * Trample (T1): up to twice its Speed in a straight line, through the spaces of foes its size limit or smaller (each takes
+ * the named Strike's damage, basic Reflex), ending in a free square. A larger foe or a wall stops it; it passes allies
+ * but can't end on one. Each of the eight directions is tried at every length it can end at; the best is planned.
+ */
+function planTrample({ board, me, melee, p, plans }) {
+    const strike = board.strikes.find((s) => String(s.label).toLowerCase() === p.trample.strike) ?? melee[0];
+    if (!strike) return;
+    const dc = abilityDc(board, p);
+    const most = 2 * board.move.stride.feet;
+    const { w, h } = me.rect;
+    const sr = board.sceneRect;
+    const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const each = (f) => { const d = harmAgainst(f, strike.damageTypes ?? [], strike.partials); return saveExpected(f.saves?.reflex ?? 0, dc, strike.avg - (d.cut ?? 0), { basic: true, delta: d.delta, immune: d.immune }).expected; };
+    let best = null;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const crossed = [], provokes = new Set();
+        let prev = me.rect;
+        for (let k = 1; ; k++) {
+            const feet = dx && dy ? 5 * k + 5 * Math.floor(k / 2) : 5 * k;
+            if (feet > most) break;
+            const at = { ...me.rect, x: me.rect.x + dx * k, y: me.rect.y + dy * k };
+            if (sr && (at.x < sr.x || at.y < sr.y || at.x + w > sr.x + sr.w || at.y + h > sr.y + sr.h)) break;
+            if (board.lineBlocked?.(centerOf(prev), centerOf(at))) break;
+            const foes = board.enemies.filter((e) => e.rect && e.hp > 0 && overlaps(at, e.rect));
+            if (foes.some((e) => (e.sizeRank ?? 2) > p.trample.size)) break;
+            for (const e of foes) if (!crossed.includes(e)) crossed.push(e);
+            for (const id of board.threatsAt?.(at.x, at.y) ?? []) provokes.add(id);
+            prev = at;
+            const free = !foes.length && !(board.allies ?? []).some((c) => c.rect && overlaps(at, c.rect));
+            if (!free || !crossed.length) continue;
+            const ev = crossed.reduce((t, e) => t + each(e), 0);
+            if (!best || ev > best.ev) best = { ev, at, crossed: [...crossed], provokes: [...provokes].filter((id) => !crossed.some((e) => e.id === id)) };
+        }
+    }
+    if (!best || best.ev <= 0) return;
+    const names = best.crossed.map(nameOf).join(", ");
+    const plan = { kind: "ability", title: `Trample ${names}`, target: best.crossed[0], caught: best.crossed, ev: best.ev, notes: [], dest: { x: best.at.x, y: best.at.y }, ability: p,
+        steps: [{ cost: p.cost, text: `Trample through ${names}: each takes ${strike.label} damage (about ${Math.round(strike.avg)}), basic Reflex DC ${dc}; it ends in a free square beyond` }] };
+    if (best.provokes.length) plan.notes.push(`Provokes ${provokeNames(board, best.provokes).join(", ")}`);
+    plan.risk = provokeCost(board, best.provokes);
+    plans.push(plan);
+}
+
 /** Abilities: move-and-Strike, several Strikes, areas, grabs and their payoffs, setups. */
 function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee, myTier, plans, profiles, recharging, rectAt, squares, targets }) {
     for (const p of profiles) {
         if (p.kind !== "action" || !p.cost || p.cost > P.act || recharging(p)) continue;
         // Press actions are only planned where an opening Strike is worked in (Strike variants, setups); the card still lists the rest
         if (p.afterAttack && p.role !== "setup") continue;
+        if (p.role === "trample" && board.square && !mc.has("prone") && board.move.stride.feet > 0) { planTrample({ board, me, melee, p, plans }); continue; }
         if (p.role === "move-strike" && melee.length && !mc.has("prone")) { // prone: it has to Stand before it can Stride
             const moveFeet = p.moves.reduce((t, m) => t + (m.feet ?? (m.speedMult ?? 1) * (board.move.speeds[m.speed] ?? board.move.speeds.land ?? 0)) * (m.speedMult ? 1 : m.times), 0);
             const nr = p.moves.every((m) => m.noReactions);
@@ -1317,7 +1364,7 @@ function planAbilities({ board, eachRun, endPenalty, manipulateOk, mc, me, melee
             const area = p.area ?? (inSpace ? { shape: "space", size: 0 } : around ? { shape: "emanation", size: /adjacent/i.test(around[0]) ? 5 : Number(/within (\d+) feet/i.exec(around[0])?.[1] ?? Math.max(5, ...melee.map((s) => s.reach))) } : null);
             if (!area) continue;
             const plan = bestArea(board, squares, rectAt, { name: p.name, cost: p.cost, area, terrain: /\bdifficult terrain\b/i.test(p.text) && !/\bignores?\b[^.]{0,40}\bdifficult terrain\b/i.test(p.text), range: rangeFromText(p.text) ?? (area.shape === "burst" ? 30 : 0), save: p.save, dc: abilityDc(board, p), avg, inflicts: p.inflicts, traits: p.traits, endCost: myTier >= 1 || P.hitRun ? endPenalty : null,
-                damageTypes: p.damage.map((d) => d.type).filter(Boolean), incapacitation: p.traits.includes("incapacitation") ? { level: me.level } : null, odds: p.traits.includes("manipulate") ? manipulateOk : 1 });
+                damageTypes: p.damage.map((d) => d.type).filter(Boolean), partials: p.damage.length > 1 ? p.damage.map((d) => ({ type: d.type ?? null, avg: averageOf(d.formula) * (d.persistent ? 2 : 1) })) : null, incapacitation: p.traits.includes("incapacitation") ? { level: me.level } : null, odds: p.traits.includes("manipulate") ? manipulateOk : 1 });
             if (plan) { plan.ability = p; plans.push(plan); }
         }
         if ((p.role === "payoff" || p.role === "multi-strike") && p.requires.grab) {
@@ -1613,7 +1660,7 @@ function planAreaSpells({ board, endPenalty, myTier, plans, rectAt, spells, squa
     for (const sp of spells) {
         if (!sp.area || !sp.cost || sp.cost > P.act || !sp.avg || !sp.save) continue;
         const plan = bestArea(board, squares, rectAt, { name: `Cast ${sp.name}${sp.cantrip ? "" : ` (rank ${sp.rank})`}`, cost: sp.cost, area: sp.area, range: sp.range ?? 0, save: sp.save, dc: sp.dc ?? 15, avg: sp.avg, inflicts: [], traits: sp.traits, endCost: myTier >= 1 || P.hitRun ? endPenalty : null,
-            damageTypes: sp.damageTypes ?? [], incapacitation: sp.incapacitation ? { rank: sp.rank } : null, odds: sp.odds ?? 1 });
+            damageTypes: sp.damageTypes ?? [], partials: sp.partials ?? null, incapacitation: sp.incapacitation ? { rank: sp.rank } : null, odds: sp.odds ?? 1 });
         if (plan) { plan.spell = sp; plans.push(plan); }
     }
 }
@@ -1970,9 +2017,10 @@ function bestArea(board, squares, rectAt, a) {
                 const cover = coverBetween(board, origin, c, { area: true });
                 if (cover < 0) return 0;
                 const shift = a.incapacitation && ((a.incapacitation.rank && (c.level ?? 0) > 2 * a.incapacitation.rank) || (a.incapacitation.level !== undefined && (c.level ?? 0) > a.incapacitation.level)) ? 1 : 0;
-                const dmg = harmAgainst(c, a.damageTypes ?? []);
+                const dmg = harmAgainst(c, a.damageTypes ?? [], a.partials);
                 const save = (c.saves?.[a.save?.stat] ?? 3) + (a.save?.stat === "reflex" ? cover : 0);
-                return a.save ? saveExpected(save, a.dc, a.avg, { basic: a.save.basic !== false, shift, delta: dmg.delta, immune: dmg.immune }).expected : (dmg.immune ? 0 : Math.max(0, a.avg + dmg.delta) * 0.6);
+                const avg = a.avg - (dmg.cut ?? 0);
+                return a.save ? saveExpected(save, a.dc, avg, { basic: a.save.basic !== false, shift, delta: dmg.delta, immune: dmg.immune }).expected : (dmg.immune ? 0 : Math.max(0, avg + dmg.delta) * 0.6);
             };
             const reached = hits.enemies.filter((e) => coverBetween(board, origin, e, { area: true }) >= 0);
             if (reached.length) {
