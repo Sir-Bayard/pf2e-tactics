@@ -108,6 +108,20 @@ function noteIdentify(message, lead = false) {
     return combat.update({ [`flags.${MODULE_ID}.identified.${target}`]: true }).catch((err) => console.warn(`${MODULE_ID} | couldn't mark the foe identified`, err));
 }
 
+/**
+ * A character's turn starts: the client of a player who owns it (or the GM's, when no owner is on) notes which foes are
+ * down now, so "a foe dropped since your last turn" (End It!, Demand Surrender) can be told apart from one down for a
+ * while (record.downAtTurn).
+ */
+function noteTurnStart(combat) {
+    const actor = combat?.combatant?.actor;
+    if (!combat?.started || !actor || actor.type !== "character" || !actor.isOwner) return;
+    const ownerOn = (game.users?.contents ?? []).some((u) => u.active && !u.isGM && actor.testUserPermission?.(u, "OWNER"));
+    if (game.user.isGM && ownerOn) return;
+    const down = combat.combatants.filter((x) => x.actor && !x.actor.hasPlayerOwner && (x.isDefeated || (x.actor.hitPoints?.value ?? 1) <= 0)).map((x) => x.tokenId);
+    return save(actor, (r) => ({ ...r, downAtTurn: down }));
+}
+
 /** The helper's toggle, for a Spellstrike rolled without its card. */
 function setSpellstrike(actor, charged) {
     return save(actor, (r) => ({ ...r, spellstrike: !!charged }));
@@ -126,6 +140,8 @@ function recordForBoard(actor) {
         wandBoosted: r.wandBoosted != null ? round - r.wandBoosted <= 1 : undefined,
         demoralized: new Set(r.demoralized ?? []),
         asked: new Set(r.asked ?? []),
+        // foes already down when this turn began (null until a turn of this fight has been seen)
+        downAtTurn: Array.isArray(r.downAtTurn) ? new Set(r.downAtTurn) : null,
     };
 }
 
@@ -147,4 +163,4 @@ async function clearRecords(combat) {
 }
 Hooks.on("deleteCombat", (combat) => { clearRecords(combat).catch(() => {}); });
 
-export { clearRecords, noteIdentify, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike };
+export { clearRecords, noteIdentify, noteNpc, noteOwn, noteTurnStart, ownRecord, recordForBoard, setSpellstrike };

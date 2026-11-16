@@ -22,7 +22,7 @@ import { bindCard, clearPath, foldOpen, panel, resetTurnFolds, showButton, steps
 import { ledgerFor, ledgerTotals, turnHtml } from "./state.mjs";
 import { classFeatures } from "./classes.mjs";
 import { FOE_GUESS, REVEAL_SPELLS } from "./values.mjs";
-import { noteIdentify, noteNpc, noteOwn, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
+import { noteIdentify, noteNpc, noteOwn, noteTurnStart, ownRecord, recordForBoard, setSpellstrike } from "./record.mjs";
 
 const HELPER_POSITION_KEY = `${MODULE_ID}.helper`;
 
@@ -876,6 +876,7 @@ Hooks.on("updateCombat", (combat, changes) => {
     if (combat !== game.combat) return;
     if ("turn" in changes || "round" in changes) {
         guardTurn(combat);
+        try { noteTurnStart(combat); } catch { /* the record is best effort */ }
         resetTurnFolds();
         if (!game.user.isGM) clearPath(); // last turn's route (the GM's card clears its own)
         refreshHelper(100, { now: true });

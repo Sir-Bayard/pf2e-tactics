@@ -13,7 +13,7 @@ import {
     castable,
     effect,
     focusLeft,
-    has,
+    has as hasFeat,
     hasAny,
     usesLeft,
     half,
@@ -40,8 +40,33 @@ import {
     diceAvg,
     allyStrike
 } from "./_common.mjs";
+import { hitWorth } from "../values.mjs";
 
 const BANNER_FEET = 30;
+/** Tactics and banner feats with the brandish trait: they need the banner in hand, so not while it's planted (PF2e 8.7.0). */
+const BRANDISH = new Set([
+    "banner-twirl",
+    "rallying-banner",
+    "pennant-of-victory",
+    "banners-inspiration",
+    "the-bigger-they-are",
+    "defiant-banner",
+    "standard-bearers-sacrifice",
+    "quickening-banner",
+    "for-talmandor-for-freedom",
+    "buckle-cut-blitz",
+    "protective-screen",
+    "pop-drop-and-lock",
+    "strike-hard",
+    "valkyries-charge",
+    "coordinating-maneuvers",
+    "defensive-retreat",
+    "ready-aim-fire",
+    "cry-havoc",
+    "end-it",
+    "demoralizing-charge",
+    "insta-ballista"
+]);
 const list = (cs) => cs.map(nameOf).join(", ");
 const are = (cs) => (cs.length > 1 ? "are" : "is");
 /** An ally's equipped weapons, from its sheet (allies are party members; the player can see their gear). */
@@ -70,10 +95,20 @@ function commander(board, ctx, out) {
     const lv = level(board);
     const squad = board.allies.filter((a) => a.actor?.hasPlayerOwner || a.type === "character");
     const up = squad.filter((a) => a.canAct !== false && a.hp > 0);
-    const glorious = has(actor, "glorious-banner");
-    // a planted banner's aura is a burst 10 feet larger
+    const glorious = hasFeat(actor, "glorious-banner");
     const planted = !!effect(actor, /plant(ed)?-banner|banner-planted/);
-    const auraFeet = (glorious ? 60 : BANNER_FEET) + (planted ? 10 : 0);
+    // Glorious Banner: 60 feet, or an 80-foot burst planted; the usual banner 30, or 40 planted
+    const auraFeet = glorious ? (planted ? 80 : 60) : BANNER_FEET + (planted ? 10 : 0);
+    // A planted banner isn't in hand: the brandish tactics and banner feats are off until it's taken up again
+    const offWhilePlanted = [];
+    const has = (a, slug) => {
+        if (!hasFeat(a, slug)) return false;
+        if (planted && a === actor && BRANDISH.has(slug)) {
+            if (!offWhilePlanted.includes(slug)) offWhilePlanted.push(slug);
+            return false;
+        }
+        return true;
+    };
     const inAura = (c) => feetBetween(me.rect, c.rect) <= auraFeet;
     const classDc = actor.classDC?.value ?? actor.system?.attributes?.classDC?.value ?? 10 + lv + 4;
     const int = Number(actor.system?.abilities?.int?.mod ?? me.int ?? 3) || 0;
@@ -119,13 +154,12 @@ function commander(board, ctx, out) {
     // My own follow-up with what's left: a Strike at f when in reach, else a Stride toward it, a shield, or cover
     const tail = (f, left, acAdj = 0) => {
         if (left < 1) return { steps: [], ev: 0 };
-        const bs = f && inReach(me.rect, f.rect, myReach(board)) ? bestStrike(board, f, { made: ctx.made, acAdj }) : null;
-        if (bs)
+        // every action left on Strikes when in reach (B12), the penalty climbing
+        const r = f && inReach(me.rect, f.rect, myReach(board)) ? strikeRun(board, f, left, { made: ctx.made, acAdj }) : null;
+        if (r?.used.length)
             return {
-                steps: [
-                    { cost: 1, text: `Strike ${nameOf(f)} with ${bs.s.label} (${signed(bs.bonus)}${acAdj ? ", off-guard" : ""}; hits about ${pct(bs.e.hit)})` }
-                ],
-                ev: bs.e.expected
+                steps: [{ cost: r.used.length, text: `${r.text}${acAdj ? " (off-guard)" : ""}; the first hits about ${pct(r.used[0].e.hit)}` }],
+                ev: r.ev
             };
         return {
             steps: [{ cost: 1, text: me.shield && !me.shieldRaised ? "Raise a Shield" : f ? `Stride toward ${nameOf(f)}, or Take Cover` : "Take Cover" }],
@@ -163,7 +197,7 @@ function commander(board, ctx, out) {
             const near = up.filter((a) => canMove(a) && melee(a) && feetBetween(a.rect, f.rect) <= 10);
             if (!near.length) continue;
             const adjacent = near.filter((a) => adjacentTo(a, f));
-            let ev = near.reduce((sum, a) => sum + 2 * 0.1 * (allyStrike(a, lv).avg), 0);
+            let ev = near.reduce((sum, a) => sum + 2 * 0.1 * allyStrike(a, lv).avg, 0);
             const steps = [
                 {
                     cost: 1,
@@ -190,27 +224,28 @@ function commander(board, ctx, out) {
             });
         }
     }
-    // Coordinating Maneuvers (1): one squadmate in the banner Steps; next to a foe, it Trips as a reaction
+    // Coordinating Maneuvers (1): one squadmate in the banner Steps; next to a foe, it Repositions it as a reaction
+    // (Athletics against Fortitude): worth a little as forced movement (off an ally, into a flank, out of a doorway)
     if (has(actor, "coordinating-maneuvers") && ctx.actions >= 1) {
-        for (const f of foes.filter((f) => !f.conditions?.has?.("prone"))) {
+        for (const f of foes) {
             const can = inSquadAura.filter((a) => canMove(a) && feetBetween(a.rect, f.rect) <= 10 && a.canAct !== false);
             if (!can.length) continue;
             const a = can.sort((x, y) => (y.athletics ?? 0) - (x.athletics ?? 0))[0];
-            const p = tripChance(a, f);
-            const ev = p * worth(board, "prone");
-            const t = tail(f, ctx.actions - 1, p > 0.5 ? -2 : 0);
+            const p = maneuver(a, f);
+            const ev = p * 0.25 * hitWorth(lv);
+            const t = tail(f, ctx.actions - 1);
             plan(
-                `Coordinating Maneuvers: ${nameOf(a)} trips ${nameOf(f)}`,
+                `Coordinating Maneuvers: ${nameOf(a)} repositions ${nameOf(f)}`,
                 f,
-                ev + t.ev * (1 + p * 0.1),
+                ev + t.ev,
                 [
                     {
                         cost: 1,
-                        text: `Coordinating Maneuvers: ${nameOf(a)} ${adjacentTo(a, f) ? "is on" : "Steps to"} ${nameOf(f)} and Trips it (Athletics ${signed(a.athletics ?? lv + 2)}, lands about ${pct(p)}).${drill}`
+                        text: `Coordinating Maneuvers: ${nameOf(a)} ${adjacentTo(a, f) ? "is on" : "Steps to"} ${nameOf(f)} and Repositions it 5 feet (Athletics ${signed(a.athletics ?? lv + 2)} against its Fortitude DC, lands about ${pct(p)}).${drill}`
                     },
                     ...t.steps
                 ],
-                { notes: ["Prone: off-guard, -2 to its attacks, an action to Stand."] }
+                { notes: ["Worth it to pull a foe off a hurt ally, into a flank, or out of a gap the party needs."] }
             );
         }
     }
@@ -274,7 +309,7 @@ function commander(board, ctx, out) {
     if (has(actor, "reload") && ctx.actions >= 1) {
         const who = up.filter((a) => reloaders(a).length);
         if (who.length) {
-            const ev = who.reduce((s, a) => s + 0.5 * (allyStrike(a, lv).avg), 0);
+            const ev = who.reduce((s, a) => s + 0.5 * allyStrike(a, lv).avg, 0);
             const t = tail(foes[0] ?? null, ctx.actions - 1);
             plan(
                 `Reload! for ${list(who)}`,
@@ -381,7 +416,7 @@ function commander(board, ctx, out) {
             for (const a of up.filter((x) => inReach(x.rect, f.rect, x.reach ?? 5))) {
                 const others = up.filter((b) => b !== a && melee(b) && feetBetween(b.rect, f.rect) <= 10);
                 if (!others.length) continue;
-                const b = others.sort((x, y) => (allyStrike(y, lv).avg) - (allyStrike(x, lv).avg))[0];
+                const b = others.sort((x, y) => allyStrike(y, lv).avg - allyStrike(x, lv).avg)[0];
                 const p = maneuver(a, f);
                 const hit = allyHit(b, f);
                 const ev = p * hit.expected;
@@ -447,7 +482,8 @@ function commander(board, ctx, out) {
     // End It! (2, incapacitation): the squad outnumbers the foes and one went down since your last turn; everyone Steps and foes within 10 ft flee
     if (has(actor, "end-it") && ctx.actions >= 2) {
         const outnumber = up.length + 1 > foes.length;
-        const downed = (board.downEnemies ?? []).length > 0;
+        // dropped since your last turn (B13): down now and not when your last turn began (when the record knows)
+        const downed = (board.downEnemies ?? []).some((e) => !me.downAtTurn || !me.downAtTurn.has(e.id));
         if (outnumber && downed) {
             const near = foes.filter((f) => [me, ...inSquadAura].some((a) => feetBetween(a.rect, f.rect) <= 15));
             if (near.length) {
@@ -489,7 +525,7 @@ function commander(board, ctx, out) {
                 plan(`The Bigger They Are: ${nameOf(a)} on ${nameOf(f)}`, f, ev + t.ev, [
                     {
                         cost: 1,
-                        text: `The Bigger They Are: ${nameOf(a)} ${cond === "prone" ? "Trips" : "Shoves or Repositions"} ${nameOf(f)} with ${list(helpers)} assisting as a reaction: +${bonus} and a target up to ${bonus} size${bonus > 1 ? "s" : ""} larger (Athletics ${signed((a.athletics ?? lv + 2) + bonus)}, about ${pct(p)}).${drill}`
+                        text: `The Bigger They Are: ${nameOf(a)} ${cond === "prone" ? "Trips" : "Shoves or Repositions"} ${nameOf(f)} with ${list(helpers)} assisting as a reaction: +${bonus} and a target up to ${bonus + 1} sizes larger (Athletics ${signed((a.athletics ?? lv + 2) + bonus)}, about ${pct(p)}).${drill}`
                     },
                     ...t.steps
                 ]);
@@ -528,7 +564,12 @@ function commander(board, ctx, out) {
     if (ok("ready-aim-fire", "Ready, Aim, Fire!") && ctx.actions >= 2) {
         const archers = inSquadAura.filter((a) => hasRanged(a) || a.caster);
         if (archers.length && foes.length) {
-            for (const f of foes.slice(0, 2)) {
+            // the two foes the archers can do most to
+            const best2 = foes
+                .slice()
+                .sort((x, y) => archers.reduce((t, a) => t + allyHit(a, y).expected, 0) - archers.reduce((t, a) => t + allyHit(a, x).expected, 0))
+                .slice(0, 2);
+            for (const f of best2) {
                 const three = archers.filter((a) => feetBetween(a.rect, f.rect) <= (a.rangedReach || 60)).slice(0, 3);
                 if (!three.length) continue;
                 const ev = three.reduce((s, a) => s + allyHit(a, f).expected, 0);
@@ -547,8 +588,8 @@ function commander(board, ctx, out) {
     if (ok("executioners-volley", "Executioner's Volley") && ctx.actions >= 2) {
         const archers = inSquadAura.filter(hasRanged);
         const mine = board.strikes.filter((s) => s.ranged);
-        if (archers.length + mine.length >= 2 && foes.length) {
-            const f = foes.sort((x, y) => x.hp - y.hp)[0];
+        if (archers.length + (mine.length ? 1 : 0) >= 2 && foes.length) {
+            const f = foes.slice().sort((x, y) => x.hp - y.hp)[0];
             let ev = archers.reduce((s, a) => s + allyHit(a, f).expected, 0);
             const b = mine.length ? bestStrike(board, f, { made: ctx.made, melee: false }) : null;
             if (b) ev += b.e.expected;
@@ -655,11 +696,18 @@ function commander(board, ctx, out) {
                 .sort((x, y) => allyHit(y, f).expected - allyHit(x, f).expected)
                 .slice(0, 3);
             if (!three.length) continue;
-            const hits = three.map((a) => allyHit(a, f));
+            // The death save comes only when the foe is prone (B2): already, or tripped first by one of the three, who then
+            // doesn't Strike
+            const prone = !!f.conditions?.has?.("prone");
+            const tripper = prone || three.length < 2 ? null : three.slice().sort((x, y) => tripChance(y, f) - tripChance(x, f))[0];
+            const pProne = prone ? 1 : tripper ? tripChance(tripper, f) : 0;
+            const strikers = tripper ? three.filter((a) => a !== tripper) : three;
+            const hits = strikers.map((a) => allyHit(a, f, prone || tripper ? -2 : 0));
             const pHitAny = 1 - hits.reduce((p, h) => p * (1 - h.hit), 1);
             const sv = foeSave(f, "fortitude", true);
-            const ev = hits.reduce((s, h) => s + h.expected, 0) + pHitAny * sv.fail * Math.max(0, f.hp - hits.reduce((s, h) => s + h.expected, 0));
-            if (ev < 0.5) continue;
+            const dmg = hits.reduce((s, h) => s + h.expected, 0);
+            const ev = dmg * (tripper ? 0.5 + 0.5 * pProne : 1) + pProne * pHitAny * sv.fail * Math.max(0, f.hp - dmg);
+            if (ev < 0.5 || !pProne) continue;
             const t = tail(f, ctx.actions - 2);
             plan(
                 `Bloody Guillotine on ${nameOf(f)}`,
@@ -668,7 +716,7 @@ function commander(board, ctx, out) {
                 [
                     {
                         cost: 2,
-                        text: `Bloody Guillotine (once a day): ${list(three)} Stride${three.length > 1 ? "" : "s"} half their Speed to ${nameOf(f)} and Strike${three.length > 1 ? "" : "s"} it as ${three.length > 1 ? "reactions" : "a reaction"} (${hits.map((h) => pct(h.hit)).join(", ")}); the first hit makes it save (Fortitude vs ${classDc}) or die: about ${pct(sv.fail)}. Foes who watch it die save or are sickened 1.${drill}`
+                        text: `Bloody Guillotine (once a day): ${list(three)} Stride${three.length > 1 ? "" : "s"} half their Speed to ${nameOf(f)}${tripper ? `; ${nameOf(tripper)} Trips it first (about ${pct(pProne)}), then ${list(strikers)} Strike${strikers.length > 1 ? "" : "s"}` : ` and Strike${three.length > 1 ? "" : "s"} it`} as reactions (${hits.map((h) => pct(h.hit)).join(", ")}); the first hit on it while prone makes it save (Fortitude vs ${classDc}) or die: about ${pct(sv.fail)}${tripper ? " if the Trip lands" : ""}. Foes who watch it die save or are sickened 1.${drill}`
                     },
                     ...t.steps
                 ],
@@ -736,14 +784,19 @@ function commander(board, ctx, out) {
     }
     // Sanguine Revitalization (2, once a day): the squad's edged weapons Stride half and Strike; a damaged foe saves or bleeds 10 persistent
     if (ok("sanguine-revitalization", "Sanguine Revitalization") && ctx.actions >= 2) {
-        for (const f of foes.slice(0, 2)) {
+        // the foe has to be in the banner's aura (B17); the nearest two of those
+        for (const f of foes
+            .filter(inAura)
+            .sort((x, y) => feetBetween(me.rect, x.rect) - feetBetween(me.rect, y.rect))
+            .slice(0, 2)) {
             const cutters = inSquadAura.filter((a) => canMove(a) && melee(a) && canStrideTo(a, f, 0.5));
             if (!cutters.length) continue;
             const hits = cutters.map((a) => allyHit(a, f));
             const expectedHits = hits.reduce((s, h) => s + h.hit, 0);
             const pHitAny = 1 - hits.reduce((p, h) => p * (1 - h.hit), 1);
             const c = degreeChances((f.saves?.fortitude ?? lv + 5) - Math.min(4, Math.round(expectedHits)), classDc);
-            const ev = hits.reduce((s, h) => s + h.expected, 0) + pHitAny * (c.f + c.cf) * 10 * 1.5;
+            const bleedOk = !(f.iwr?.immune ?? []).includes("bleed");
+            const ev = hits.reduce((s, h) => s + h.expected, 0) + (bleedOk ? pHitAny * (c.f + c.cf) * 10 * 1.5 : 0);
             if (ev < 0.5) continue;
             const t = tail(f, ctx.actions - 2);
             plan(
@@ -753,7 +806,7 @@ function commander(board, ctx, out) {
                 [
                     {
                         cost: 2,
-                        text: `Sanguine Revitalization (once a day): ${list(cutters)} with piercing or slashing weapons Stride half their Speed and Strike ${nameOf(f)} as reactions; if it took damage it saves (Fortitude vs ${classDc}, -1 per hit) or bleeds 10 a round.${drill}`
+                        text: `Sanguine Revitalization (once a day): whichever of ${list(cutters)} have piercing or slashing weapons Stride half their Speed and Strike ${nameOf(f)} as reactions; if it took damage it saves (Fortitude vs ${classDc}, -1 per hit) or bleeds 10 a round.${drill}`
                     },
                     ...t.steps
                 ],
@@ -851,7 +904,13 @@ function commander(board, ctx, out) {
                     },
                     ...t.steps
                 ],
-                { bias: 0.3, notes: ["A banner on a weapon takes that weapon out of your hands while it's planted."] }
+                {
+                    bias: 0.3,
+                    notes: [
+                        "A banner on a weapon takes that weapon out of your hands while it's planted.",
+                        "While it's planted, tactics and banner feats that brandish the banner are off until you take it up again; the banner's aura stays where you planted it."
+                    ]
+                }
             );
         }
     }
@@ -892,7 +951,7 @@ function commander(board, ctx, out) {
         }
     }
     if (ok("quickening-banner", "Quickening Banner") && ctx.actions >= 1 && inSquadAura.length) {
-        const ev = inSquadAura.reduce((s, a) => s + 0.6 * (allyStrike(a, lv).avg), 0);
+        const ev = inSquadAura.reduce((s, a) => s + 0.6 * allyStrike(a, lv).avg, 0);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan(
             `Quickening Banner for ${list(inSquadAura)}`,
@@ -909,7 +968,7 @@ function commander(board, ctx, out) {
         );
     }
     if (ok("pennant-of-victory", "Pennant of Victory") && ctx.actions >= 1 && inSquadAura.length) {
-        const ev = [me, ...inSquadAura].reduce((s, a) => s + 2 * (0.1 * (allyStrike(a, lv).avg) * 4 + 4 * 0.6), 0) + 40 * 0.3 * (inSquadAura.length + 1);
+        const ev = [me, ...inSquadAura].reduce((s, a) => s + 2 * (0.1 * allyStrike(a, lv).avg * 4 + 4 * 0.6), 0) + 40 * 0.3 * (inSquadAura.length + 1);
         const t = tail(foes[0] ?? null, ctx.actions - 1);
         plan(
             "Pennant of Victory",
@@ -988,11 +1047,12 @@ function commander(board, ctx, out) {
     }
     if (has(actor, "demand-surrender") && ctx.actions >= 2) {
         const outnumber = up.length + 1 > foes.length;
-        const downed = (board.downEnemies ?? []).length > 0;
+        // a foe dropped since your last turn, or one restrained (B13)
+        const downed = (board.downEnemies ?? []).some((e) => !me.downAtTurn || !me.downAtTurn.has(e.id)) || foes.some((f) => f.conditions?.has?.("restrained"));
         if (outnumber && downed && foes.length) {
-            const f = foes.sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
+            const f = foes.slice().sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
             const sv = foeSave(f, "will", true);
-            const ev = (sv.s + sv.fail) * 3 + sv.fail * worth(board, "frightened") + sv.cf * worth(board, "prone", 3);
+            const ev = (sv.s + sv.fail) * 3 + sv.fail * worth(board, "fleeing") + sv.cf * worth(board, "prone", 3);
             const t = tail(f, ctx.actions - 2);
             plan(
                 `Demand Surrender from ${nameOf(f)}`,
@@ -1001,17 +1061,18 @@ function commander(board, ctx, out) {
                 [
                     {
                         cost: 2,
-                        text: `Demand Surrender: ${nameOf(f)} saves (Will vs ${classDc}): on anything but a critical success it can't target you for a round; on a failure it's frightened too; on a critical failure it drops its weapons and lies down for a minute, until someone attacks it.`
+                        text: `Demand Surrender: ${nameOf(f)} saves (Will vs ${classDc}): on anything but a critical success it can't target you for a round; on a failure it also flees for a round; on a critical failure it drops its weapons and lies down for a minute, until someone attacks it.`
                     },
                     ...t.steps
                 ],
                 { notes: ["Incapacitation: a foe above your level treats its save as one degree better."] }
             );
-        } else out.notes.push("Demand Surrender (2 actions) needs the squad to outnumber the foes and one of them dying or dropped since your last turn.");
+        } else
+            out.notes.push("Demand Surrender (2 actions) needs the squad to outnumber the foes and one of them dropped since your last turn, or restrained.");
     }
     if (has(actor, "mercenary-reversal") && ctx.actions >= 2) {
         if (foes.length > up.length + 1) {
-            const f = foes.sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
+            const f = foes.slice().sort((x, y) => (y.level ?? 0) - (x.level ?? 0))[0];
             const sv = foeSave(f, "will", true);
             const ev = sv.s * worth(board, "stunned") + sv.fail * worth(board, "controlled");
             const t = tail(f, ctx.actions - 2);
@@ -1150,6 +1211,10 @@ function commander(board, ctx, out) {
     else if (hasAny(actor, "commanders-companion"))
         out.notes.push("Commander's Companion: your companion is always a squadmate; Command an Animal gives it a reaction for your tactics this turn.");
     if (spentNames.length) out.notes.push(`Spent for now (no uses left on your sheet): ${spentNames.join(", ")}.`);
+    if (planted)
+        out.notes.push(
+            `Your banner is planted: its aura is measured here from you, so if you've moved away from it, count who's inside from the banner.${offWhilePlanted.length ? ` Off while it's planted (they brandish it): ${offWhilePlanted.map((x) => x.replace(/-/g, " ")).join(", ")}.` : ""}`
+        );
     if (drilled && !out.notes.some((n) => /Drilled/.test(n)) && !out.plans.some((p) => /Drilled/.test(p.steps[0]?.text ?? "")))
         out.notes.push(
             `Drilled Reactions: once per round, ${drillN > 1 ? `up to ${drillN} allies` : "one ally"} responding to your tactic get${drillN > 1 ? "" : "s"} a free reaction for it.`

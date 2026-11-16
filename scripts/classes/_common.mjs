@@ -96,13 +96,23 @@ const worth = (board, cond, mult = 1) => (CONDITION_VALUE[cond] ?? 2) * Math.max
  * The best melee (or, with melee: false, ranged) Strike and what it's expected to do against t, with the attacks
  * already made.
  */
+/**
+ * One Strike s at t with this attack bonus, counting what a class read marked on the board: off-guard to this Strike
+ * only (s.offGuardVs: Gang Up for melee, T5), its own extra damage (s.extra, T7), and sneak dice (s.sneak or
+ * board.sneak) when t is off-guard to it, unless t is immune to precision.
+ */
+function strikeOn(board, s, t, bonus, { acAdj = 0, extra = 0 } = {}) {
+    const offAlready = isOffGuard(t);
+    const og = s.offGuardVs?.has?.(t.id) && !t.offGuardWhy && !offAlready ? -2 : 0;
+    const precisionImmune = (t.iwr?.immune ?? []).includes("precision");
+    const sneak = (offAlready || og) && s.sneaky !== false && !precisionImmune ? (s.sneak ?? board.sneak ?? 0) : 0;
+    return strikeExpected(bonus, t.ac + acAdj + og, s.avg + extra + (s.extra ?? 0) + sneak, { deadly: s.deadly });
+}
 function bestStrike(board, t, { made = 0, melee = true, acAdj = 0, extra = 0 } = {}) {
     let best = null;
     for (const s of board.strikes.filter((s) => (melee ? !s.ranged : s.ranged))) {
         const bonus = s.bonus + strikeMap(s, made);
-        // off-guard to this Strike only (s.offGuardVs: Gang Up for melee, T5); its own extra damage (s.extra, T7)
-        const og = s.offGuardVs?.has?.(t.id) && !t.offGuardWhy && !isOffGuard(t) ? -2 : 0;
-        const e = strikeExpected(bonus, t.ac + acAdj + og, s.avg + extra + (s.extra ?? 0), { deadly: s.deadly });
+        const e = strikeOn(board, s, t, bonus, { acAdj, extra });
         if (!best || e.expected > best.e.expected) best = { s, bonus, e };
     }
     return best;
@@ -261,6 +271,7 @@ export {
     slugOf,
     squareToReach,
     strikeRun,
+    strikeOn,
     targets,
     worth,
     degreeChances,

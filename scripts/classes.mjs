@@ -37,8 +37,10 @@ import { necromancer } from "./classes/necromancer.mjs";
 import { runesmith } from "./classes/runesmith.mjs";
 import { exemplar } from "./classes/exemplar.mjs";
 
-/** Every class read: [slug of the class, a feature slug (or several) that also turns it on (archetypes), the read]. */
+/** Every class read, in the order they run: [slug of the class, a feature slug (or several) that also turns it on (archetypes), the read]. */
 const READS = [
+    // first: it marks the board (sneak dice, Gang Up's off-guard foes) that the other reads price their Strikes by
+    ["rogue", ["sneak-attack", "rogue-dedication"], rogue],
     ["cleric", ["divine-font", "cleric-dedication"], cleric],
     ["sorcerer", ["bloodline-spells", "sorcerer-dedication"], sorcerer],
     ["wizard", ["arcane-bond", "wizard-dedication"], wizard],
@@ -63,7 +65,6 @@ const READS = [
     ["barbarian", ["rage", "barbarian-dedication"], barbarian],
     ["ranger", ["hunt-prey", "ranger-dedication"], ranger],
     ["champion", ["champions-reaction", "champion-dedication"], champion],
-    ["rogue", ["sneak-attack", "rogue-dedication"], rogue],
     ["commander", ["tactics", "commander-dedication"], commander],
     ["magus", ["spellstrike", "magus-dedication"], magus],
     ["thaumaturge", ["exploit-vulnerability", "thaumaturge-dedication"], thaumaturge],

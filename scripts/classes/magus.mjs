@@ -33,7 +33,7 @@ import {
     feetBetween,
     inReach,
     mapFor,
-    strikeExpected,
+    strikeOn,
     saveExpected,
     CONDITION_VALUE,
     nameOf,
@@ -199,6 +199,26 @@ function magus(board, ctx, out) {
     const reach = myReach(board);
     const melee = board.strikes.filter((s) => !s.ranged);
     const ranged = board.strikes.filter((s) => s.ranged);
+    // Two different melee weapons, one in each hand (Recharging Flurry, Split Spellstrike): not the Fist or another unarmed
+    // attack, not a weapon held in both hands; the two best by damage
+    const inTwoHands = (s) => {
+        const held = s.item?.system?.equipped?.handsHeld;
+        if (held != null && Number(held) > 0) return Number(held) >= 2;
+        return String(s.hands ?? "") === "2" || /two-hands/.test(String(s.item?.system?.usage?.value ?? ""));
+    };
+    const pair = (() => {
+        const seen = new Set();
+        const list = melee
+            .filter((s) => !s.traits?.includes("unarmed") && !inTwoHands(s))
+            .filter((s) => {
+                const k = s.item?.id ?? s.label;
+                if (seen.has(k)) return false;
+                seen.add(k);
+                return true;
+            })
+            .sort((a, b) => b.avg - a.avg);
+        return list.length >= 2 ? list.slice(0, 2) : null;
+    })();
     // The ranged weapons a Spellstrike can use: any with Starlit Span, a firearm with Volatile Spark
     const spellRanged = starlit ? ranged : spark ? ranged.filter(isFirearm) : [];
     const staff = board.strikes.find((s) => !s.ranged && (/staff/i.test(s.label) || s.traits?.includes("staff")));
@@ -206,7 +226,8 @@ function magus(board, ctx, out) {
     const expansive = has(actor, "expansive-spellstrike");
     const devastating = has(actor, "devastating-spellstrike");
     const devDmg = lv >= 19 ? 5 : lv >= 14 ? 4 : lv >= 9 ? 3 : 2;
-    // Spells a Spellstrike can carry: 1-2 actions, an attack roll or a save, damage; area spells only with Expansive Spellstrike.
+    // Spells a Spellstrike can carry: 1-2 actions, an attack roll or a save, damage. An area spell affects only the Strike's
+    // target (Expansive Spellstrike widens it back to the area: see spellPart).
     // Not the magus's own focus spells (a conflux spell carries its own Strike); another focus spell costs a Focus Point, not a slot.
     const spells = board.spells.filter(
         (sp) =>
@@ -216,7 +237,6 @@ function magus(board, ctx, out) {
             (isAttack(sp) || sp.save?.stat) &&
             sp.avg > 0 &&
             !sp.heals &&
-            (!sp.area || expansive) &&
             !(sp.focus && (sp.traits ?? []).includes("magus"))
     );
     const conflux = [];
@@ -269,7 +289,7 @@ function magus(board, ctx, out) {
                 const bonus = s.bonus + mapFor(made, s.agile);
                 const c = degreeChances(bonus, f.ac);
                 const st = { hit: c.s + c.cs, crit: c.cs, critFail: c.cf };
-                const weapon = strikeExpected(bonus, f.ac, s.avg + (useRanged ? 0 : stanceExtra), { deadly: s.deadly }).expected;
+                const weapon = strikeOn(board, s, f, bonus, { extra: useRanged ? 0 : stanceExtra }).expected;
                 const { e, spill } = spellPart(sp, f, st);
                 const pick = { sp, s, bonus, hit: st.hit, expected: weapon + e, spill, total: weapon + e + spill };
                 if (sp.cantrip) {
@@ -343,13 +363,14 @@ function magus(board, ctx, out) {
         return { ev, text };
     };
     /** What to do with a spare action after a Spellstrike: a conflux spell (recharges), the stance, an analysis, a Strike. */
-    const after = (f, steps, ev, left, { useRanged = false } = {}) => {
+    const after = (f, steps, ev, left, { useRanged = false, made = 0, at = board.me.rect, focusSpent = false } = {}) => {
         const notes = ["Spellstrike needs recharging before the next one: 1 action, or a conflux spell (1 Focus Point, no slot)."];
         if (left < 1) return { ev, notes };
-        if (recharger) {
+        // a conflux spell, unless the Spellstrike's own spell just spent the last Focus Point
+        if (recharger && !(focusSpent && (fp ?? 0) <= 1)) {
             let add = 0.8;
             let text = `${recharger.name} (conflux, 1 action, 1 Focus Point): ${recharger.text}; it recharges your Spellstrike`;
-            const cs = confluxStrikes(f, 2);
+            const cs = confluxStrikes(f, made + 2, at);
             if (cs.text) {
                 add += cs.ev;
                 text += ` (${cs.text})`;
@@ -366,7 +387,7 @@ function magus(board, ctx, out) {
             });
             return { ev: ev + 0.8 * cascade, notes };
         }
-        const b = bestStrike(board, f, { made: 2, melee: !useRanged, extra: useRanged ? 0 : stanceExtra });
+        const b = bestStrike(board, f, { made: made + 2, melee: !useRanged, extra: useRanged ? 0 : stanceExtra });
         const alt = has(actor, "maguss-analysis")
             ? `Magus's Analysis: Recall Knowledge about ${nameOf(f)} (+1 if you hit it) and recharge Spellstrike`
             : has(actor, "running-recharge")
@@ -405,7 +426,7 @@ function magus(board, ctx, out) {
             const o = foes.find((x) => x !== f && feetBetween(f.rect, x.rect) <= 120);
             if (o)
                 notes.push(
-                    `Cascading Ray (1 action, after the Spellstrike lands): a spell attack (${signed(spellAtk)}, no penalty) on ${nameOf(o)} for ${ch.best.sp.cantrip ? "1d4" : "1d8"} per rank.`
+                    `Cascading Ray (1 action, after the Spellstrike lands): a spell attack (${signed(spellAtk)}, no penalty) on ${nameOf(o)} for ${ch.best.sp.cantrip || ch.best.sp.focus ? "1d4" : "1d8"} per rank.`
                 );
         }
         if (has(actor, "killshots-report") && f.hp <= (ch.best?.expected ?? 0) * 1.5)
@@ -444,13 +465,14 @@ function magus(board, ctx, out) {
         // Lunging Spellstrike: a staff reaches 5 feet per rank farther with a slot spell, no move needed
         if (!sq && staff && has(actor, "lunging-spellstrike")) {
             const sb = staff.bonus + mapFor(made, staff.agile);
-            const far = spells.filter((sp) => !sp.cantrip && feetBetween(board.me.rect, f.rect) <= (staff.reach || 5) + 5 * sp.rank);
+            // a slot spell only: not a cantrip, not a focus spell
+            const far = spells.filter((sp) => !sp.cantrip && !sp.focus && feetBetween(board.me.rect, f.rect) <= (staff.reach || 5) + 5 * sp.rank);
             if (far.length) {
                 const slot = far
                     .map((sp) => {
                         const c = degreeChances(sb, f.ac);
                         const st = { hit: c.s + c.cs, crit: c.cs, critFail: c.cf };
-                        const w = strikeExpected(sb, f.ac, staff.avg + stanceExtra, { deadly: staff.deadly }).expected;
+                        const w = strikeOn(board, staff, f, sb, { extra: stanceExtra }).expected;
                         const { e, spill } = spellPart(sp, f, st);
                         return { sp, s: staff, bonus: sb, hit: st.hit, expected: w + e, spill, total: w + e + spill, lunging: true };
                     })
@@ -460,18 +482,19 @@ function magus(board, ctx, out) {
         }
         return options;
     };
-    if (ss && charge !== false && ctx.actions >= 2 && ctx.made === 0 && spells.length) {
+    // Spellstrike takes whatever penalty the turn has reached (ctx.made attacks before it)
+    if (ss && charge !== false && ctx.actions >= 2 && spells.length) {
         for (const f of foes) {
-            for (const o of optionsFor(f, ctx.actions >= 3, 0)) {
+            for (const o of optionsFor(f, ctx.actions >= 3, ctx.made)) {
                 const ch = choose(f, o.cantrip, o.slot);
                 if (!ch) continue;
                 const steps = [];
                 let ev = ch.best.total;
                 if (o.sq?.route.actions) steps.push({ cost: o.sq.route.actions, text: moveText(o.sq, f) });
                 steps.push(spellstrikeStep(f, ch));
-                ev += extras(f, steps);
+                if (!ch.best.lunging) ev += extras(f, steps); // Devastating Spellstrike isn't the Lunging one
                 const left = ctx.actions - 2 - (o.sq?.route.actions ?? 0);
-                const r = after(f, steps, ev, left, { useRanged: o.useRanged });
+                const r = after(f, steps, ev, left, { useRanged: o.useRanged, made: ctx.made, at: o.at, focusSpent: !!ch.best.sp.focus });
                 out.plans.push(
                     slotted(
                         {
@@ -503,12 +526,13 @@ function magus(board, ctx, out) {
                     const a = inR[i],
                         b = inR[j];
                     if (feetBetween(a.rect, b.rect) > 5) continue;
-                    const pa = choose(a, ...Object.values(picks(a)));
+                    const pa = choose(a, ...Object.values(picks(a, { made: ctx.made })));
                     if (!pa) continue;
                     const x = pa.best,
                         multi = multiOf(x);
-                    const wa = strikeExpected(x.bonus, a.ac, x.s.avg + stanceExtra, { deadly: x.s.deadly }).expected;
-                    const wb = strikeExpected(x.bonus, b.ac, x.s.avg + stanceExtra, { deadly: x.s.deadly }).expected;
+                    if (!inReach(board.me.rect, b.rect, x.s.reach || 5)) continue; // the weapon swung has to reach both
+                    const wa = strikeOn(board, x.s, a, x.bonus, { extra: stanceExtra }).expected;
+                    const wb = strikeOn(board, x.s, b, x.bonus, { extra: stanceExtra }).expected;
                     const ev = wa + wb + (x.expected - wa) + (multi ? spellOn(x, b) : 0);
                     out.plans.push(
                         slotted(
@@ -533,20 +557,22 @@ function magus(board, ctx, out) {
                 }
         }
         if (ctx.actions >= 3 && has(actor, "whirlwind-spell") && inR.length >= 2) {
-            const lead = choose(inR[0], ...Object.values(picks(inR[0])));
-            if (lead) {
+            const lead = choose(inR[0], ...Object.values(picks(inR[0], { made: ctx.made })));
+            // the foes the chosen weapon reaches
+            const hitList = lead ? inR.filter((g) => inReach(board.me.rect, g.rect, lead.best.s.reach || 5)) : [];
+            if (lead && hitList.length >= 2) {
                 const x = lead.best,
                     multi = multiOf(x);
                 let ev = 0;
-                for (const g of inR) {
-                    const w = strikeExpected(x.bonus, g.ac, x.s.avg + stanceExtra, { deadly: x.s.deadly }).expected;
+                for (const g of hitList) {
+                    const w = strikeOn(board, x.s, g, x.bonus, { extra: stanceExtra }).expected;
                     ev += w + (multi || g === inR[0] ? spellOn(x, g) : 0);
                 }
                 out.plans.push(
                     slotted(
                         {
                             kind: "class",
-                            title: `Whirlwind Spell on ${inR.length} foes`,
+                            title: `Whirlwind Spell on ${hitList.length} foes`,
                             target: inR[0],
                             ev,
                             score: ev + 0.4,
@@ -554,7 +580,7 @@ function magus(board, ctx, out) {
                             steps: [
                                 {
                                     cost: 3,
-                                    text: `Whirlwind Spell: a Strike at full bonus against ${inR.map((g) => nameOf(g)).join(", ")} carrying ${carry(x)}; the spell ${multi ? "affects every foe you hit" : "affects one of them"}`
+                                    text: `Whirlwind Spell: a Strike at full bonus against ${hitList.map((g) => nameOf(g)).join(", ")} carrying ${carry(x)}; the spell ${multi ? "affects every foe you hit" : "affects one of them"}`
                                 }
                             ],
                             notes: [...(assume ? [assume] : []), "The penalty climbs only after all the Strikes."]
@@ -566,7 +592,7 @@ function magus(board, ctx, out) {
         }
     }
     // --- Recharge first, then Spellstrike: the turn when the Spellstrike is spent (or may be) ---------------------------------
-    if (ss && charge !== true && ctx.actions >= 3 && ctx.made === 0 && spells.length) {
+    if (ss && charge !== true && ctx.actions >= 3 && spells.length) {
         const spentNote =
             charge === false
                 ? "Your Spellstrike is spent, so the recharge comes first."
@@ -577,12 +603,13 @@ function magus(board, ctx, out) {
             const consider = (way, o) => {
                 const ch = choose(f, o.cantrip, o.slot);
                 if (!ch) return;
+                if (way.focus && ch.best.sp.focus && (fp ?? 0) <= 1) return; // one Focus Point can't pay for both
                 const steps = [
                     way.step,
                     ...(o.sq?.route.actions && !way.moves ? [{ cost: o.sq.route.actions, text: moveText(o.sq, f) }] : []),
                     spellstrikeStep(f, ch)
                 ];
-                const ev = way.ev + ch.best.total + extras(f, steps);
+                const ev = way.ev + ch.best.total + (ch.best.lunging ? 0 : extras(f, steps));
                 if (!best || ev > best.ev) best = { ev, steps, ch, o, way };
             };
             const near = inReach(board.me.rect, f.rect, reach);
@@ -596,7 +623,7 @@ function magus(board, ctx, out) {
                       ev: 0.3
                   }
                 : { step: { cost: 1, text: "Recharge your Spellstrike (1 action, concentrate)" }, ev: 0 };
-            for (const o of optionsFor(f, false, 0)) consider(plain, o);
+            for (const o of optionsFor(f, false, ctx.made)) consider(plain, o);
             // Running Recharge: the recharge comes with a Step or a Stride of half your Speed, into reach
             if (!near && has(actor, "running-recharge") && melee.length) {
                 const sq = squareToReach(board, f, reach, 1);
@@ -608,21 +635,22 @@ function magus(board, ctx, out) {
                             ev: 0,
                             moves: true
                         },
-                        { sq, at, useRanged: false, ...picks(f, { at }) }
+                        { sq, at, useRanged: false, ...picks(f, { at, made: ctx.made }) }
                     );
                 }
             }
             // a conflux spell: its own Strike, then the Spellstrike at the next penalty
             if (recharger && (recharger.strike !== "melee" || near) && (recharger.strike !== "ranged" || spellRanged.length || ranged.length)) {
-                const cs = confluxStrikes(f, 0);
-                const madeAfter = recharger.strike ? recharger.strikes : 0;
+                const cs = confluxStrikes(f, ctx.made);
+                const madeAfter = ctx.made + (recharger.strike ? recharger.strikes : 0);
                 const way = {
                     step: {
                         cost: 1,
                         focus: true,
                         text: `${recharger.name} (conflux, 1 action, 1 Focus Point): ${recharger.text}${cs.text ? ` (${cs.text})` : ""}; it recharges your Spellstrike`
                     },
-                    ev: cs.ev
+                    ev: cs.ev,
+                    focus: true
                 }; // the recharge is spent again by the Spellstrike
                 for (const o of optionsFor(f, false, madeAfter)) consider(way, o);
             }
@@ -649,18 +677,40 @@ function magus(board, ctx, out) {
             );
         }
     }
-    // --- Spellstrike already used this turn: recharge it with Strikes, or spend the actions on the stance ------------
-    if (ss && ctx.made >= 1 && ctx.actions >= 2 && has(actor, "recharging-flurry") && melee.length >= 2 && foes.length) {
-        for (const f of foes.filter((x) => inReach(board.me.rect, x.rect, reach))) {
-            const w = melee.slice(0, 2);
+    // --- Spellstrike used (this turn, or spent from before): recharge it with Strikes, or spend the actions on the stance --
+    if (ss && (ctx.made >= 1 || charge !== true) && ctx.actions >= 2 && has(actor, "recharging-flurry") && pair && foes.length) {
+        for (const f of foes.filter((x) => pair.every((s) => inReach(board.me.rect, x.rect, s.reach || 5)))) {
+            const w = pair;
             let made = ctx.made,
                 ev = 0;
             const shown = [];
             for (const s of w) {
                 const b = s.bonus + mapFor(made, s.agile);
-                ev += strikeExpected(b, f.ac, s.avg + stanceExtra, { deadly: s.deadly }).expected;
+                ev += strikeOn(board, s, f, b, { extra: stanceExtra }).expected;
                 shown.push(`${s.label} (${signed(b)})`);
                 made += 1;
+            }
+            const steps = [
+                {
+                    cost: 2,
+                    text: `Recharging Flurry: ${shown.join(" and ")} against ${nameOf(f)}, then your Spellstrike is recharged whether or not they hit`
+                }
+            ];
+            const notes = [];
+            // at the start of a turn with the charge spent: the recharge for next turn, a Strike with the action left
+            if (ctx.made === 0) {
+                notes.push(
+                    charge === false
+                        ? "Your Spellstrike is spent: this recharges it for your next turn."
+                        : "For when your Spellstrike is spent (used and not recharged since): this recharges it for your next turn."
+                );
+                if (ctx.actions >= 3) {
+                    const b = bestStrike(board, f, { made, melee: true, extra: stanceExtra });
+                    if (b) {
+                        steps.push({ cost: 1, text: `Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)})` });
+                        ev += b.e.expected;
+                    }
+                }
             }
             out.plans.push({
                 kind: "class",
@@ -669,13 +719,8 @@ function magus(board, ctx, out) {
                 ev: ev + 1,
                 score: ev + 1.3,
                 dest: null,
-                steps: [
-                    {
-                        cost: 2,
-                        text: `Recharging Flurry: ${shown.join(" and ")} against ${nameOf(f)}, then your Spellstrike is recharged whether or not they hit`
-                    }
-                ],
-                notes: []
+                steps,
+                notes
             });
         }
     }
@@ -707,12 +752,12 @@ function magus(board, ctx, out) {
             `If your Spellstrike isn't charged, ${has(actor, "running-recharge") ? "Running Recharge (1 action) recharges it and moves you" : has(actor, "maguss-analysis") ? "Magus's Analysis (1 action) recharges it and Recalls Knowledge" : "recharging it takes 1 action"}.`
         );
     // --- Spell Crash: a prepared slot as an area blast when foes bunch up ------------------------------------------
-    if (has(actor, "spell-crash") && ctx.actions >= 2) {
-        const slots = spells.filter((sp) => !sp.cantrip);
-        const near = foes.filter((f) => feetBetween(board.me.rect, f.rect) <= 15);
+    if (has(actor, "spell-crash") && ctx.actions >= 2 && charge !== false) {
+        const slots = spells.filter((sp) => !sp.cantrip && !sp.focus);
+        const near = foes.filter((f) => feetBetween(board.me.rect, f.rect) <= 20);
         if (slots.length && near.length >= 2)
             out.notes.push(
-                `Spell Crash (2 actions): spend a prepared slot for a blast (cone, line or burst from you) that hits ${near.map(nameOf).join(", ")}, scaled by the slot's rank with a basic save; a shove weapon pushes, a trip weapon knocks prone. It uses up your Spellstrike charge.`
+                `Spell Crash (2 actions, your Spellstrike charged): spend a prepared slot for a blast from you (a 20-foot emanation, a 30-foot cone or a 60-foot line) that can catch ${near.map(nameOf).join(", ")}, scaled by the slot's rank with a basic save; a shove weapon pushes, a trip weapon knocks prone. It uses up your Spellstrike charge.`
             );
     }
 
@@ -770,7 +815,7 @@ function magus(board, ctx, out) {
         out.notes.push(
             "Sprinting Spellstrike: with a line spell, you Stride in a straight line up to the line's length first, through enemies and without triggering reactions."
         );
-    if (has(actor, "split-spellstrike") && melee.length >= 2)
+    if (has(actor, "split-spellstrike") && pair)
         out.notes.push(
             "Split Spellstrike (2 actions, two weapons, a multi-target or area spell): one Strike with each weapon at two different foes, both carrying the spell."
         );

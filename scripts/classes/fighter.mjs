@@ -28,7 +28,7 @@ import {
     feetBetween,
     inReach,
     mapFor,
-    strikeExpected,
+    strikeOn,
     saveExpected,
     CONDITION_VALUE,
     nameOf,
@@ -42,7 +42,12 @@ import { round1 as r1 } from "../reader.mjs";
 const unarmed = (s) => !!s.traits?.includes("unarmed");
 const weaponsOf = (board) => board.strikes.filter((s) => !s.ranged && !unarmed(s));
 const usageOf = (s) => String(s.hands ?? s.item?.system?.usage?.value ?? "");
-const twoHanded = (s) => usageOf(s) === "2" || /two-hands/.test(usageOf(s));
+/** Held in two hands: how the sheet says it's held (a two-hand weapon in both hands counts), else by its usage. */
+const twoHanded = (s) => {
+    const held = s.hands == null ? s.item?.system?.equipped?.handsHeld : null;
+    if (held != null && Number(held) > 0) return Number(held) >= 2;
+    return usageOf(s) === "2" || /two-hands/.test(usageOf(s));
+};
 const oneHanded = (s) => !twoHanded(s) && !unarmed(s);
 /** The weapon's damage die (its average) and how many: from the item when the board has it, else by level and agility. */
 const dieAvg = (s) => {
@@ -50,8 +55,16 @@ const dieAvg = (s) => {
     return d ? (d + 1) / 2 : s.agile ? 3.5 : 4.5;
 };
 const diceOf = (s, lv) => Number(s.dice ?? s.item?.system?.damage?.dice) || (lv >= 19 ? 4 : lv >= 12 ? 3 : lv >= 4 ? 2 : 1);
-/** The flat part of a Strike's damage: what Certain Strike deals on a miss. */
-const flatOf = (s, lv) => Math.max(0, s.avg - diceOf(s, lv) * dieAvg(s));
+/** The flat part of a Strike's damage, every die left out (rune dice too, when the sheet gives the formula): what Certain Strike deals on a miss. */
+const flatOf = (s, lv) => {
+    const f = String(s.formula ?? "")
+        .replace(/\s+/g, "")
+        .replace(/\[[^\]]*\]/g, "");
+    const dice = [...f.matchAll(/(\d+)d(\d+)/g)].reduce((t, m) => t + (Number(m[1]) * (Number(m[2]) + 1)) / 2, 0);
+    return Math.max(0, s.avg - (dice || diceOf(s, lv) * dieAvg(s)));
+};
+/** How many sizes bigger than the character a foe is (0 for its size or smaller). */
+const sizesBigger = (board, f) => Math.max(0, (f.sizeRank ?? 2) - (board.me.sizeRank ?? 2));
 /** A free hand: at most one one-handed weapon and no shield. The sheet says no more than this. */
 const freeHand = (board) => {
     const w = weaponsOf(board);
@@ -102,7 +115,7 @@ function fighter(board, ctx, out) {
         for (const s of board.strikes.filter((s) => !!s.ranged === ranged && pick(s))) {
             const bonus = s.bonus + (countMap ? mapOf(made, s.agile) : 0) + penalty;
             const x = typeof extra === "function" ? extra(s) : extra;
-            const e = strikeExpected(bonus, f.ac + acAdj, s.avg + x + extraVs(f), { deadly: s.deadly });
+            const e = strikeOn(board, s, f, bonus, { acAdj, extra: x + extraVs(f) });
             if (!b || e.expected > b.e.expected) b = { s, bonus, e };
         }
         return b;
@@ -179,8 +192,8 @@ function fighter(board, ctx, out) {
                     if (x === y) continue;
                     const b1 = x.bonus + mapOf(ctx.made, x.agile),
                         b2 = y.bonus + mapOf(ctx.made, y.agile) - (y.agile ? 0 : 2);
-                    const e1 = strikeExpected(b1, f.ac, x.avg + extraVs(f), { deadly: x.deadly });
-                    const e2 = strikeExpected(b2, f.ac, y.avg + extraVs(f), { deadly: y.deadly });
+                    const e1 = strikeOn(board, x, f, b1, { extra: extraVs(f) });
+                    const e2 = strikeOn(board, y, f, b2, { extra: extraVs(f) });
                     const ev = e1.expected + e2.expected;
                     if (!b || ev > b.ev) b = { x, y, b1, b2, ev };
                 }
@@ -213,7 +226,7 @@ function fighter(board, ctx, out) {
     if ((has(actor, "slam-down") || has(actor, "knockdown")) && melee.length) {
         const crashing = has(actor, "crashing-slam") || has(actor, "improved-knockdown");
         for (const f of foes) {
-            if (f.conditions?.has?.("prone")) continue;
+            if (f.conditions?.has?.("prone") || sizesBigger(board, f) > 1) continue; // the Trip: no more than one size larger
             const a = approach(f, 2);
             if (!a) continue;
             const b = best(f, ctx.made, { pick: (s) => twoHanded(s) || freeHand(board) });
@@ -288,15 +301,25 @@ function fighter(board, ctx, out) {
             for (const g of foes) {
                 if (f === g || done.has(`${g.id}|${f.id}`) || !adjacent(f, g)) continue;
                 done.add(`${f.id}|${g.id}`);
-                const a = approach(f, 2);
+                // a square that reaches both: try the way toward f, then the way toward g
+                let a = null;
+                for (const [x, y] of [
+                    [f, g],
+                    [g, f]
+                ]) {
+                    const c = approach(x, 2);
+                    const at = c?.moveActs ? { ...me.rect, x: c.sq.x, y: c.sq.y } : me.rect;
+                    if (c && inReach(at, y.rect, reach) && inReach(at, x.rect, reach)) {
+                        a = c;
+                        break;
+                    }
+                }
                 if (!a) continue;
-                const at = a.moveActs ? { ...me.rect, x: a.sq.x, y: a.sq.y } : me.rect;
-                if (!inReach(at, g.rect, reach)) continue;
                 let b = null;
                 for (const s of melee) {
                     const bonus = s.bonus + mapOf(ctx.made, s.agile);
-                    const ef = strikeExpected(bonus, f.ac, s.avg + extraVs(f), { deadly: s.deadly }),
-                        eg = strikeExpected(bonus, g.ac, s.avg + extraVs(g), { deadly: s.deadly });
+                    const ef = strikeOn(board, s, f, bonus, { extra: extraVs(f) }),
+                        eg = strikeOn(board, s, g, bonus, { extra: extraVs(g) });
                     const ev = ef.expected + eg.expected;
                     if (!b || ev > b.ev) b = { s, bonus, ev };
                 }
@@ -328,7 +351,7 @@ function fighter(board, ctx, out) {
     }
 
     /* ---- Whirlwind Strike (14; 3 actions): a Strike on every foe in reach, all at the current penalty ---- */
-    if (has(actor, "whirlwind-strike") && melee.length && ctx.actions >= 3) {
+    if (has(actor, "whirlwind-strike") && melee.length && freeActs >= 3) {
         const around = foes.filter((f) => inReach(me.rect, f.rect, reach));
         if (around.length >= 2) {
             let ev = 0;
@@ -378,7 +401,9 @@ function fighter(board, ctx, out) {
     if (has(actor, "lunge") && weapons.length && acts >= 1) {
         for (const f of foes) {
             if (inReach(me.rect, f.rect, reach) || !inReach(me.rect, f.rect, reach + 5)) continue;
-            const r = run(f, freeActs, ctx.made, { pick: (s) => !unarmed(s) }); // Lunge is its own action, not a Strike
+            const far = feetBetween(me.rect, f.rect);
+            // Lunge is its own action, not a Strike; only a weapon whose reach +5 gets there
+            const r = run(f, freeActs, ctx.made, { pick: (s) => !unarmed(s) && (s.reach || 5) + 5 >= far });
             if (!r.used.length) continue;
             push(
                 `Lunge at ${nameOf(f)}`,
@@ -419,7 +444,7 @@ function fighter(board, ctx, out) {
     }
 
     /* ---- Overwhelming Blow (16; 3 actions): a hit is a critical hit; then you're stunned 1 and off-guard ---- */
-    if (has(actor, "overwhelming-blow") && melee.length && ctx.actions >= 3) {
+    if (has(actor, "overwhelming-blow") && melee.length && freeActs >= 3) {
         for (const f of foes) {
             if (!inReach(me.rect, f.rect, reach)) continue;
             const b = best(f, ctx.made);
@@ -436,7 +461,7 @@ function fighter(board, ctx, out) {
                 [
                     {
                         cost: 3,
-                        text: `Overwhelming Blow ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit is a critical hit (a natural one adds deadly d12)`
+                        text: `Overwhelming Blow ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit is a critical hit (a roll that would crit anyway adds deadly d12)`
                     }
                 ],
                 ["Afterwards you're stunned 1 and off-guard until your next turn: for a foe this blow finishes, or when little can reach you."],
@@ -447,7 +472,7 @@ function fighter(board, ctx, out) {
 
     /* ---- Double Shot (4; 2 actions, flourish) and Triple Shot (6): quick shots at -2 (-4 for three), the penalty not climbing ---- */
     const quick = board.strikes.filter((s) => s.ranged && (s.reload ?? 0) === 0);
-    if (has(actor, "double-shot") && quick.length && ctx.actions >= 2) {
+    if (has(actor, "double-shot") && quick.length && freeActs >= 2) {
         const multishot = stance(/multishot-stance/);
         const triple = has(actor, "triple-shot");
         const inRange = foes.filter((f) => quick.some((s) => feetBetween(me.rect, f.rect) <= (s.range ?? 30)));
@@ -471,7 +496,7 @@ function fighter(board, ctx, out) {
                     }
                 ];
                 let ev = b1.e.expected + b2.e.expected;
-                if (ctx.actions >= 3) {
+                if (freeActs >= 3) {
                     const b3 = shot(f, pen3),
                         c2 = shot(f, pen3),
                         c3 = shot(g, pen3);
@@ -527,6 +552,9 @@ function fighter(board, ctx, out) {
             const a = approach(f, 1);
             if (!a) continue;
             const slots = a.left + 1;
+            const at = a.moveActs ? { ...me.rect, x: a.sq.x, y: a.sq.y } : me.rect;
+            const handReach = inReach(at, f.rect, 5); // Snagging Strike and Combat Grab need it within the free hand's reach
+            const big = sizesBigger(board, f) > 0; // the presses' Shove and pull: your size or smaller
             let made = ctx.made,
                 acAdj = 0,
                 ev = 0,
@@ -561,7 +589,7 @@ function fighter(board, ctx, out) {
                 });
                 // press: only once you're at a multiple attack penalty, and not with the Strike-only action
                 const pressOk = made >= 1 && special < freeActs;
-                if (slot === 0 && special < freeActs && has(actor, "snagging-strike") && freeHand(board) && !offGuardTo(f))
+                if (slot === 0 && special < freeActs && has(actor, "snagging-strike") && freeHand(board) && handReach && !offGuardTo(f))
                     opts.push(
                         option("Snagging Strike", 1, {
                             after: (b) => ({ made: made + 1, acAdj: og(b.e.hit) }),
@@ -573,7 +601,7 @@ function fighter(board, ctx, out) {
                 if (pressOk && has(actor, "exacting-strike"))
                     opts.push(
                         option("Exacting Strike", 1, {
-                            bonus: (b) => (last ? 0 : (1 - b.e.hit) * (next(made, acAdj) - next(made + 1, acAdj))),
+                            bonus: (b) => (last ? 0 : degreeChances(b.bonus, f.ac + acAdj).f * (next(made, acAdj) - next(made + 1, acAdj))),
                             text: (b) => `Exacting Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a miss doesn't raise your penalty`
                         })
                     );
@@ -588,13 +616,19 @@ function fighter(board, ctx, out) {
                     opts.push(
                         option("Brutish Shove", 1, {
                             pick: twoHanded,
-                            after: (b) => ({ made: made + 1, acAdj: og(1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
-                            bonus: (b) => b.e.hit * 0.5,
+                            // off-guard on a failure; on a hit only when it's your size or smaller (and then it's Shoved)
+                            after: (b) => {
+                                const c = degreeChances(b.bonus, f.ac + acAdj);
+                                return { made: made + 1, acAdj: og(c.f + (big ? 0 : c.s + c.cs)) };
+                            },
+                            bonus: (b) => (big ? 0 : b.e.hit * 0.5),
                             text: (b) =>
-                                `Brutish Shove ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): hit or miss it's off-guard until your turn ends; a hit also Shoves it${has(actor, "flinging-shove") ? " (Flinging Shove: 5 feet even on a miss)" : ""}`
+                                big
+                                    ? `Brutish Shove ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): it's too big to Shove, but a miss still leaves it off-guard until your turn ends`
+                                    : `Brutish Shove ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): hit or miss it's off-guard until your turn ends; a hit also Shoves it${has(actor, "flinging-shove") ? " (Flinging Shove: 5 feet even on a miss)" : ""}`
                         })
                     );
-                else if (pressOk && has(actor, "dragging-strike"))
+                if (pressOk && has(actor, "dragging-strike") && !big)
                     opts.push(
                         option("Dragging Strike", 1, {
                             after: (b) => ({ made: made + 1, acAdj: og(1 - degreeChances(b.bonus, f.ac + acAdj).cf) }),
@@ -602,7 +636,7 @@ function fighter(board, ctx, out) {
                                 `Dragging Strike ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)}): a hit pulls it 5 feet, a miss leaves it off-guard until your turn ends`
                         })
                     );
-                if (pressOk && has(actor, "combat-grab") && freeHand(board) && !f.conditions?.has?.("grabbed"))
+                if (pressOk && has(actor, "combat-grab") && freeHand(board) && handReach && !f.conditions?.has?.("grabbed"))
                     opts.push(
                         option("Combat Grab", 1, {
                             after: (b) => ({ made: made + 1, acAdj: og(b.e.hit) }),
@@ -639,8 +673,8 @@ function fighter(board, ctx, out) {
                     );
                 if (pressOk && !flourished && has(actor, "two-weapon-flurry") && weapons.length >= 2) {
                     const [x, y] = weapons.slice().sort((p, q) => q.avg - p.avg);
-                    const e1 = strikeExpected(x.bonus + mapOf(made, x.agile), f.ac + acAdj, x.avg + extraVs(f), { deadly: x.deadly }),
-                        e2 = strikeExpected(y.bonus + mapOf(made + 1, y.agile), f.ac + acAdj, y.avg + extraVs(f), { deadly: y.deadly });
+                    const e1 = strikeOn(board, x, f, x.bonus + mapOf(made, x.agile), { acAdj, extra: extraVs(f) }),
+                        e2 = strikeOn(board, y, f, y.bonus + mapOf(made + 1, y.agile), { acAdj, extra: extraVs(f) });
                     opts.push({
                         name: "Two-Weapon Flurry",
                         cost: 1,
@@ -694,22 +728,36 @@ function fighter(board, ctx, out) {
                 }
                 if (has(actor, "two-weapon-flurry") && weapons.length >= 2 && !flourished) {
                     const [x, y] = weapons.slice().sort((p, q) => q.avg - p.avg);
-                    const e1 = strikeExpected(x.bonus + mapOf(made, x.agile), f.ac + acAdj, x.avg, { deadly: x.deadly }),
-                        e2 = strikeExpected(y.bonus + mapOf(made + 1, y.agile), f.ac + acAdj, y.avg, { deadly: y.deadly });
+                    const e1 = strikeOn(board, x, f, x.bonus + mapOf(made, x.agile), { acAdj }),
+                        e2 = strikeOn(board, y, f, y.bonus + mapOf(made + 1, y.agile), { acAdj });
                     fin.push({
                         ev: e1.expected + e2.expected,
                         text: `Desperate Finisher (reaction): Two-Weapon Flurry ${nameOf(f)} (${signed(x.bonus + mapOf(made, x.agile))}, ${signed(y.bonus + mapOf(made + 1, y.agile))})`
                     });
                 }
-                for (const s of ["exacting-strike", "advantageous-assault", "dragging-strike", "brutish-shove"])
-                    if (has(actor, s) && !fin.length) {
-                        const b = best(f, made, { acAdj, pick: s === "brutish-shove" ? twoHanded : undefined });
-                        if (b)
-                            fin.push({
-                                ev: b.e.expected,
-                                text: `Desperate Finisher (reaction): ${b.s.label} ${s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} on ${nameOf(f)} (${signed(b.bonus)})`
-                            });
+                // the other presses, each only where it applies and priced as in the turn above
+                if (!fin.length) {
+                    const held = ["grabbed", "prone", "restrained"].some((c) => f.conditions?.has?.(c));
+                    const assault = (s) => diceOf(s, lv) + (twoHanded(s) ? 2 : 0);
+                    const finish = (name, b, ev) =>
+                        b && fin.push({ ev, text: `Desperate Finisher (reaction): ${name} ${nameOf(f)} with ${b.s.label} (${signed(b.bonus)})` });
+                    if (has(actor, "advantageous-assault") && held) {
+                        const b = best(f, made, { acAdj, extra: assault });
+                        if (b) finish("Advantageous Assault", b, b.e.expected + degreeChances(b.bonus, f.ac + acAdj).f * assault(b.s));
                     }
+                    if (has(actor, "brutish-shove") && weapons.some(twoHanded)) {
+                        const b = best(f, made, { acAdj, pick: twoHanded });
+                        if (b) finish("Brutish Shove", b, b.e.expected + (big ? 0 : b.e.hit * 0.5));
+                    }
+                    for (const [slug, name] of [
+                        ["dragging-strike", "Dragging Strike"],
+                        ["exacting-strike", "Exacting Strike"]
+                    ]) {
+                        if (!has(actor, slug) || (slug === "dragging-strike" && big)) continue;
+                        const b = best(f, made, { acAdj });
+                        if (b) finish(name, b, b.e.expected);
+                    }
+                }
                 const bestFin = fin.sort((p, q) => q.ev - p.ev)[0];
                 if (bestFin) {
                     steps.push({ cost: 0, text: `${bestFin.text}; you give up your reactions until your next turn` });
@@ -723,9 +771,11 @@ function fighter(board, ctx, out) {
             if (agileGrace && board.strikes.some((s) => s.agile && !s.ranged)) notes.push("Agile Grace: your agile penalty is -3/-6, counted here.");
             if (supremacyNote) notes.push(supremacyNote);
             // plain Strikes at your real penalty are the advisor's own plans now (Agile Grace is on the Strikes, T7);
-            // this read keeps the turns it adds: a press, or Weapon Supremacy's extra Strike
-            if (!presses.length && !supremacy) continue;
-            const title = presses.length ? `Strike ${nameOf(f)}, then press` : `Strike ${nameOf(f)} at your real penalty`;
+            // this read keeps the turns it adds: one with a press in it, or any turn under Weapon Supremacy (the
+            // advisor's own plans don't know the fourth action is for a Strike only)
+            const pressed = special > a.moveActs || steps.some((s) => s.cost === 0);
+            if (!pressed && !hasSupremacy) continue;
+            const title = pressed ? `Strike ${nameOf(f)}, then press` : `Strike ${nameOf(f)} at your real penalty`;
             push(title, f, ev, a.sq, steps, notes, 0.25);
         }
     }
@@ -736,10 +786,7 @@ function fighter(board, ctx, out) {
     };
     if (agileGrace) {
         const agile = board.strikes.filter((s) => s.agile);
-        if (agile.length)
-            n(
-                `Agile Grace: -3 and -6 with ${agile.map((s) => s.label).join(", ")} instead of -4 and -8. Every plan counts it.`
-            );
+        if (agile.length) n(`Agile Grace: -3 and -6 with ${agile.map((s) => s.label).join(", ")} instead of -4 and -8. Every plan counts it.`);
     }
     if (hasSupremacy)
         n(
@@ -783,7 +830,7 @@ function fighter(board, ctx, out) {
     if (has(actor, "guardian-s-deflection-fighter") || has(actor, "guardians-deflection"))
         n(
             duel
-                ? "Guardian's Deflection fires when an ally in your reach is hit and +2 AC would have made it a miss: you deflect it with your one-handed weapon."
+                ? "Guardian's Deflection fires when an ally in your reach is hit and +2 AC would turn the hit into a miss, or a critical hit into a hit: you deflect it with your one-handed weapon."
                 : "Guardian's Deflection needs a single one-handed weapon and a free hand to deflect an ally's hit."
         );
     // Shield
